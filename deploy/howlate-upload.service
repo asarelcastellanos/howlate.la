@@ -1,0 +1,19 @@
+[Unit]
+Description=HowLate uploader: ships finished files to Cloud Storage
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=howlate
+WorkingDirectory=/var/lib/howlate
+ExecStart=/opt/howlate/venv/bin/python -u -m howlate.upload
+
+Restart=always
+RestartSec=15
+
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

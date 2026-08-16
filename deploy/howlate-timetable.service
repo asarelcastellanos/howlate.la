@@ -1,0 +1,12 @@
+[Unit]
+Description=HowLate timetable: save Metro's schedule when it changes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# oneshot, not a long-running service: it checks, acts if needed, and exits.
+# The timer below is what runs it on a schedule.
+Type=oneshot
+User=howlate
+WorkingDirectory=/var/lib/howlate
+ExecStart=/opt/howlate/venv/bin/python -u -m howlate.timetable
