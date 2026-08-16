@@ -4,6 +4,8 @@
 
 A personal project that answers one question: *is my bus usually late, and when is it worst?*
 
+![collector status](https://healthchecks.io/b/3/884cea13-3cae-4131-a335-3f7c7a09306d.svg)
+
 ## Goal
 
 LA Metro publishes, continuously, where every vehicle is and where it should be. Nobody keeps the difference (at least publicly).
