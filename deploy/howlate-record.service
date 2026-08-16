@@ -8,6 +8,11 @@ StartLimitIntervalSec=0
 [Service]
 User=howlate
 WorkingDirectory=/var/lib/howlate
+
+# Holds HOWLATE_HEARTBEAT_URL. The dash means "carry on if it is missing", so
+# the recorder still runs on a machine where monitoring was never set up.
+EnvironmentFile=-/etc/howlate/env
+
 ExecStart=/opt/howlate/venv/bin/python -u -m howlate.record
 
 # The recorder reconnects on its own, so a crash here means something

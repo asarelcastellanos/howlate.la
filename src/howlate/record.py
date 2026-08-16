@@ -12,10 +12,12 @@ still being written cannot, which is the whole reason rotation exists.
 """
 
 import asyncio
+import os
 import signal
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
 import websockets
 
 # 20 and 720 run Wilshire Bl, 204 and 754 run Vermont Av.
@@ -26,6 +28,11 @@ FEED = f"wss://api.metro.net/ws/LACMTA/vehicle_positions/{','.join(ROUTES)}"
 
 DATA_DIR = Path("data")
 ROTATE_SECONDS = 5 * 60
+
+# A monitoring service URL, pinged once per finished file. Left unset the
+# recorder works exactly the same, just unwatched. Kept in the environment
+# rather than here because the URL is effectively a secret.
+HEARTBEAT_URL = os.environ.get("HOWLATE_HEARTBEAT_URL", "")
 
 # How long to wait for a message before waking up to look around anyway. Metro
 # sends in bursts with 1 to 4 seconds of silence between them, and stops entirely
@@ -82,22 +89,41 @@ class RotatingFile:
             return False
         return (utc_now() - self._opened_at).total_seconds() >= self.rotate_seconds
 
-    def close(self) -> None:
-        """Finish the current file. Empty ones are removed rather than kept."""
+    def close(self) -> Path | None:
+        """Finish the current file. Returns it, or None if there was nothing."""
         if self._file is None:
-            return
+            return None
         self._file.close()
         self._file = None
 
         if self._lines == 0:
             self._path.unlink(missing_ok=True)
-            return
+            return None
 
         # Dropping the .partial suffix marks the file ready to upload. Renaming
         # is atomic, so the file is never seen in a half-renamed state.
         finished = self._path.with_suffix("")
         self._path.rename(finished)
         print(f"  finished {finished.name} ({self._lines} updates)")
+        return finished
+
+
+async def heartbeat() -> None:
+    """Tell the monitor we are still alive, once per finished file.
+
+    systemd restarts the recorder if it crashes, but nothing notices if the
+    whole machine disappears or the feed goes silent while still connected.
+    This does: a monitoring service emails if the pings stop arriving.
+
+    A failure here must never interfere with collection, so everything is
+    swallowed. Missing a heartbeat is worth an alert, not a lost recording.
+    """
+    if not HEARTBEAT_URL:
+        return
+    try:
+        await asyncio.to_thread(requests.get, HEARTBEAT_URL, timeout=10)
+    except Exception as error:
+        print(f"  heartbeat failed ({type(error).__name__}), continuing anyway")
 
 
 def recover_orphans(directory: Path) -> None:
@@ -162,8 +188,8 @@ async def record() -> None:
                         # No await between close and open, so this cannot be
                         # interrupted partway through. Messages arriving
                         # meanwhile wait in the socket buffer.
-                        if spool.due():
-                            spool.close()
+                        if spool.due() and spool.close():
+                            await heartbeat()
 
                         if message is not None:
                             spool.write(message)
@@ -181,8 +207,8 @@ async def record() -> None:
                 # schedule so collected data does not sit here unuploaded.
                 waited = 0.0
                 while waited < backoff and not stopping.is_set():
-                    if spool.due():
-                        spool.close()
+                    if spool.due() and spool.close():
+                        await heartbeat()
                     await asyncio.sleep(1)
                     waited += 1
 
