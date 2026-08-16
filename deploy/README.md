@@ -32,7 +32,7 @@ This also decouples their failure modes. If Cloud Storage is unreachable, the re
 
 ## Knowing when it breaks
 
-Everything above handles a *process* failing. Nothing in a process can detect its own absence, or notice that it is connected to a feed which has quietly stopped sending. So the recorder pings a monitoring service every time it finishes a file. If those pings stop, an alert goes out.
+Nothing in a process can detect its own absence, or notice that it is connected to a feed which has quietly stopped sending. So the recorder pings a monitoring service every time it finishes a file. If those pings stop, an alert goes out.
 
 The ping fires when a file is finished, not on a timer. A timer would only prove the process is running. Finishing a file proves the whole chain worked: connected, received data, wrote it, closed it.
 
@@ -46,7 +46,7 @@ The one genuine secret, the monitoring URL, lives in a root-owned file outside t
 
 ## Deploying a change
 
-Push to `main`:
+Push to `main`, then pull and restart on the machine:
 
 ```bash
 gcloud compute ssh howlate-collector --zone=us-west1-b --command="
