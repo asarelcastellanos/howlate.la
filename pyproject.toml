@@ -1,0 +1,20 @@
+[project]
+name = "howlate"
+version = "0.1.0"
+description = "Records where LA Metro buses actually are, so their lateness can be measured later"
+# Developed on 3.14, but 3.11 is the floor: that is what Debian ships on the
+# server, and nothing here needs syntax newer than that.
+requires-python = ">=3.11"
+
+dependencies = [
+    "websockets>=13.0",            # listening to Metro's live feed
+    "google-cloud-storage>=2.18",  # uploading finished files to the bucket
+    "requests>=2.32",              # downloading the timetable
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
