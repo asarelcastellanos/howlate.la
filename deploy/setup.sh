@@ -41,8 +41,15 @@ echo "==> Installing services"
 install -m 0644 "$APP_DIR"/repo/deploy/howlate-*.service /etc/systemd/system/
 install -m 0644 "$APP_DIR"/repo/deploy/howlate-*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now howlate-record.service howlate-upload.service
-systemctl enable --now howlate-timetable.timer
+systemctl enable howlate-record.service howlate-upload.service
+systemctl enable howlate-timetable.timer
+
+# restart, not "enable --now": that only starts a service that is stopped, so on
+# a redeploy the old code and old environment would keep running and the update
+# would silently do nothing. Restarting sends SIGTERM, which finishes the open
+# file cleanly before the new version picks it up.
+systemctl restart howlate-record.service howlate-upload.service
+systemctl restart howlate-timetable.timer
 
 echo
 echo "==> Done. Current state:"
