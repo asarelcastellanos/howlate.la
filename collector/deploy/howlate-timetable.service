@@ -1,0 +1,18 @@
+[Unit]
+Description=HowLate timetable: saves Metro's schedules when they change
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=howlate
+WorkingDirectory=/var/lib/howlate
+ExecStart=/opt/howlate/venv/bin/python -u -m howlate_collector.timetable
+
+# No Restart= and no [Install]: this is driven entirely by the timer, and a
+# failed run simply waits for the next one six hours later.
+#
+# Exit 2 means the timetables saved but Metro's lines no longer match the ones
+# record.py subscribes to. That deliberately leaves the unit in a failed state,
+# because it is the only signal that a line is going unrecorded. Fix it by
+# refreshing routes.py and redeploying, not by clearing the failure.

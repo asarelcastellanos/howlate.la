@@ -1,0 +1,17 @@
+[Unit]
+Description=HowLate timetable check, four times a day
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:10:00 UTC
+
+# Metro publishes to a shared host, and every project checking on the hour is
+# unkind to it. Spread the actual run across the following twenty minutes.
+RandomizedDelaySec=1200
+
+# If the machine was off when a run was due, do it on the next boot rather than
+# waiting for the following window. A missed check means a missed schedule
+# revision, and schedules are what the whole archive is measured against.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

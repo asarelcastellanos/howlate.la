@@ -2,48 +2,88 @@
 
 **howlate.la**
 
-A personal project that answers one question: *is my bus usually late, and when is it worst?*
-
-![collector status](https://healthchecks.io/b/3/884cea13-3cae-4131-a335-3f7c7a09306d.svg)
+Is my bus usually late? And when is it worst? Nobody was writing that down, so this does.
 
 ## Goal
 
-LA Metro publishes, continuously, where every vehicle is and where it should be. Nobody keeps the difference (at least publicly).
+LA Metro publishes where every vehicle is and where it was supposed to be. Every bus and train reports its own position every six or seven seconds, all day, every day, in public.
 
-Trip planners and other apps show the next arrival and discard it the moment the bus shows up. So a rider who wants to know whether the 720 westbound is reliably late at 8am on a Tuesday has nowhere to look, and it's not because the question is hard, but because nobody writes down the answer.
+Trip planners, like Tranist, shows you the next arrival and then it disspears the moment the bus pulls up. The number was true for 90 seconds and then its gone. So a rider who wants to know whether the 720 westbound is reliably late at 8am on a Tuesday has nowhere to look.
 
-HowLate writes it down. Every minute. Then it publishes the answer.
+HowLate.LA writes it down. Then publishes the answer.
 
 ## Status
 
-**Phase 1: collection.** This repo currently does one thing: record what Metro's buses actually do, and archive Metro's published schedule alongside it.
+**Phase 1: collection.** This repo currently does one thing. It writes down what
+Metro's buses and trains actually do, and keeps a copy of the timetable they
+will be judged against.
 
-This project currently tracks four routes: **20** and **720** on Wilshire Bl, **204** and **754** on Vermont Av. Each corridor gets a local and a rapid on the same street, which builds a controlled comparison into the data: same road, same traffic, same day, one bus stopping everywhere and one skipping most of them.
+It records everything Metro runs to a schedule: all 114 bus routes and all six
+rail lines.
 
-Both corridors are among the busiest Metro runs. By scheduled service the 720 has more trips than any other bus route in Metro's current feed, and Metro's own Vermont Transit Corridor study puts Vermont above 45,000 daily boardings.
+Collection started on 18 August 2026. Nothing is published yet.
+
+
 
 ## What it collects
 
 Two things.
 
-**Where the buses actually are.** Metro broadcasts the live position of every bus, updated every few seconds. HowLate listens for the four tracked routes and writes down every update.
+**Where the buses and trains actually are.** Metro broadcasts the position of
+every vehicle it runs, updated every few seconds. HowLate listens to all of it
+and writes down every update.
 
-**Where the buses were supposed to be.** Metro also publishes its timetable: every scheduled stop, for every trip, on every route. Metro revises that timetable as service changes, so HowLate saves a new copy each time it does.
+**Where they were supposed to be.** Metro also publishes its timetables: every
+scheduled stop, of every trip, on every line. Those get revised as service
+changes, so a fresh copy is kept each time they do. Measuring August's buses
+against September's timetable would give answers that are wrong.
 
-Those two together are the whole idea. If the timetable says a bus should reach your stop at 8:14 and the live feed shows it pulling in at 8:23, that bus was nine minutes late.
+Those two together are the whole idea. If the timetable says a bus should reach
+your stop at 8:14 and the feed shows it pulling in at 8:23, that bus was nine
+minutes late.
 
-Both feeds are public, published by Metro for developers.
+Both feeds are public. Metro publishes them for developers.
 
 ## How it works
 
-A small always-on machine sits and listens to Metro's live feed. Every update it hears gets written to a file. Every five minutes it closes that file, compresses it, and uploads it to cloud storage, then starts a new one.
+A small always-on machine holds two connections open, one to the bus feed and
+one to rail, and writes down every update it hears. Every five minutes it closes
+the file, compresses it, ships it to cloud storage, and starts a new one.
 
-Separately, once a day, it checks whether Metro has published a new timetable and saves a copy if so.
+Separately, a few times a day, it checks whether Metro has republished its
+timetables and keeps a copy if so. That check is also how it notices Metro
+adding or dropping a line, which happens more often than you would think.
 
-That's the whole system. It costs a few dollars a month to run, and the archive grows by roughly two gigabytes a month.
+That is the whole system. It costs under a dollar a month to run.
 
-## What's next
 
-Collecting is the slow part. A month of observations is roughly the point where patterns separate from noise, and there is no way to speed that up.
+## By the numbers
 
-Once there's enough, the next step is matching each recorded arrival against the time it was scheduled for, which turns the raw archive into a plain list of how late each bus was. After that comes the part that answers the original question: grouping those delays by route, direction, stop, and time of day, and publishing the result.
+|  |  |
+|--:|:--|
+| **120** | lines watched: every bus route and rail line Metro runs to a schedule |
+| **6 seconds** | how often each vehicle reports where it is |
+| **~400** | updates arriving every second at the busy hours |
+| **~25 million** | records written down a day |
+| **~1 GB** | added to the archive a day, squeezed from 15 GB of raw text |
+| **under $1** | to run the whole thing for a month |
+
+
+## What's in this repo
+
+```
+collector/    Listens to Metro and writes everything down.
+              The only part that runs on the always-on machine.
+
+pipeline/     Turns the raw archive into how late each vehicle was.
+              Runs once a day, somewhere else. Not written yet.
+
+web/          The public site. Reads what the pipeline produced.
+              Not written yet.
+```
+
+## Data
+
+Vehicle positions and timetables are published by LA Metro for developers.
+HowLate is not affiliated with LA Metro.
+

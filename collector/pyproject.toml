@@ -1,0 +1,30 @@
+# The collector, packaged on its own so that it can be deployed on its own.
+#
+# The VM installs this directory and nothing else in the repository, which is
+# what keeps the analysis libraries and the site's toolchain off a machine whose
+# only job is holding two sockets open. Adding a dependency here puts it on that
+# machine, so anything the pipeline needs belongs in ../pipeline instead.
+
+[project]
+name = "howlate-collector"
+version = "0.1.0"
+description = "Records where LA Metro's buses and trains actually are, so their lateness can be measured later"
+# Developed on 3.14, but 3.11 is the floor: that is what Debian ships on the
+# server, and nothing here needs syntax newer than that.
+requires-python = ">=3.11"
+
+# Deliberately short. This is the only part of the repository installed on the
+# collector machine, so nothing the analysis or the site needs can end up on a
+# box whose whole job is keeping two sockets open.
+dependencies = [
+    "websockets>=13.0",            # listening to Metro's live feeds
+    "google-cloud-storage>=2.18",  # uploading finished files to the bucket
+    "requests>=2.32",              # downloading the timetables
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

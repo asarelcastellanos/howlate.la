@@ -7,8 +7,15 @@ __pycache__/
 build/
 dist/
 
-# Collected bus data. This belongs in cloud storage, not in git: it grows by
-# hundreds of megabytes a day and would bloat the repo permanently.
+# Collected data. This belongs in cloud storage, not in git: it grows by about a
+# gigabyte a day and would bloat the repo permanently.
 data/
 *.jsonl
 *.jsonl.gz
+*.jsonl.raw
+*.parquet
+
+# The site
+node_modules/
+web/dist/
+web/build/

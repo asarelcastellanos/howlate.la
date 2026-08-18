@@ -1,0 +1,34 @@
+[Unit]
+Description=HowLate recorder: listens to Metro's live feeds
+After=network-online.target
+Wants=network-online.target
+# Never stop trying to restart, no matter how many times it has failed. The
+# default gives up after a burst of failures, which during a long outage would
+# mean the collector stays dead after the network comes back.
+StartLimitIntervalSec=0
+
+[Service]
+User=howlate
+WorkingDirectory=/var/lib/howlate
+
+# Holds HOWLATE_HEARTBEAT_URL. The leading dash means "carry on if it is
+# missing", so the recorder still runs on a machine where monitoring was never
+# set up.
+EnvironmentFile=-/etc/howlate/env
+
+ExecStart=/opt/howlate/venv/bin/python -u -m howlate_collector.record
+
+# The recorder reconnects on its own, so a crash here means something
+# unexpected. Restart regardless and let it recover the open file on startup.
+Restart=always
+RestartSec=5
+
+# SIGTERM is what record.py listens for. On receiving it the recorder finishes
+# the open file and compresses it, which takes a few seconds for a full one.
+# A minute is far more room than that needs; the only cost of being generous is
+# a slower redeploy, against the cost of being stingy, which is a truncated file.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
