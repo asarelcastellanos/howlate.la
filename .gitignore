@@ -19,3 +19,9 @@ data/
 node_modules/
 web/dist/
 web/build/
+
+# Pipeline output. Derived from the archive and rebuilt by a command, so it is
+# never worth committing.
+out/
+site/
+.cache/

@@ -1,0 +1,27 @@
+# The pipeline, packaged on its own so that it can be deployed on its own.
+#
+# Deliberately separate from ../collector. The collector machine holds two
+# sockets open and nothing else; the libraries needed to read 40 million records
+# and write Parquet have no business on it. That split is stated in
+# ../collector/pyproject.toml too, from the other side.
+
+[project]
+name = "howlate-pipeline"
+version = "0.1.0"
+description = "Turns the raw archive into how late each LA Metro vehicle actually was"
+requires-python = ">=3.11"
+
+# DuckDB does the reading, the joining and the Parquet writing, which is three
+# dependencies collapsed into one. It also means the joins are SQL, so they move
+# to BigQuery later without being rewritten.
+dependencies = [
+    "duckdb>=1.1",                 # reading, joining, writing Parquet
+    "google-cloud-storage>=2.18",  # fetching the raw archive and the timetables
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
