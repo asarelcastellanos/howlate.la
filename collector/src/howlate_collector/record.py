@@ -13,6 +13,12 @@ because a file must keep closing on schedule even while a connection is down. A
 feed that cannot reconnect must not be able to strand the data the other feed is
 still writing.
 
+Everything here judges a feed by what it delivers, never by whether it is
+connected. A socket that is open and quiet is treated as broken and replaced,
+and silence from both feeds at once raises the alarm on its own rather than
+waiting for a file that will never be written. Both rules exist because the
+opposite was assumed once and cost a day of collection.
+
 The thing worth knowing about this process is that it is the only part of
 HowLate where a failure costs something permanent. Everything downstream reads
 an archive that already exists and can be re-run. A minute not recorded here is
@@ -22,6 +28,7 @@ gone. Almost every decision in this file follows from that.
 import asyncio
 import os
 import signal
+import time
 from collections import Counter
 
 import requests
@@ -33,11 +40,25 @@ from howlate_collector.spool import DATA_DIR, RotatingFile, compress, recover_or
 ROTATE_SECONDS = 5 * 60
 
 # How long to wait for a message before waking up anyway. Metro sends in bursts
-# with a few seconds of quiet between them, and stops entirely overnight, so a
-# message arriving cannot be relied on to drive anything. This doubles as how
-# long it takes to notice a stop signal, which is why it is one second and not
-# ten: waiting ten seconds for Ctrl-C is miserable.
+# with a few seconds of quiet between them, so a message arriving cannot be
+# relied on to drive anything. This doubles as how long it takes to notice a
+# stop signal, which is why it is one second and not ten: waiting ten seconds
+# for Ctrl-C is miserable.
 CHECK_SECONDS = 1
+
+# How long a connected feed may deliver nothing before its socket is treated as
+# dead and replaced. Both feeds send around the clock: across the first 1,422
+# files there was not one in which either feed contributed zero records, and the
+# quietest five minutes ever recorded still held 13,396 bus and 135 rail
+# messages, at 3am and 2am respectively. So five minutes of silence is already
+# far outside anything Metro has ever done, while being several times longer
+# than the slowest reconnection.
+STALE_SECONDS = 5 * 60
+
+# How long nothing at all may reach the spool before the alarm goes up. Longer
+# than STALE_SECONDS on purpose, so a feed that goes quiet gets one reconnection
+# to fix itself before anybody is woken.
+ALARM_SECONDS = 10 * 60
 
 # How many files in a row one feed may contribute nothing to before it is
 # treated as broken rather than merely quiet. Three files is fifteen minutes,
@@ -71,10 +92,18 @@ async def heartbeat(suffix: str = "") -> None:
 async def feed(
     agency: str, codes: list[str], spool: RotatingFile, stopping: asyncio.Event
 ) -> None:
-    """Keep one feed connected and write whatever arrives.
+    """Keep one feed connected and delivering, and write whatever arrives.
 
     One of these per feed, each holding its own backoff, so a rail connection
     that is flapping never delays the buses reconnecting.
+
+    Connected is not the same as working, and the difference cost a day. On 21
+    August 2026 Metro's server errored, came back a minute later, accepted both
+    subscriptions and then sent nothing for sixteen hours without ever closing
+    the socket. Every layer below this one was satisfied: the TCP connection was
+    open, and the server answered each keepalive ping, so the library had no
+    reason to raise anything. Only this function knows that a feed which is not
+    delivering is not working, whichever side has stopped.
     """
     url = routes.feed_url(agency, codes)
     backoff = 1.0
@@ -89,6 +118,7 @@ async def feed(
             async with websockets.connect(url, close_timeout=1) as socket:
                 print(f"  [{agency}] connected")
                 backoff = 1.0
+                last_message = time.monotonic()
 
                 while not stopping.is_set():
                     try:
@@ -96,8 +126,18 @@ async def feed(
                             socket.recv(), timeout=CHECK_SECONDS
                         )
                     except asyncio.TimeoutError:
-                        continue
+                        quiet = time.monotonic() - last_message
+                        if quiet < STALE_SECONDS:
+                            continue
+                        # Leaving the block closes the socket, and the loop above
+                        # opens a new one immediately. No backoff: this is not a
+                        # server refusing connections, it is one handing out a
+                        # connection that does not work, and the next one may.
+                        print(f"  [{agency}] connected but silent for "
+                              f"{quiet / 60:.0f} min, reconnecting")
+                        break
 
+                    last_message = time.monotonic()
                     spool.write(agency, message)
 
         except asyncio.CancelledError:
@@ -123,8 +163,8 @@ def stalled_feeds(silent: Counter, counted: Counter, agencies: list[str]) -> lis
     Only ever called for a file that had something in it, so at least one feed
     is known alive. A feed contributing nothing to such a file is therefore
     silent while another is delivering, which is a fault rather than a quiet
-    hour. Overnight both feeds stop together, the file comes back empty and is
-    discarded, and this is never reached.
+    hour. Both feeds silent together is a different fault, and the rotator
+    catches that one, because no file is produced at all for it to appear in.
 
     Mutates `silent`, which is the caller's memory across files.
     """
@@ -134,18 +174,34 @@ def stalled_feeds(silent: Counter, counted: Counter, agencies: list[str]) -> lis
 
 
 async def rotator(spool: RotatingFile, stopping: asyncio.Event) -> None:
-    """Close, compress and hand over the open file every ROTATE_SECONDS."""
+    """Close, compress and hand over the open file every ROTATE_SECONDS.
+
+    Also the only thing that notices total silence. The spool opens a file on
+    the first message rather than on a clock, so when nothing is arriving there
+    is no file, nothing ever falls due, and every line below is skipped. That is
+    what made sixteen missing hours look exactly like a working recorder with
+    nothing to say.
+    """
     agencies = list(routes.FEEDS)
     silent = Counter()
+    last_delivery = time.monotonic()
 
     while not stopping.is_set():
         await asyncio.sleep(CHECK_SECONDS)
         if not spool.due():
+            if time.monotonic() - last_delivery >= ALARM_SECONDS:
+                print(f"  nothing from either feed in {ALARM_SECONDS // 60} min, "
+                      f"raising the alarm")
+                await heartbeat("/fail")
+                # Reset, so a long outage reports every ALARM_SECONDS rather
+                # than once. A watcher hearing nothing further cannot tell a
+                # continuing outage from a recovery it missed.
+                last_delivery = time.monotonic()
             continue
 
         finished, counted = spool.close()
+        last_delivery = time.monotonic()
         if finished is None:
-            # Nothing arrived in five minutes, which is ordinary overnight.
             continue
 
         # In a thread because compressing fifty megabytes takes a couple of

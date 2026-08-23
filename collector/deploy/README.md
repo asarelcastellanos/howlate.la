@@ -79,9 +79,12 @@ five minutes:
   finished vehicle_positions-20260818T043014Z.jsonl.gz (LACMTA=61402, LACMTA_Rail=6284)
 ```
 
-Those counts swing widely by time of day and drop to nothing overnight. What
-matters is that **both** feeds appear. One name missing means half the network is
-going unrecorded.
+Those counts swing widely by time of day, but they never reach zero. Metro sends
+around the clock: measured across the first 1,422 files, every one held records
+from both feeds, and the quietest five minutes ever recorded still carried 13,396
+bus and 135 rail messages. So a file every five minutes with **both** feeds named
+is the whole health check. One name missing means half the network is going
+unrecorded, and no file at all means nothing is being recorded.
 
 Three more things worth a glance in the first hour:
 
@@ -107,9 +110,26 @@ unrecorded, and that is the one thing this project cannot go back and fix.
 **`howlate-timetable` failed, exit 1.** A download failed. It retries in six
 hours and no data is at risk.
 
-**The heartbeat went quiet, or reported a failure.** Either the machine is gone,
-or one feed has delivered nothing for fifteen minutes while the other kept going.
-`journalctl -u howlate-record` will say which.
+**The heartbeat reported a failure.** Something has stopped delivering. The log
+says which of the two:
+
+```
+  nothing from either feed in 10 min, raising the alarm
+  nothing from LACMTA_Rail in 3 files, raising the alarm
+```
+
+Both are usually Metro rather than this machine, and both clear on their own when
+the feed comes back. The alarm repeats every ten minutes for as long as it lasts,
+so a single one means it recovered.
+
+**The heartbeat went quiet altogether.** The machine is gone, or the recorder is
+not running. Nothing is being collected and nothing will alarm about it, because
+the thing that would raise the alarm is the thing that stopped.
+
+**`connected but silent for 5 min, reconnecting`.** Working as intended, no
+action needed. Metro handed out a socket that was open but delivering nothing and
+the recorder threw it away. Worth watching only if it repeats for hours, which
+means Metro is consistently serving dead subscriptions.
 
 **The spool directory is growing.** Uploads are failing. Collection continues and
 nothing is lost yet; there are about three weeks of room. Check

@@ -25,3 +25,7 @@ web/build/
 out/
 site/
 .cache/
+
+# Working notes and incident write-ups. About the running system rather than the
+# code, and deliberately not published.
+*.local.md

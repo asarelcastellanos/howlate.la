@@ -78,8 +78,10 @@ class RotatingFile:
         self._by_agency = Counter()
 
     def _open(self) -> None:
-        # Opened lazily, on the first message rather than on a clock, so the
-        # quiet hours overnight leave no trail of empty files behind.
+        # Opened lazily, on the first message rather than on a clock, so a feed
+        # that is down leaves no trail of empty files behind. The cost is that
+        # silence produces no file and therefore nothing to rotate, which means
+        # nothing here can notice it. record.py keeps that watch instead.
         opened = utc_now()
         name = f"{PREFIX}-{opened.strftime('%Y%m%dT%H%M%SZ')}.jsonl.partial"
         self._path = self.directory / name
