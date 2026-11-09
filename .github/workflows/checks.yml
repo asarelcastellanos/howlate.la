@@ -1,0 +1,126 @@
+# Lint, format and tests on every PR and on every push to main.
+#
+# Runs on 3.11 because that is what Debian ships on the collector VM, and on
+# 3.14 because that is what development happens on. What each run covers:
+#
+#   - ruff checks syntax against 3.11, so newer syntax fails here
+#   - every collector module is imported, so a missing dependency or a newer
+#     standard-library name used at import time fails here
+#   - the collector tests exercise the recorder's feeds, rotation and alarms
+#
+# A newer standard-library call inside a function body that no test reaches
+# can still pass. Tests in later versions narrow that.
+#
+# Each package is installed on its own, the way it is deployed. The VM installs
+# only collector/, so a collector import that is declared nowhere but the
+# pipeline would pass if both shared one environment.
+#
+# Actions are pinned to a commit rather than a tag, because a tag can be moved
+# to point at different code after it was reviewed.
+
+name: checks
+
+on:
+  pull_request:
+    # `edited` starts a new run when a PR moves to a different base branch.
+    # The head commit does not change, so the old all-checks result stays
+    # visible until the new run finishes. Wait for it before merging.
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+
+# One run per PR at a time. A newer run cancels the older one, and a cancelled
+# run ends with a failed all-checks, so a stale run cannot finish last and pass.
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+
+      # Pinned so a new ruff release cannot fail a PR that changed nothing.
+      - run: pip install ruff==0.17.4
+
+      - name: Lint
+        run: ruff check --output-format github .
+
+      - name: Formatting
+        run: ruff format --check .
+
+  collector:
+    name: collector (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: collector/pyproject.toml
+
+      - name: Install the collector alone, as the VM does
+        run: pip install -e collector
+
+      - name: Import every module
+        run: >-
+          python -c "import howlate_collector.record, howlate_collector.routes,
+          howlate_collector.spool, howlate_collector.upload,
+          howlate_collector.timetable"
+
+      - name: Collector tests
+        run: python collector/tests/test_record.py
+
+  pipeline:
+    name: pipeline (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pipeline/pyproject.toml
+
+      - name: Install the pipeline alone
+        run: pip install -e pipeline
+
+      # No pipeline tests exist yet; they arrive in 0.2.0. Until then this
+      # proves every module imports with only its declared dependencies.
+      - name: Import every module
+        run: >-
+          python -c "import howlate_pipeline.__main__, howlate_pipeline.aggregate,
+          howlate_pipeline.arrivals, howlate_pipeline.gtfs,
+          howlate_pipeline.labels, howlate_pipeline.report"
+
+  # One stable name for branch protection to require, whatever the jobs above
+  # become later.
+  all-checks:
+    needs: [lint, collector, pipeline]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every check passed
+        run: >-
+          test "${{ needs.lint.result }}" = success &&
+          test "${{ needs.collector.result }}" = success &&
+          test "${{ needs.pipeline.result }}" = success

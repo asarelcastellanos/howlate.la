@@ -100,8 +100,7 @@ async def test_silent_socket_is_replaced(spool: RotatingFile) -> None:
     # STALE_SECONDS is 1s here, so five seconds is room for several reconnects.
     # One connection means the recorder sat on a dead socket, which is the bug.
     assert server.connections >= 3, (
-        f"expected repeated reconnects to a silent server, got "
-        f"{server.connections} connection(s)"
+        f"expected repeated reconnects to a silent server, got {server.connections} connection(s)"
     )
 
 
@@ -196,8 +195,7 @@ def test_stalled_feeds_still_names_one_quiet_feed() -> None:
     assert record.stalled_feeds(silent, counted, agencies) == ["LACMTA_Rail"]
 
     # And a single message clears it, so a reconnection is not an outage.
-    assert record.stalled_feeds(silent, Counter({"LACMTA": 1, "LACMTA_Rail": 1}),
-                                agencies) == []
+    assert record.stalled_feeds(silent, Counter({"LACMTA": 1, "LACMTA_Rail": 1}), agencies) == []
 
 
 async def main() -> int:

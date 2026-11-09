@@ -29,7 +29,9 @@ RAIL_AGENCY = "LACMTA_Rail"
 BUS_TIMETABLE = "https://gitlab.com/LACMTA/gtfs_bus/-/raw/master/gtfs_bus.zip"
 RAIL_TIMETABLE = "https://gitlab.com/LACMTA/gtfs_rail/-/raw/master/gtfs_rail.zip"
 
-# Generated from the timetables published 2026-08-16, by main() below.
+# Generated from the timetables published 2026-08-16, by main() below. Left in
+# the wrapped shape main() prints, so a refresh pastes in without reformatting.
+# fmt: off
 BUS_ROUTES = [
     "2", "4", "9", "10", "14", "16", "18", "20", "22", "28", "30", "33",
     "35", "40", "45", "51", "53", "55", "60", "62", "66", "70", "74", "76",
@@ -43,6 +45,7 @@ BUS_ROUTES = [
     "577", "601", "602", "605", "611", "617", "660", "662", "665", "690",
     "694", "695", "696", "697", "720", "754", "761", "901", "910",
 ]
+# fmt: on
 
 RAIL_ROUTES = ["801", "802", "803", "804", "805", "807"]
 

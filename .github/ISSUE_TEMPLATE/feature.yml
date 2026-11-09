@@ -1,0 +1,35 @@
+name: Feature
+description: Something new for the collector, the pipeline or the site.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What and why
+      description: What should exist, and what question it answers for a rider or for the project.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: The tests that prove it works. One checkbox per test, functional, behavioral and UI/UX.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [collector, pipeline, web, infra]
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk tier
+      description: See REVIEW.md.
+      options: [low, medium, high]
+    validations:
+      required: true

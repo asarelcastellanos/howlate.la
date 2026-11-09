@@ -32,7 +32,7 @@ from pathlib import Path
 import duckdb
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, RAW_BUCKET, ZONE, gtfs
+from howlate_pipeline import DERIVED_BUCKET, RAW_BUCKET, gtfs
 
 POSITIONS = "vehicle_positions"
 
@@ -96,8 +96,10 @@ def fetch_raw(client: storage.Client, service_date: str, cache: Path) -> list[st
             wanted.append(blob)
 
     missing = [b for b in wanted if not (cache / b.name).exists()]
-    print(f"  raw: {len(wanted)} files across {len(partitions(service_date))} partitions, "
-          f"{len(missing)} to download")
+    print(
+        f"  raw: {len(wanted)} files across {len(partitions(service_date))} partitions, "
+        f"{len(missing)} to download"
+    )
 
     def pull(blob: storage.Blob) -> None:
         target = cache / blob.name
@@ -137,31 +139,39 @@ def load_observations(con: duckdb.DuckDBPyConnection, files: list[str], service_
     measured, so materialising the lot first would cost memory to hold rows that
     are about to be thrown away.
     """
-    con.execute(f"""
+    con.execute(
+        f"""
         CREATE OR REPLACE TABLE observations AS
         SELECT * FROM ({EXTRACT}) WHERE service_date = ?
           AND trip_id IS NOT NULL AND stop_sequence IS NOT NULL AND ts IS NOT NULL
-    """, [files, service_date])
+    """,
+        [files, service_date],
+    )
 
 
-def load_schedule(con: duckdb.DuckDBPyConnection, directories: dict[str, Path],
-                  service_date: str) -> None:
+def load_schedule(
+    con: duckdb.DuckDBPyConnection, directories: dict[str, Path], service_date: str
+) -> None:
     """Every stop every running trip was scheduled to make, from both feeds."""
     base = gtfs.day_base(service_date)
 
-    con.execute("CREATE OR REPLACE TABLE scheduled (agency VARCHAR, line VARCHAR, "
-                "route_id VARCHAR, direction_id INTEGER, trip_id VARCHAR, stop_id VARCHAR, "
-                "stop_sequence INTEGER, scheduled_arrival BIGINT, scheduled_departure BIGINT, "
-                "is_origin BOOLEAN, is_terminus BOOLEAN)")
+    con.execute(
+        "CREATE OR REPLACE TABLE scheduled (agency VARCHAR, line VARCHAR, "
+        "route_id VARCHAR, direction_id INTEGER, trip_id VARCHAR, stop_id VARCHAR, "
+        "stop_sequence INTEGER, scheduled_arrival BIGINT, scheduled_departure BIGINT, "
+        "is_origin BOOLEAN, is_terminus BOOLEAN)"
+    )
 
     for agency, directory in directories.items():
         services = sorted(gtfs.active_services(directory, service_date))
-        con.execute("CREATE OR REPLACE TEMP TABLE active AS SELECT unnest(?) AS service_id",
-                    [services])
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE active AS SELECT unnest(?) AS service_id", [services]
+        )
 
         # GTFS times run past 24:00:00 for trips that cross midnight, so they are
         # read as an offset from the day's base instant and never as a clock.
-        con.execute(f"""
+        con.execute(
+            f"""
             INSERT INTO scheduled
             WITH stops AS (
                 SELECT
@@ -184,7 +194,9 @@ def load_schedule(con: duckdb.DuckDBPyConnection, directories: dict[str, Path],
               stop_sequence = min(stop_sequence) OVER (PARTITION BY trip_id) AS is_origin,
               stop_sequence = max(stop_sequence) OVER (PARTITION BY trip_id) AS is_terminus
             FROM stops
-        """, [str(directory / "stop_times.txt"), str(directory / "trips.txt"), agency])
+        """,
+            [str(directory / "stop_times.txt"), str(directory / "trips.txt"), agency],
+        )
 
 
 def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
@@ -280,14 +292,17 @@ def write(con: duckdb.DuckDBPyConnection, out: Path, service_date: str) -> Path:
     target.mkdir(parents=True, exist_ok=True)
 
     path = target / "part-0.parquet"
-    con.execute("""
+    con.execute(
+        """
         COPY (
           SELECT service_date, agency, line, route_id, direction_id, trip_id,
                  stop_id, stop_sequence, scheduled_time, actual_time,
                  delay_seconds, source, in_transit_seen, is_origin, is_terminus
           FROM arrivals ORDER BY agency, line, trip_id, stop_sequence
         ) TO ? (FORMAT parquet, COMPRESSION zstd)
-    """, [str(path)])
+    """,
+        [str(path)],
+    )
     return path
 
 

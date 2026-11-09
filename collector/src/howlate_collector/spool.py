@@ -25,7 +25,7 @@ import gzip
 import os
 import shutil
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Relative on purpose. systemd sets WorkingDirectory to /var/lib/howlate, so
@@ -36,7 +36,7 @@ PREFIX = "vehicle_positions"
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def stamp(moment: datetime) -> str:
@@ -104,9 +104,7 @@ class RotatingFile:
             self._open()
 
         self._file.write(
-            f'{{"received_at":"{stamp(utc_now())}"'
-            f',"agency":"{agency}"'
-            f',"payload":{message}}}\n'
+            f'{{"received_at":"{stamp(utc_now())}","agency":"{agency}","payload":{message}}}\n'
         )
         # Per line, so a hard kill loses nothing already accepted. Cheap enough
         # to be worth it: 400 messages a second is about 200 KB/s.
