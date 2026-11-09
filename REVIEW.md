@@ -32,6 +32,15 @@ An agent's approval never replaces the owner's on a high-risk change.
 - Formatting-only diffs produced by `ruff format`, unless the diff changes
   behavior.
 
+## Claims in docs and comments
+
+A sentence about the data must not claim more than the data shows. In v0.1.0
+this was found three times in one release: collection called continuous despite
+a 16-hour gap, every scheduled stop implied to have an observed arrival when
+about half do, and a monthly cost stated as fixed when it grows. Check every
+number and every "all", "every", "always" and "never" against the code or the
+buckets.
+
 ## Findings
 
 - Every finding names a file and line and gives a concrete failure scenario:

@@ -34,8 +34,16 @@ These go into `REVIEW.md` in 0.1.0.
 2. Add a `CHANGELOG.md` entry, written as release notes per `git-messages`.
 3. Bump the versions in `pyproject.toml` and `package.json`.
 4. Tag `vX.Y.Z` and publish a GitHub release.
-5. From 0.4.0 on, deploy the site.
-6. Spend 15 minutes on what the reviews kept finding, and turn repeat findings
+5. If the release changed anything in `collector/`, redeploy the VM with the
+   command in `collector/deploy/README.md`. Watch for five minutes: both feeds
+   reconnect, the first new file holds both feeds, the spool stays near empty,
+   and healthchecks.io stays up. Measure the gap from the raw files and add it
+   to the release notes. Revert if any of those fail. The v0.1.0 deploy lost
+   5.7 seconds.
+6. A release that changed nothing in `collector/` does not touch the VM.
+7. From 0.4.0 on, deploy the site. Pipeline and site deploys run from GitHub
+   Actions on every merge to `main`, because they cannot lose data.
+8. Spend 15 minutes on what the reviews kept finding, and turn repeat findings
    into a lint rule or a `REVIEW.md` line.
 
 Fixes between milestones ship as patch versions, such as 0.5.1.
