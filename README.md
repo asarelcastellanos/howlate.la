@@ -56,8 +56,8 @@ adding or dropping a line, which happens more often than you would think.
 
 Grading happens somewhere else, later. The pipeline reads a day of positions,
 finds the timetable that was in force that day, and writes one row for every
-stop every trip was scheduled to make: when it should have arrived, when it did,
-and the difference.
+stop every trip was scheduled to make: when it should have arrived and, where a
+vehicle was seen there (about half the time), when it did and the difference.
 
 
 ## By the numbers
@@ -69,7 +69,7 @@ and the difference.
 | **~400** | updates arriving every second at the busy hours |
 | **~25 million** | records written down a day |
 | **~1 GB** | added to the archive a day, squeezed from 15 GB of raw text |
-| **about $2** | a month to run, almost all of it storage for the archive |
+| **about $2** | a month to run as of November 2026, almost all of it archive storage. It grows about 75 cents a month until old files move to cold storage in 0.3.0 |
 
 
 ## What's in this repo
