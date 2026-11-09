@@ -48,6 +48,7 @@ SELECT
   json_extract_string(j, '$.payload.vehicle.currentStatus')    AS status,
   CAST(json_extract_string(j, '$.payload.vehicle.currentStopSequence') AS INTEGER) AS stop_sequence,
   json_extract_string(j, '$.payload.vehicle.stopId')           AS stop_id,
+  json_extract_string(j, '$.payload.vehicle.vehicle.id')       AS vehicle_id,
   CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts
 FROM read_json_objects(?) t(j)
 """
@@ -232,6 +233,15 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
           min(ts) FILTER (WHERE status = 'STOPPED_AT')    AS first_stopped,
           max(ts) FILTER (WHERE status = 'STOPPED_AT')    AS last_stopped,
           max(ts) FILTER (WHERE status = 'IN_TRANSIT_TO') AS last_approach,
+          -- The vehicle behind each of those three moments. Two vehicles
+          -- reporting the same second are told apart by id, so a rerun picks
+          -- the same one.
+          arg_min(vehicle_id, {'t': ts, 'v': vehicle_id})
+            FILTER (WHERE status = 'STOPPED_AT')    AS first_stopped_vehicle,
+          arg_max(vehicle_id, {'t': ts, 'v': vehicle_id})
+            FILTER (WHERE status = 'STOPPED_AT')    AS last_stopped_vehicle,
+          arg_max(vehicle_id, {'t': ts, 'v': vehicle_id})
+            FILTER (WHERE status = 'IN_TRANSIT_TO') AS last_approach_vehicle,
           count(*) FILTER (WHERE status = 'IN_TRANSIT_TO') > 0 AS in_transit_seen,
           count(DISTINCT stop_id) AS distinct_stop_ids,
           any_value(stop_id)      AS reported_stop_id
@@ -265,6 +275,16 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
             WHEN NOT s.is_origin AND o.last_approach IS NOT NULL THEN 'approach'
             ELSE 'none'
           END AS source,
+          -- The vehicle whose report set actual_time. A trip can change
+          -- vehicles partway, so this can differ from stop to stop.
+          CASE
+            WHEN s.is_origin THEN o.last_stopped_vehicle
+            WHEN o.first_stopped IS NOT NULL THEN o.first_stopped_vehicle
+            ELSE o.last_approach_vehicle
+          END AS vehicle_id,
+          -- When the vehicle left: its last STOPPED_AT there. Empty when it
+          -- never reported stopping, which is about half of all stops.
+          to_timestamp(o.last_stopped) AS departure_time,
           coalesce(o.in_transit_seen, false) AS in_transit_seen,
           s.is_origin, s.is_terminus,
           o.reported_stop_id,

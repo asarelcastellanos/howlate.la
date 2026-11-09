@@ -29,7 +29,7 @@ def result(tmp_path_factory):
     result = con.sql("""
         SELECT trip_id, stop_sequence, source, delay_seconds,
                epoch(scheduled_time) AS scheduled, epoch(actual_time) AS actual,
-               is_origin, is_terminus
+               is_origin, is_terminus, vehicle_id, epoch(departure_time) AS departure
         FROM arrivals
     """).fetchall()
     return result
@@ -39,7 +39,10 @@ def result(tmp_path_factory):
 def rows(result):
     """The same rows keyed by trip and stop. Duplicates collapse here, which is
     why the row count is checked on `result` instead."""
-    keys = ["source", "delay", "scheduled", "actual", "is_origin", "is_terminus"]
+    keys = [
+        "source", "delay", "scheduled", "actual",
+        "is_origin", "is_terminus", "vehicle", "departure",
+    ]  # fmt: skip
     return {(trip, seq): dict(zip(keys, rest, strict=True)) for trip, seq, *rest in result}
 
 
@@ -132,3 +135,28 @@ def test_fixture_moments_are_in_daylight_time():
     # Guards the fixture itself: every expected value above assumes UTC-7.
     assert local(18, 8, 0).utcoffset().total_seconds() == -7 * 3600
     assert local(18, 8, 0).tzinfo is LA
+
+
+def test_vehicle_is_the_one_whose_report_set_the_time(rows):
+    assert rows[("T1", 1)]["vehicle"] == "5816"
+    assert rows[("T1", 2)]["vehicle"] == "5816"
+    assert rows[("T1", 4)]["vehicle"] is None
+
+
+def test_a_vehicle_change_partway_follows_the_new_vehicle(rows):
+    # 5900 took over T1 before stop 3, and its approach set that stop's time.
+    assert rows[("T1", 3)]["vehicle"] == "5900"
+
+
+def test_two_vehicles_in_the_same_second_resolve_the_same_way_every_time(rows):
+    assert rows[("T2", 2)]["vehicle"] == "6001"
+
+
+def test_departure_is_the_last_stopped_at(rows):
+    assert rows[("T1", 1)]["departure"] == at(local(18, 8, 1, 30))
+    assert rows[("T1", 2)]["departure"] == at(local(18, 8, 12, 30))
+
+
+def test_no_departure_where_the_vehicle_never_reported_stopping(rows):
+    assert rows[("T1", 3)]["departure"] is None
+    assert rows[("T1", 4)]["departure"] is None
