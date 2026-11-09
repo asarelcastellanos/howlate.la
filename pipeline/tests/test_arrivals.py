@@ -151,6 +151,8 @@ def test_two_vehicles_in_the_same_second_resolve_the_same_way_every_time(rows):
 def test_departure_is_the_arriving_vehicles_own_last_stopped_at(rows):
     assert rows[("T1", 1)]["departure"] == at(local(18, 8, 1, 30))
     assert rows[("T1", 2)]["departure"] == at(local(18, 8, 12, 30))
+    # A bus that stopped only once has that one report as its departure.
+    assert rows[("T2", 2)]["departure"] == at(local(19, 1, 33))
 
 
 def test_a_later_bus_at_the_same_stop_does_not_take_the_row(rows):
