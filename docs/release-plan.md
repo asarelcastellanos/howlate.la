@@ -76,9 +76,10 @@ Goal: the repo tells the truth, and every later PR has a safety net.
 - Add `CLAUDE.md` and `REVIEW.md` for the repo, with the tiers above and what
   failure looks like here: a wrong delay, or a lost minute of collection. (Low)
 - Add ruff for linting and formatting in both packages, and fix what it finds.
-  (Low)
+  (High, because it touches `collector/`)
 - Add a GitHub Actions workflow that runs ruff and the collector tests on every
-  PR, and require it on `main`. (High, because it is a CI workflow)
+  PR, and require it on `main` and on every `release/*` branch, since feature
+  PRs merge there first. (High, because it is a CI workflow)
 - Start `CHANGELOG.md` with 0.1.0 describing the collector and pipeline as they
   are, and tag it.
 
@@ -91,8 +92,8 @@ Goal: the repo tells the truth, and every later PR has a safety net.
 
 #### Behavioral
 
-- A throwaway PR that breaks a test cannot merge.
-- A direct push to `main` is rejected.
+- A throwaway PR into a release branch that breaks a test cannot merge.
+- A direct push to `main` or to a release branch is rejected.
 
 #### UI/UX
 
