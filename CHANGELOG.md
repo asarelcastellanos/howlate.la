@@ -4,7 +4,7 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-11-09
 
 The first tagged version. It names what was already running before versions
 existed, and adds the checks every later change goes through.
