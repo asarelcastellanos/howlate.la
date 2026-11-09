@@ -28,8 +28,12 @@ existed, and adds the checks every later change goes through.
 
 - `CLAUDE.md`, `REVIEW.md` and the release plan.
 - ruff linting and formatting for both packages.
-- A GitHub Actions workflow that runs ruff and the collector tests on Python
-  3.11 and 3.14 for every PR.
+- A GitHub Actions workflow for every PR: ruff, then each package installed on
+  its own and every module imported, then the collector tests, on Python 3.11
+  and 3.14.
+- Branch protection on `main` and every `release/*` branch: changes arrive
+  through a PR with passing checks, and the branches cannot be force-pushed or
+  deleted.
 - Issue forms and a PR template.
 - This changelog.
 
