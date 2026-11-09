@@ -1,0 +1,58 @@
+# Lint, format and tests on every PR and on every push to main.
+#
+# Runs on 3.11 because that is what Debian ships on the collector VM, and on
+# 3.14 because that is what development happens on. Code that only works on
+# one of them fails here instead of on the server.
+#
+# Actions are pinned to a commit rather than a tag, because a tag can be moved
+# to point at different code after it was reviewed.
+
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: checks (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: "*/pyproject.toml"
+
+      - name: Install both packages and ruff
+        # Pinned so a new ruff release cannot fail a PR that changed nothing.
+        run: pip install -e collector -e pipeline ruff==0.17.4
+
+      - name: Lint
+        run: ruff check --output-format github .
+
+      - name: Formatting
+        run: ruff format --check .
+
+      - name: Collector tests
+        run: python collector/tests/test_record.py
+
+  # One stable name for branch protection to require, whatever the matrix
+  # becomes later.
+  all-checks:
+    needs: checks
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every check passed
+        run: test "${{ needs.checks.result }}" = success
