@@ -48,7 +48,11 @@ def load(con: duckdb.DuckDBPyConnection, arrivals: Path) -> tuple[str, str, int]
     # Inlined rather than bound: DuckDB will not accept a prepared parameter
     # inside CREATE VIEW. The path is ours, and the quote doubling keeps a
     # directory with an apostrophe in it from ending the string early.
-    glob = str(arrivals / "**" / "*.parquet").replace("'", "''")
+    #
+    # One level deep, not "**": pointed at the arrivals root by mistake, a
+    # recursive glob would read v1 and v2 of the same day and count it twice.
+    # This way the root finds only v1, and a version directory only itself.
+    glob = str(arrivals / "service_date=*" / "*.parquet").replace("'", "''")
     con.execute(f"""
         CREATE OR REPLACE VIEW a AS
         SELECT *,

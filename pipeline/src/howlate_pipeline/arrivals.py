@@ -342,49 +342,77 @@ def trips(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
 
-def write(con: duckdb.DuckDBPyConnection, out: Path, service_date: str) -> Path:
-    """Write the day, replacing whatever was there before.
+# The layout version of everything written below. Bumped when a column is added
+# or changes meaning, so a reader never mixes days written by different code.
+# v1 lives at arrivals/service_date=... and is left where it is; v2 adds
+# vehicle_id and departure_time to arrivals, and the trips table.
+VERSION = "v2"
 
-    One date in, one partition out, and a rerun replaces only that partition.
-    That property is what makes it safe to schedule this before it is perfect:
-    any day can be recomputed later without touching any other day.
+# What each table writes, and the order its rows go in. Sorted so a rerun over
+# the same input writes the same rows in the same order.
+TABLES = {
+    "arrivals": """
+        SELECT service_date, agency, line, route_id, direction_id, trip_id,
+               stop_id, stop_sequence, scheduled_time, actual_time,
+               delay_seconds, source, vehicle_id, departure_time,
+               in_transit_seen, is_origin, is_terminus
+        FROM arrivals ORDER BY agency, line, trip_id, stop_sequence
+    """,
+    "trips": """
+        SELECT service_date, agency, line, route_id, direction_id, trip_id,
+               scheduled_start, scheduled_end, stops_scheduled, stops_observed,
+               reports, first_seen, last_seen, vehicles, vehicle_id
+        FROM trips ORDER BY agency, line, trip_id
+    """,
+}
+
+
+def partition(table: str, service_date: str) -> str:
+    """Where one table's day lives, relative to the output root or the bucket.
+
+    The trailing slash matters for the bucket: without it, the prefix for the
+    1st would also match the 10th to the 19th.
     """
     stamp = f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}"
-    target = out / "arrivals" / f"service_date={stamp}"
-    if target.exists():
-        for stale in target.glob("*.parquet"):
-            stale.unlink()
-    target.mkdir(parents=True, exist_ok=True)
-
-    path = target / "part-0.parquet"
-    con.execute(
-        """
-        COPY (
-          SELECT service_date, agency, line, route_id, direction_id, trip_id,
-                 stop_id, stop_sequence, scheduled_time, actual_time,
-                 delay_seconds, source, in_transit_seen, is_origin, is_terminus
-          FROM arrivals ORDER BY agency, line, trip_id, stop_sequence
-        ) TO ? (FORMAT parquet, COMPRESSION zstd)
-    """,
-        [str(path)],
-    )
-    return path
+    return f"{table}/{VERSION}/service_date={stamp}/"
 
 
-def upload(client: storage.Client, path: Path, service_date: str) -> str:
-    """Put one day's partition in the derived bucket, replacing that day only.
+def write(con: duckdb.DuckDBPyConnection, out: Path, service_date: str) -> dict[str, Path]:
+    """Write the day's arrivals and trips, replacing whatever was there before.
+
+    One date in, one partition per table out, and a rerun replaces only that
+    partition. That property is what makes it safe to schedule this before it
+    is perfect: any day can be recomputed later without touching any other day.
+    """
+    written = {}
+    for table, query in TABLES.items():
+        target = out / partition(table, service_date)
+        if target.exists():
+            for stale in target.glob("*.parquet"):
+                stale.unlink()
+        target.mkdir(parents=True, exist_ok=True)
+
+        path = target / "part-0.parquet"
+        con.execute(f"COPY ({query}) TO ? (FORMAT parquet, COMPRESSION zstd)", [str(path)])
+        written[table] = path
+    return written
+
+
+def upload(client: storage.Client, written: dict[str, Path], service_date: str) -> list[str]:
+    """Put one day's partitions in the derived bucket, replacing that day only.
 
     Anything already under the date's prefix is deleted first. Without that, a
     rerun that produced a different number of files would leave the old extras
     behind and every later read would silently double-count the overlap.
     """
-    stamp = f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}"
-    prefix = f"arrivals/service_date={stamp}/"
     bucket = client.bucket(DERIVED_BUCKET)
+    uploaded = []
+    for table, path in written.items():
+        prefix = partition(table, service_date)
+        for stale in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
+            stale.delete()
 
-    for stale in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
-        stale.delete()
-
-    blob = bucket.blob(prefix + path.name)
-    blob.upload_from_filename(path, content_type="application/vnd.apache.parquet")
-    return f"gs://{DERIVED_BUCKET}/{blob.name}"
+        blob = bucket.blob(prefix + path.name)
+        blob.upload_from_filename(path, content_type="application/vnd.apache.parquet")
+        uploaded.append(f"gs://{DERIVED_BUCKET}/{blob.name}")
+    return uploaded

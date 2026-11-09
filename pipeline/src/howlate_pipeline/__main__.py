@@ -56,7 +56,8 @@ def run_arrivals(args: argparse.Namespace) -> int:
     arrivals.match(con, service_date)
     arrivals.trips(con)
 
-    path = arrivals.write(con, args.out, service_date)
+    written = arrivals.write(con, args.out, service_date)
+    path = written["arrivals"]
     size = path.stat().st_size
     rows = con.sql("SELECT count(*) FROM arrivals").fetchone()[0]
 
@@ -67,7 +68,8 @@ def run_arrivals(args: argparse.Namespace) -> int:
     )
 
     if not args.no_upload:
-        print(f"  uploaded {arrivals.upload(client, path, service_date)}")
+        for where in arrivals.upload(client, written, service_date):
+            print(f"  uploaded {where}")
 
     # A failed check is not a failed run: the day's numbers are written either
     # way. The status is here so a scheduler shows a red job rather than burying
@@ -151,8 +153,8 @@ def main() -> None:
     every.add_argument(
         "--arrivals",
         type=Path,
-        default=Path("out/arrivals"),
-        help="where the Parquet partitions are",
+        default=Path(f"out/arrivals/{arrivals.VERSION}"),
+        help="one version's partitions, e.g. out/arrivals/v2",
     )
     every.add_argument("--out", type=Path, default=Path("site"), help="where the JSON goes")
     every.add_argument(
