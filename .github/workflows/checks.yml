@@ -22,11 +22,18 @@ name: checks
 
 on:
   pull_request:
-    # `edited` covers a PR moved to a different base branch, which otherwise
-    # keeps the result it got against the old one.
+    # `edited` starts a new run when a PR moves to a different base branch.
+    # The head commit does not change, so the old all-checks result stays
+    # visible until the new run finishes. Wait for it before merging.
     types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
+
+# One run per PR at a time. A newer run cancels the older one, and a cancelled
+# run ends with a failed all-checks, so a stale run cannot finish last and pass.
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
