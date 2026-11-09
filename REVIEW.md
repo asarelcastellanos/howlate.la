@@ -34,12 +34,13 @@ An agent's approval never replaces the owner's on a high-risk change.
 
 ## Claims in docs and comments
 
-A sentence about the data must not claim more than the data shows. In v0.1.0
-this was found three times in one release: collection called continuous despite
-a 16-hour gap, every scheduled stop implied to have an observed arrival when
-about half do, and a monthly cost stated as fixed when it grows. Check every
-number and every "all", "every", "always" and "never" against the code or the
-buckets.
+A sentence in docs or comments must not claim more than the code or the data
+shows. v0.1.0 needed five fixes of this kind across two PRs: collection called
+continuous despite a 16-hour gap, every scheduled stop implied to have an
+observed arrival when about half do, a monthly cost stated as fixed when it
+grows, and two alarms described as catching more than the code detects. Check
+every number and every "all", "every", "always" and "never" against the code or
+the buckets.
 
 ## Findings
 

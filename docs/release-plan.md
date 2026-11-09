@@ -33,18 +33,29 @@ These go into `REVIEW.md` in 0.1.0.
 1. Close or move every issue in the milestone.
 2. Add a `CHANGELOG.md` entry, written as release notes per `git-messages`.
 3. Bump the versions in `pyproject.toml` and `package.json`.
-4. Tag `vX.Y.Z` and publish a GitHub release.
-5. If the release changed anything in `collector/`, redeploy the VM with the
-   command in `collector/deploy/README.md`. Watch for five minutes: both feeds
-   reconnect, the first new file holds both feeds, the spool stays near empty,
-   and healthchecks.io stays up. Measure the gap from the raw files and add it
-   to the release notes. Revert if any of those fail. The v0.1.0 deploy lost
-   5.7 seconds.
-6. A release that changed nothing in `collector/` does not touch the VM.
-7. From 0.4.0 on, deploy the site. Pipeline and site deploys run from GitHub
-   Actions on every merge to `main`, because they cannot lose data.
-8. Spend 15 minutes on what the reviews kept finding, and turn repeat findings
-   into a lint rule or a `REVIEW.md` line.
+4. With the owner's approval, merge `release/vX.Y.Z` into `main`. Every step
+   below runs after this merge, because deploys take their code from `main`.
+5. Tag `vX.Y.Z` on `main` and publish a GitHub release.
+6. If the release changed anything in `collector/`, redeploy the VM with the
+   command in `collector/deploy/README.md`, then watch it:
+   - Both feeds log `connected`.
+   - The first new file finishes and leaves the spool, about six minutes after
+     the restart, holding records from both feeds.
+   - healthchecks.io stays up for 15 minutes. That is three files, the time the
+     recorder takes to raise its alarm for one silent feed.
+   - Measure the gap as the v0.1.0 notes did: the last record in the file the
+     stop signal closed, against the first record after the restart. Add both
+     timestamps and the gap to the release notes. v0.1.0 lost 5.7 seconds.
+7. If any of those checks fail, roll back first and fix later. Run the same
+   deploy command with `reset --hard vX.Y.Z` set to the previous release tag in
+   place of `origin/main`, confirm both feeds reconnect, then revert the change
+   on `main` through a PR.
+8. A release that changed nothing in `collector/` does not touch the VM.
+9. The pipeline from 0.3.0 and the site from 0.4.0 deploy on their own when
+   `main` changes. Those versions build that, and neither can lose collected
+   data.
+10. Spend 15 minutes on what the reviews kept finding, and turn repeat findings
+    into a lint rule or a `REVIEW.md` line.
 
 Fixes between milestones ship as patch versions, such as 0.5.1.
 
@@ -188,6 +199,9 @@ doing it, and the storage bill stops growing.
 - Add a daily job (Cloud Run job plus Cloud Scheduler, early morning Pacific)
   that grades yesterday, runs `aggregate`, pings healthchecks.io, and alarms on
   a missing day. (High, because it is infrastructure)
+- Deploy the pipeline image to the Cloud Run job from GitHub Actions whenever
+  `main` changes, so a merged pipeline fix reaches the next daily run. (High,
+  because it is a CI workflow with cloud permissions)
 - Add the lifecycle rule to the repo, and apply it only after the backfill: raw
   positions move to Coldline after 30 days and Archive after 365. (High,
   because it changes billing)
