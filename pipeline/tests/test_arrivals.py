@@ -8,7 +8,7 @@ measures or the fixture is wrong, and both are worth knowing before a backfill.
 from datetime import datetime
 
 import pytest
-from fixture_day import LA, SERVICE_DATE, build_raw, local, run_day
+from fixture_day import LA, SERVICE_DATE, build_raw, build_timetable, local, run_day
 
 from howlate_pipeline import arrivals
 
