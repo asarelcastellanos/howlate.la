@@ -14,7 +14,7 @@ from howlate_pipeline import arrivals
 
 
 @pytest.fixture(scope="module")
-def rows(tmp_path_factory):
+def result(tmp_path_factory):
     """Run the real pipeline steps on the fixture day, once for every test."""
     root = tmp_path_factory.mktemp("day")
     raw = build_raw(root / "raw")
@@ -32,6 +32,13 @@ def rows(tmp_path_factory):
                is_origin, is_terminus
         FROM arrivals
     """).fetchall()
+    return result
+
+
+@pytest.fixture(scope="module")
+def rows(result):
+    """The same rows keyed by trip and stop. Duplicates collapse here, which is
+    why the row count is checked on `result` instead."""
     keys = ["source", "delay", "scheduled", "actual", "is_origin", "is_terminus"]
     return {(trip, seq): dict(zip(keys, rest, strict=True)) for trip, seq, *rest in result}
 
@@ -40,14 +47,16 @@ def at(moment: datetime) -> int:
     return int(moment.timestamp())
 
 
-def test_every_scheduled_stop_has_exactly_one_row(rows):
+def test_every_scheduled_stop_has_exactly_one_row(result, rows):
+    assert len(result) == 6
     assert sorted(rows) == [
         ("T1", 1), ("T1", 2), ("T1", 3), ("T1", 4), ("T2", 1), ("T2", 2),
     ]  # fmt: skip
 
 
 def test_first_stop_is_the_last_stopped_at_and_a_departure(rows):
-    # Arrived to wait at 07:50, left at 08:01:30, scheduled to leave at 08:00.
+    # Arrived to wait at 07:50, left at 08:01:30. Scheduled to arrive at 07:58
+    # and leave at 08:00; the delay is measured from the departure.
     stop = rows[("T1", 1)]
     assert stop["source"] == "origin_departure"
     assert stop["actual"] == at(local(18, 8, 1, 30))
@@ -55,7 +64,8 @@ def test_first_stop_is_the_last_stopped_at_and_a_departure(rows):
 
 
 def test_mid_route_arrival_is_the_first_stopped_at(rows):
-    # The 08:11 approach and the 08:12:30 dwell are both ignored.
+    # The 08:11 approach and the 08:12:30 dwell are both ignored, and the delay
+    # is measured from the 08:10 arrival, not the 08:11 departure.
     stop = rows[("T1", 2)]
     assert stop["source"] == "stopped_at"
     assert stop["actual"] == at(local(18, 8, 12))
@@ -85,7 +95,7 @@ def test_a_time_past_24_00_lands_on_the_next_calendar_day(rows):
 
 
 def test_a_trip_crossing_midnight_is_read_from_the_next_partition(rows):
-    # Both T2 reports are after 07:00 UTC on the 19th, so they live only in
+    # Both T2 reports are after 00:00 UTC on the 19th, so they live only in
     # dt=2026-08-19. Reading the service date's own partition alone would
     # leave T2 unobserved.
     assert rows[("T2", 1)]["delay"] == 60
@@ -96,6 +106,12 @@ def test_reports_from_the_previous_service_day_are_ignored(rows):
     # The 17th's T1 reported stop 2 at 00:05 on the 18th, before this day's T1
     # reached it. Counting it would make the arrival eight hours early.
     assert rows[("T1", 2)]["actual"] == at(local(18, 8, 12))
+
+
+def test_reports_from_the_next_service_day_are_ignored(rows):
+    # The 19th's T1 stopped at D, which this day's T1 never reported. Counting
+    # it would turn an unobserved stop into one a day late.
+    assert rows[("T1", 4)]["source"] == "none"
 
 
 def test_partitions_cover_the_day_either_side():

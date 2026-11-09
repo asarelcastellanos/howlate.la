@@ -101,16 +101,19 @@ jobs:
           cache: pip
           cache-dependency-path: pipeline/pyproject.toml
 
-      # The test extra adds pytest and nothing else, so the imports below still
-      # prove every module needs only its declared dependencies.
-      - name: Install the pipeline alone, with pytest
-        run: pip install -e "pipeline[test]"
+      - name: Install the pipeline alone
+        run: pip install -e pipeline
 
       - name: Import every module
         run: >-
           python -c "import howlate_pipeline.__main__, howlate_pipeline.aggregate,
           howlate_pipeline.arrivals, howlate_pipeline.gtfs,
           howlate_pipeline.labels, howlate_pipeline.report"
+
+      # Only after the import check: pytest brings packages of its own, and a
+      # module that leaned on one of them would otherwise pass.
+      - name: Install the test extra
+        run: pip install -e "pipeline[test]"
 
       - name: Pipeline tests
         run: python -m pytest pipeline/tests -q

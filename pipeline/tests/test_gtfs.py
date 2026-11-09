@@ -37,8 +37,10 @@ class FakeBlob:
         self.updated = fetched or datetime(2026, 1, 1, tzinfo=UTC)
         self.data = data
         self.fail_after = fail_after
+        self.written_to: list[Path] = []
 
     def download_to_filename(self, path) -> None:
+        self.written_to.append(Path(path))
         if self.fail_after is not None:
             Path(path).write_bytes(self.data[: self.fail_after])
             self.fail_after = None
@@ -54,8 +56,8 @@ class FakeClient:
         return [blob for blob in self.blobs if blob.name.startswith(prefix)]
 
 
-def utc(month: int, day: int, hour: int) -> datetime:
-    return datetime(2026, month, day, hour, tzinfo=UTC)
+def utc(month: int, day: int, hour: int, minute: int = 0) -> datetime:
+    return datetime(2026, month, day, hour, minute, tzinfo=UTC)
 
 
 # Three copies of the bus timetable, as the collector stores them.
@@ -84,6 +86,38 @@ def test_a_copy_fetched_during_the_day_is_not_in_force_for_it():
     # noon. So the 16th is measured against the 10th's copy.
     order = [blob.name for blob in gtfs.candidates(copies(), "gtfs_bus", "20260816")]
     assert order == [AUG_10, AUG_16, AUG_19]
+
+
+def test_in_force_means_before_the_local_day_starts_not_the_utc_day():
+    # The collector fetches timetables at about 00:20 and 06:20 UTC. On the
+    # 18th, 06:20 UTC is still the evening of the 17th in Los Angeles, so that
+    # copy is in force; 07:30 UTC is after the day began at 07:00, so it is not.
+    early = "gtfs/gtfs_bus-2026-08-18-dddd.zip"
+    late = "gtfs/gtfs_bus-2026-08-18-eeee.zip"
+    client = FakeClient([
+        FakeBlob(AUG_16, utc(8, 16, 12)),
+        FakeBlob(early, utc(8, 18, 6, 20)),
+        FakeBlob(late, utc(8, 18, 7, 30)),
+    ])  # fmt: skip
+    order = [blob.name for blob in gtfs.candidates(client, "gtfs_bus", "20260818")]
+    assert order == [early, AUG_16, late]
+
+
+def test_in_force_uses_standard_time_in_winter():
+    # On 2 December the day starts at 08:00 UTC, an hour later than in summer.
+    # A copy fetched at 07:30 UTC is in force; one at 08:30 UTC is not.
+    # The older copy is there so that a wrong cutoff changes the order:
+    # counting from UTC midnight would put it first.
+    older = "gtfs/gtfs_bus-2026-11-20-hhhh.zip"
+    before = "gtfs/gtfs_bus-2026-12-02-ffff.zip"
+    after = "gtfs/gtfs_bus-2026-12-02-gggg.zip"
+    client = FakeClient([
+        FakeBlob(older, utc(11, 20, 12)),
+        FakeBlob(before, utc(12, 2, 7, 30)),
+        FakeBlob(after, utc(12, 2, 8, 30)),
+    ])  # fmt: skip
+    order = [blob.name for blob in gtfs.candidates(client, "gtfs_bus", "20261202")]
+    assert order == [before, older, after]
 
 
 def test_no_timetable_at_all_stops_the_run():
@@ -147,8 +181,29 @@ def test_an_interrupted_download_leaves_nothing_the_next_run_trusts(tmp_path):
     with pytest.raises(ConnectionError):
         arrivals.fetch_raw(client, SERVICE_DATE, tmp_path)
     assert not (tmp_path / name).exists()
+    # A dropped connection raises, but a killed process does not get to clean
+    # up. So the bytes must never have been written under the trusted name.
+    assert all(path != tmp_path / name for path in blob.written_to)
 
     # The next run sees nothing usable, downloads again, and gets every byte.
     files = arrivals.fetch_raw(client, SERVICE_DATE, tmp_path)
     assert files == [str(tmp_path / name)]
     assert (tmp_path / name).read_bytes() == blob.data
+
+
+def test_an_interrupted_timetable_download_is_not_trusted(tmp_path):
+    full = zipped(build_timetable(tmp_path / "full"))
+    blob = FakeBlob(AUG_16, utc(8, 16, 12), full, fail_after=len(full) // 2)
+    cache = tmp_path / "cache"
+
+    with pytest.raises(ConnectionError):
+        gtfs.ensure_local(blob, cache)
+    target = cache / Path(AUG_16).stem
+    assert not (target / ".complete").exists()
+
+    # The rerun downloads again and unpacks every file in full.
+    directory = gtfs.ensure_local(blob, cache)
+    assert (directory / ".complete").exists()
+    assert (directory / "stop_times.txt").read_bytes() == (
+        tmp_path / "full" / "stop_times.txt"
+    ).read_bytes()

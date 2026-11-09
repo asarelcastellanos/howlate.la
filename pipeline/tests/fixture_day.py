@@ -5,8 +5,8 @@ GTFS times on this day count from 2026-08-18 07:00 UTC.
 
 Two trips on line 720, both in the timetable and both with position reports:
 
-    T1  stop 1 (A) 08:00   origin
-        stop 2 (B) 08:10
+    T1  stop 1 (A) 07:58, leaves 08:00   origin
+        stop 2 (B) 08:10, leaves 08:11
         stop 3 (C) 08:20
         stop 4 (D) 08:30   terminus
 
@@ -28,8 +28,9 @@ What the vehicles reported, and the answer each one should produce:
     T2 stop 2  STOPPED_AT 01:33 on 19 August, 180 s late
 
 T2's reports are after midnight UTC, so they sit in the dt=2026-08-19
-partition. A report stamped with the previous service day sits in the
-2026-08-18 partition and must be ignored.
+partition. Two reports belong to other service days and must be ignored: the
+17th's T1 at stop 2, in the 2026-08-18 partition, and the 19th's T1 at stop 4,
+in the 2026-08-19 partition.
 """
 
 import csv
@@ -51,8 +52,10 @@ def local(day: int, hour: int, minute: int, second: int = 0) -> datetime:
 
 SCHEDULE = [
     # trip, stop_sequence, stop_id, arrival, departure
-    ("T1", 1, "A", "08:00:00", "08:00:00"),
-    ("T1", 2, "B", "08:10:00", "08:10:00"),
+    # Arrival and departure differ at A and B, so a delay measured from the
+    # wrong one of the two is off by minutes and fails.
+    ("T1", 1, "A", "07:58:00", "08:00:00"),
+    ("T1", 2, "B", "08:10:00", "08:11:00"),
     ("T1", 3, "C", "08:20:00", "08:20:00"),
     ("T1", 4, "D", "08:30:00", "08:30:00"),
     ("T2", 1, "E", "23:50:00", "23:50:00"),
@@ -74,6 +77,9 @@ REPORTS = [
     # The previous service day's T1, still reporting. Same trip and stop, so
     # only the start date keeps it out of this day's answer.
     ("T1", "20260817", 2, "B", "STOPPED_AT", local(18, 0, 5)),
+    # The next service day's T1, at the stop this day never saw. Only the
+    # start date keeps it from turning stop 4 into an observed arrival.
+    ("T1", "20260819", 4, "D", "STOPPED_AT", local(19, 8, 30)),
 ]
 
 
