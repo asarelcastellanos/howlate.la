@@ -178,3 +178,21 @@ def build_raw(directory: Path) -> Path:
             for row in rows:
                 handle.write(json.dumps(row) + "\n")
     return directory
+
+
+def run_day(root: Path):
+    """Build the fixture day under `root` and run the real steps on it.
+
+    Returns the DuckDB connection holding the arrivals and trips tables.
+    """
+    from howlate_pipeline import arrivals
+
+    raw = build_raw(root / "raw")
+    timetable = build_timetable(root / "gtfs_bus")
+    con = arrivals.connect()
+    files = arrivals.local_files(raw, SERVICE_DATE)
+    arrivals.load_observations(con, files, SERVICE_DATE)
+    arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE)
+    arrivals.match(con, SERVICE_DATE)
+    arrivals.trips(con)
+    return con

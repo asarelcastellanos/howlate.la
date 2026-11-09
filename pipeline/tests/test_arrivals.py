@@ -8,7 +8,7 @@ measures or the fixture is wrong, and both are worth knowing before a backfill.
 from datetime import datetime
 
 import pytest
-from fixture_day import LA, SERVICE_DATE, build_raw, build_timetable, local
+from fixture_day import LA, SERVICE_DATE, build_raw, local, run_day
 
 from howlate_pipeline import arrivals
 
@@ -16,17 +16,7 @@ from howlate_pipeline import arrivals
 @pytest.fixture(scope="module")
 def con(tmp_path_factory):
     """Run the real pipeline steps on the fixture day, once for every test."""
-    root = tmp_path_factory.mktemp("day")
-    raw = build_raw(root / "raw")
-    timetable = build_timetable(root / "gtfs_bus")
-
-    con = arrivals.connect()
-    files = arrivals.local_files(raw, SERVICE_DATE)
-    arrivals.load_observations(con, files, SERVICE_DATE)
-    arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE)
-    arrivals.match(con, SERVICE_DATE)
-    arrivals.trips(con)
-    return con
+    return run_day(tmp_path_factory.mktemp("day"))
 
 
 @pytest.fixture(scope="module")

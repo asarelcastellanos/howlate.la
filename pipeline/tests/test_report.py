@@ -5,20 +5,14 @@ rows out of DuckDB, which is the first thing a DuckDB upgrade broke.
 """
 
 import pytest
-from fixture_day import SERVICE_DATE, build_raw, build_timetable
+from fixture_day import SERVICE_DATE, run_day
 
-from howlate_pipeline import arrivals, report
+from howlate_pipeline import report
 
 
 @pytest.fixture(scope="module")
 def con(tmp_path_factory):
-    root = tmp_path_factory.mktemp("day")
-    con = arrivals.connect()
-    files = arrivals.local_files(build_raw(root / "raw"), SERVICE_DATE)
-    arrivals.load_observations(con, files, SERVICE_DATE)
-    arrivals.load_schedule(con, {"LACMTA": build_timetable(root / "gtfs_bus")}, SERVICE_DATE)
-    arrivals.match(con, SERVICE_DATE)
-    return con
+    return run_day(tmp_path_factory.mktemp("day"))
 
 
 def test_summarise_counts_the_fixture_day(con):

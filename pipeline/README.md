@@ -18,10 +18,23 @@ python -m howlate_pipeline arrivals --service-date 2026-08-18
 python -m howlate_pipeline aggregate
 ```
 
-`arrivals` measures one service day and writes one Parquet partition, about 25
-seconds for all 120 lines. `aggregate` reads every partition written so far and
-emits the small JSON files a browser fetches. Both upload to
-`gs://howlate-derived`. The live event-driven path is not built.
+`arrivals` measures one service day and writes one Parquet partition per
+table, about 25 seconds for all 120 lines. `aggregate` reads every partition
+of one layout version and emits the small JSON files a browser fetches. Both
+upload to `gs://howlate-derived`. The live event-driven path is not built.
+
+The layout is versioned, so days written by different code never mix:
+
+```
+arrivals/v2/service_date=YYYY-MM-DD/part-0.parquet   one row per scheduled stop
+trips/v2/service_date=YYYY-MM-DD/part-0.parquet      one row per scheduled trip
+arrivals/service_date=YYYY-MM-DD/                    v1, 18 and 19 August only
+```
+
+v2 adds `vehicle_id` and `departure_time` to arrivals, and the trips table.
+`aggregate` reads `out/arrivals/v2` by default and never looks below the
+`service_date=` level, so pointing it at the arrivals root reads v1 alone
+instead of counting a day twice.
 
 Rerunning either is safe: `arrivals` replaces one date and touches no other, and
 `aggregate` is byte-identical over unchanged input.
