@@ -11,13 +11,15 @@ existed, and adds the checks every later change goes through.
 
 ### Already running
 
-- The collector has recorded both of Metro's live feeds since 18 August 2026:
-  all 114 scheduled bus lines and all 6 rail lines, about 25 million records a
-  day, shipped to `gs://howlate-raw` every five minutes.
-- It saves a copy of Metro's timetables whenever they change, and fails loudly
-  when Metro adds or drops a line that is not being recorded.
+- The collector has recorded both of Metro's live feeds since 18 August 2026,
+  apart from 16 hours on 21 August when Metro kept a socket open and sent
+  nothing. It covers all 114 scheduled bus lines and all 6 rail lines, about 25
+  million records a day, shipped to `gs://howlate-raw` every five minutes.
+- It saves a copy of Metro's timetables whenever they change, and leaves its
+  systemd unit failed when Metro adds a line that is not being recorded or
+  drops one that is.
 - It replaces a socket that is open but silent, and raises an alarm through
-  healthchecks.io when nothing arrives from either feed.
+  healthchecks.io when either feed stops delivering.
 - The pipeline grades one service day into one row per scheduled stop
   (`arrivals`) and summarises every graded day into the JSON files the site will
   read (`aggregate`). It has been run on 18 and 19 August.
@@ -26,6 +28,8 @@ existed, and adds the checks every later change goes through.
 
 - `CLAUDE.md`, `REVIEW.md` and the release plan.
 - ruff linting and formatting for both packages.
+- A GitHub Actions workflow that runs ruff and the collector tests on Python
+  3.11 and 3.14 for every PR.
 - Issue forms and a PR template.
 - This changelog.
 
