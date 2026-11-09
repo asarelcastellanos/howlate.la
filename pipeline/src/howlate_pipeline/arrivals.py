@@ -313,8 +313,12 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
           -- When that same vehicle left: its own last STOPPED_AT there. At
           -- the origin that is the departure already measured. Empty when it
           -- never reported stopping, which is about half of all stops.
+          -- Mid-route with no vehicle id there is no way to tell one id-less
+          -- bus from another, so the departure is left empty rather than
+          -- guessed.
           to_timestamp(CASE
             WHEN s.is_origin THEN o.last_stopped
+            WHEN o.first_stopped_vehicle IS NULL THEN NULL
             ELSE o.first_vehicle_left
           END) AS departure_time,
           coalesce(o.in_transit_seen, false) AS in_transit_seen,
