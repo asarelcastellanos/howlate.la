@@ -199,6 +199,7 @@ def test_stalled_feeds_still_names_one_quiet_feed() -> None:
 
 
 async def main() -> int:
+    assert False, "deliberate failure to test branch protection"
     # Minutes in production, seconds here.
     record.CHECK_SECONDS = 0.1
     record.STALE_SECONDS = 1
