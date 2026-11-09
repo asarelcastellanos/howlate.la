@@ -403,8 +403,8 @@ TABLES = {
 def partition(table: str, service_date: str) -> str:
     """Where one table's day lives, relative to the output root or the bucket.
 
-    The trailing slash matters for the bucket: without it, the prefix for the
-    1st would also match the 10th to the 19th.
+    The trailing slash keeps a bucket prefix from matching any longer name
+    that happens to start the same way, such as a stray `...-18-old/`.
     """
     stamp = f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}"
     return f"{table}/{VERSION}/service_date={stamp}/"

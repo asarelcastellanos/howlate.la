@@ -120,11 +120,17 @@ Sizing, now from output rather than from the timetables:
 | Rows per day | 881,057, one per scheduled stop |
 | Rows per year | ~322 million |
 | Parquet size, zstd | **4.4 bytes/row**, against 6.7 predicted |
+| **Whole year of delay data** | **~1.4 GB** |
+
+Those sizes predate the approach fallback too. With it, the v1 files for 18 and
+19 August are 5.4 to 5.5 bytes/row, about 1.75 GB a year.
 
 ## v1 against v2
 
 Checked on 2026-11-09 by grading 18, 19 and 20 August with the v0.1.0 code and
-with the v2 code from the same raw files and timetables, on DuckDB 1.5.6.
+with the v2 code from the same raw files and timetables, on DuckDB 1.5.6. Rerun
+after the vehicle and departure rules were tightened in review, with the same
+results.
 
 | | 18 Aug | 19 Aug | 20 Aug |
 |---|---|---|---|
@@ -143,6 +149,6 @@ with the v2 code from the same raw files and timetables, on DuckDB 1.5.6.
 | Trips Parquet | 308 KB | 304 KB | 304 KB |
 
 So v2 adds columns and changes nothing v1 measured. The two new columns raise a
-year of arrivals from about 1.4 GB to about 2.5 GB, which is still small.
-| **Whole year of delay data** | **~1.4 GB** |
+year of arrivals from about 1.75 GB to about 2.5 GB, and the trips table adds
+about 110 MB a year.
 

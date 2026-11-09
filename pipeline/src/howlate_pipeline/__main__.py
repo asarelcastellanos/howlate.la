@@ -4,11 +4,12 @@
     python -m howlate_pipeline aggregate
 
 `arrivals` reads the raw archive and the timetable in force and writes one
-Parquet partition. It handles one day, and rerunning a day replaces that day and
-touches nothing else, so any day can be recomputed at any time.
+Parquet partition per table, arrivals and trips. It handles one day, and
+rerunning a day replaces that day and touches nothing else, so any day can be
+recomputed at any time.
 
-`aggregate` reads every partition written so far and produces the small JSON
-files a browser fetches. It handles all days at once, because a median over one
+`aggregate` reads every partition of one layout version and produces the small
+JSON files a browser fetches. It handles all days at once, because a median over one
 Tuesday is not an answer to "is my bus usually late".
 """
 
