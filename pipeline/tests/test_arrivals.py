@@ -14,7 +14,7 @@ from howlate_pipeline import arrivals
 
 
 @pytest.fixture(scope="module")
-def result(tmp_path_factory):
+def con(tmp_path_factory):
     """Run the real pipeline steps on the fixture day, once for every test."""
     root = tmp_path_factory.mktemp("day")
     raw = build_raw(root / "raw")
@@ -25,14 +25,18 @@ def result(tmp_path_factory):
     arrivals.load_observations(con, files, SERVICE_DATE)
     arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE)
     arrivals.match(con, SERVICE_DATE)
+    arrivals.trips(con)
+    return con
 
-    result = con.sql("""
+
+@pytest.fixture(scope="module")
+def result(con):
+    return con.sql("""
         SELECT trip_id, stop_sequence, source, delay_seconds,
                epoch(scheduled_time) AS scheduled, epoch(actual_time) AS actual,
                is_origin, is_terminus, vehicle_id, epoch(departure_time) AS departure
         FROM arrivals
     """).fetchall()
-    return result
 
 
 @pytest.fixture(scope="module")
@@ -51,9 +55,10 @@ def at(moment: datetime) -> int:
 
 
 def test_every_scheduled_stop_has_exactly_one_row(result, rows):
-    assert len(result) == 6
+    assert len(result) == 8
     assert sorted(rows) == [
         ("T1", 1), ("T1", 2), ("T1", 3), ("T1", 4), ("T2", 1), ("T2", 2),
+        ("T3", 1), ("T3", 2),
     ]  # fmt: skip
 
 
@@ -160,3 +165,43 @@ def test_departure_is_the_last_stopped_at(rows):
 def test_no_departure_where_the_vehicle_never_reported_stopping(rows):
     assert rows[("T1", 3)]["departure"] is None
     assert rows[("T1", 4)]["departure"] is None
+
+
+@pytest.fixture(scope="module")
+def trips(con):
+    names = ["trip_id", "reports", "first_seen", "last_seen", "vehicles", "vehicle_id",
+             "stops_scheduled", "stops_observed"]  # fmt: skip
+    found = con.sql("""
+        SELECT trip_id, reports, epoch(first_seen), epoch(last_seen), vehicles,
+               vehicle_id, stops_scheduled, stops_observed
+        FROM trips
+    """).fetchall()
+    return {row[0]: dict(zip(names, row, strict=True)) for row in found}
+
+
+def test_one_trips_row_per_scheduled_trip(trips):
+    assert sorted(trips) == ["T1", "T2", "T3"]
+
+
+def test_a_trip_with_no_reports_shows_as_never_seen(trips):
+    t3 = trips["T3"]
+    assert t3["reports"] == 0
+    assert t3["first_seen"] is None
+    assert t3["vehicle_id"] is None
+    assert (t3["stops_scheduled"], t3["stops_observed"]) == (2, 0)
+
+
+def test_a_partly_observed_trip_counts_its_observed_stops(trips):
+    # T1: stops 1 to 3 observed, stop 4 never. The 17th's and 19th's T1
+    # reports belong to other days and are not counted.
+    t1 = trips["T1"]
+    assert (t1["stops_scheduled"], t1["stops_observed"]) == (4, 3)
+    assert t1["reports"] == 8
+    assert t1["first_seen"] == at(local(18, 7, 50))
+    assert t1["last_seen"] == at(local(18, 8, 21))
+
+
+def test_trip_vehicles_count_every_vehicle_that_carried_it(trips):
+    assert trips["T1"]["vehicles"] == 2
+    assert trips["T1"]["vehicle_id"] == "5816"  # the first to report
+    assert trips["T2"]["vehicles"] == 2

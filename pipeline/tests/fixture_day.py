@@ -27,6 +27,9 @@ What the vehicles reported, and the answer each one should produce:
     T2 stop 1  STOPPED_AT 23:51, 60 s after the scheduled departure
     T2 stop 2  STOPPED_AT 01:33 on 19 August, 180 s late
 
+T3 is scheduled (12:00 and 12:15) and nothing ever reported it: a trip the
+feed never saw.
+
 Which vehicle, and when it left:
 
     T1 stops 1-2 are vehicle 5816; T1 switches to 5900 before stop 3
@@ -67,6 +70,8 @@ SCHEDULE = [
     ("T1", 4, "D", "08:30:00", "08:30:00"),
     ("T2", 1, "E", "23:50:00", "23:50:00"),
     ("T2", 2, "F", "25:30:00", "25:30:00"),
+    ("T3", 1, "G", "12:00:00", "12:00:00"),
+    ("T3", 2, "H", "12:15:00", "12:15:00"),
 ]
 
 REPORTS = [
@@ -118,7 +123,11 @@ def build_timetable(directory: Path, *, services: bool = True) -> Path:
     write_csv(
         directory / "trips.txt",
         ["route_id", "service_id", "trip_id", "direction_id"],
-        [["720-13201", "WK", "T1", "0"], ["720-13201", "WK", "T2", "0"]],
+        [
+            ["720-13201", "WK", "T1", "0"],
+            ["720-13201", "WK", "T2", "0"],
+            ["720-13201", "WK", "T3", "1"],
+        ],
     )
     write_csv(
         directory / "stop_times.txt",
