@@ -3,7 +3,8 @@
 Service day 2026-08-18, a Tuesday. Los Angeles is on daylight time (UTC-7), so
 GTFS times on this day count from 2026-08-18 07:00 UTC.
 
-Two trips on line 720, both in the timetable and both with position reports:
+Three trips on line 720, all in the timetable. T1 and T2 have position
+reports; T3 has none:
 
     T1  stop 1 (A) 07:58, leaves 08:00   origin
         stop 2 (B) 08:10, leaves 08:11
@@ -27,6 +28,9 @@ What the vehicles reported, and the answer each one should produce:
                a row with no delay, source none
     T2 stop 1  STOPPED_AT 23:51, 60 s after the scheduled departure
     T2 stop 2  STOPPED_AT 01:33 on 19 August, 180 s late
+
+T3 is scheduled (12:00 and 12:15) and nothing ever reported it: a trip the
+feed never saw.
 
 Which vehicle, and when it left:
 
@@ -73,6 +77,8 @@ SCHEDULE = [
     ("T1", 4, "D", "08:30:00", "08:30:00"),
     ("T2", 1, "E", "23:50:00", "23:50:00"),
     ("T2", 2, "F", "25:30:00", "25:30:00"),
+    ("T3", 1, "G", "12:00:00", "12:00:00"),
+    ("T3", 2, "H", "12:15:00", "12:15:00"),
 ]
 
 REPORTS = [
@@ -119,7 +125,7 @@ def write_csv(path: Path, header: list[str], rows: list[list]) -> None:
 
 
 def build_timetable(directory: Path, *, services: bool = True) -> Path:
-    """A bus timetable holding T1 and T2.
+    """A bus timetable holding T1, T2 and T3.
 
     With services=False the calendar lists nothing running on the service day,
     which is what a copy fetched the morning after looks like.
@@ -135,7 +141,11 @@ def build_timetable(directory: Path, *, services: bool = True) -> Path:
     write_csv(
         directory / "trips.txt",
         ["route_id", "service_id", "trip_id", "direction_id"],
-        [["720-13201", "WK", "T1", "0"], ["720-13201", "WK", "T2", "0"]],
+        [
+            ["720-13201", "WK", "T1", "0"],
+            ["720-13201", "WK", "T2", "0"],
+            ["720-13201", "WK", "T3", "1"],
+        ],
     )
     write_csv(
         directory / "stop_times.txt",

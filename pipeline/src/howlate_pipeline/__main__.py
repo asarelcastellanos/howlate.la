@@ -54,6 +54,7 @@ def run_arrivals(args: argparse.Namespace) -> int:
     arrivals.load_observations(con, files, service_date)
     arrivals.load_schedule(con, directories, service_date)
     arrivals.match(con, service_date)
+    arrivals.trips(con)
 
     path = arrivals.write(con, args.out, service_date)
     size = path.stat().st_size

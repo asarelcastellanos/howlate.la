@@ -333,6 +333,52 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
     """)
 
 
+def trips(con: duckdb.DuckDBPyConnection) -> None:
+    """One row per scheduled trip: whether it was seen, when, and by what.
+
+    Metro marks every trip SCHEDULED and never flags a cancellation, so a trip
+    that did not run looks exactly like one that ran with its tracker off. This
+    table records what was seen and leaves that judgement to later. It counts
+    every report for the trip, including ones at stop sequences the timetable
+    does not list, because a vehicle that reported at all was there.
+
+    Run after match(), which builds the arrivals rows counted here.
+    """
+    con.execute("""
+        CREATE OR REPLACE TABLE trips AS
+        WITH seen AS (
+            SELECT agency, trip_id,
+                   count(*)                   AS reports,
+                   min(ts)                    AS first_ts,
+                   max(ts)                    AS last_ts,
+                   count(DISTINCT vehicle_id) AS vehicles,
+                   -- The vehicle that reported first, ties broken by id so a
+                   -- rerun agrees. _null keeps an id-less first report as
+                   -- unknown instead of naming a later vehicle.
+                   arg_min_null(vehicle_id, {'t': ts, 'v': vehicle_id}) AS first_vehicle
+            FROM observations
+            GROUP BY agency, trip_id
+        ),
+        planned AS (
+            SELECT service_date, agency, line, route_id, direction_id, trip_id,
+                   min(scheduled_time)                       AS scheduled_start,
+                   max(scheduled_time)                       AS scheduled_end,
+                   count(*)                                  AS stops_scheduled,
+                   count(*) FILTER (WHERE source <> 'none')  AS stops_observed
+            FROM arrivals
+            GROUP BY service_date, agency, line, route_id, direction_id, trip_id
+        )
+        SELECT p.*,
+               coalesce(s.reports, 0)        AS reports,
+               to_timestamp(s.first_ts)      AS first_seen,
+               to_timestamp(s.last_ts)       AS last_seen,
+               coalesce(s.vehicles, 0)       AS vehicles,
+               s.first_vehicle               AS vehicle_id
+        FROM planned p
+        LEFT JOIN seen s USING (agency, trip_id)
+    """)
+
+
 def write(con: duckdb.DuckDBPyConnection, out: Path, service_date: str) -> Path:
     """Write the day, replacing whatever was there before.
 
