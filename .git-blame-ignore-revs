@@ -1,0 +1,5 @@
+# Formatting-only commits, skipped by git blame.
+# Use: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Format both packages with ruff
+9243650db9dc51209b4af3a03900efb8d12fcfde
