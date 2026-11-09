@@ -104,9 +104,7 @@ class RotatingFile:
             self._open()
 
         self._file.write(
-            f'{{"received_at":"{stamp(utc_now())}"'
-            f',"agency":"{agency}"'
-            f',"payload":{message}}}\n'
+            f'{{"received_at":"{stamp(utc_now())}","agency":"{agency}","payload":{message}}}\n'
         )
         # Per line, so a hard kill loses nothing already accepted. Cheap enough
         # to be worth it: 400 messages a second is about 200 KB/s.

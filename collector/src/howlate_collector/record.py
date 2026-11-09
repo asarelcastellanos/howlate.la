@@ -89,9 +89,7 @@ async def heartbeat(suffix: str = "") -> None:
         print(f"  heartbeat failed ({type(error).__name__}), continuing anyway")
 
 
-async def feed(
-    agency: str, codes: list[str], spool: RotatingFile, stopping: asyncio.Event
-) -> None:
+async def feed(agency: str, codes: list[str], spool: RotatingFile, stopping: asyncio.Event) -> None:
     """Keep one feed connected and delivering, and write whatever arrives.
 
     One of these per feed, each holding its own backoff, so a rail connection
@@ -122,9 +120,7 @@ async def feed(
 
                 while not stopping.is_set():
                     try:
-                        message = await asyncio.wait_for(
-                            socket.recv(), timeout=CHECK_SECONDS
-                        )
+                        message = await asyncio.wait_for(socket.recv(), timeout=CHECK_SECONDS)
                     except TimeoutError:
                         quiet = time.monotonic() - last_message
                         if quiet < STALE_SECONDS:
@@ -133,8 +129,10 @@ async def feed(
                         # opens a new one immediately. No backoff: this is not a
                         # server refusing connections, it is one handing out a
                         # connection that does not work, and the next one may.
-                        print(f"  [{agency}] connected but silent for "
-                              f"{quiet / 60:.0f} min, reconnecting")
+                        print(
+                            f"  [{agency}] connected but silent for "
+                            f"{quiet / 60:.0f} min, reconnecting"
+                        )
                         break
 
                     last_message = time.monotonic()
@@ -145,7 +143,9 @@ async def feed(
         except Exception as error:
             if stopping.is_set():
                 break
-            print(f"  [{agency}] lost connection ({type(error).__name__}), retrying in {backoff:.0f}s")
+            print(
+                f"  [{agency}] lost connection ({type(error).__name__}), retrying in {backoff:.0f}s"
+            )
 
             waited = 0.0
             while waited < backoff and not stopping.is_set():
@@ -190,8 +190,7 @@ async def rotator(spool: RotatingFile, stopping: asyncio.Event) -> None:
         await asyncio.sleep(CHECK_SECONDS)
         if not spool.due():
             if time.monotonic() - last_delivery >= ALARM_SECONDS:
-                print(f"  nothing from either feed in {ALARM_SECONDS // 60} min, "
-                      f"raising the alarm")
+                print(f"  nothing from either feed in {ALARM_SECONDS // 60} min, raising the alarm")
                 await heartbeat("/fail")
                 # Reset, so a long outage reports every ALARM_SECONDS rather
                 # than once. A watcher hearing nothing further cannot tell a

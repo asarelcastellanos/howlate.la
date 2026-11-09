@@ -93,7 +93,9 @@ def snapshot(bucket: storage.Bucket, feed: str, source: str, recorded: list[str]
         print(f"  {feed}: unchanged since last check ({etag[:8]}), nothing to do")
         return False
 
-    print(f"  {feed}: changed (was {(previous or 'nothing')[:8]}, now {etag[:8] or '?'}), downloading")
+    print(
+        f"  {feed}: changed (was {(previous or 'nothing')[:8]}, now {etag[:8] or '?'}), downloading"
+    )
     response = requests.get(source, timeout=600)
     response.raise_for_status()
 
