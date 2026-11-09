@@ -23,12 +23,13 @@ def con(tmp_path_factory):
 
 def test_summarise_counts_the_fixture_day(con):
     stats = report.summarise(con)
-    assert stats["scheduled_stops"] == 6
-    # Every stop but T1's last: 2 origin departures, 2 stopped_at, 1 approach.
+    assert stats["scheduled_stops"] == 8
+    # T1's last stop and both of T3's were never seen. The rest: 2 origin
+    # departures, 2 stopped_at, 1 approach.
     assert stats["measured"] == 5
     assert stats["stopped"] == 2
     assert stats["approached"] == 1
-    assert stats["trips"] == 2
+    assert stats["trips"] == 3
 
 
 def test_show_runs_to_the_end(con, capsys):
