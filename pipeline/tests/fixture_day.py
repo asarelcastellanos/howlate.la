@@ -7,7 +7,7 @@ Two trips on line 720, both in the timetable and both with position reports:
 
     T1  stop 1 (A) 07:58, leaves 08:00   origin
         stop 2 (B) 08:10, leaves 08:11
-        stop 3 (C) 08:20
+        stop 3 (C) 08:19, leaves 08:20
         stop 4 (D) 08:30   terminus
 
     T2  stop 1 (E) 23:50   origin
@@ -21,7 +21,8 @@ What the vehicles reported, and the answer each one should produce:
     T1 stop 2  IN_TRANSIT_TO 08:11, then STOPPED_AT 08:12:00 and 08:12:30
                the first STOPPED_AT is the arrival: 120 s late, stopped_at
     T1 stop 3  IN_TRANSIT_TO 08:19 and 08:21, never STOPPED_AT
-               the last approach stands in: 60 s late, approach
+               the last approach stands in: 120 s after the 08:19
+               arrival, approach
     T1 stop 4  nothing
                a row with no delay, source none
     T2 stop 1  STOPPED_AT 23:51, 60 s after the scheduled departure
@@ -52,11 +53,11 @@ def local(day: int, hour: int, minute: int, second: int = 0) -> datetime:
 
 SCHEDULE = [
     # trip, stop_sequence, stop_id, arrival, departure
-    # Arrival and departure differ at A and B, so a delay measured from the
-    # wrong one of the two is off by minutes and fails.
+    # Arrival and departure differ at A, B and C, one stop per way of timing
+    # an arrival, so a delay measured from the wrong one of the two fails.
     ("T1", 1, "A", "07:58:00", "08:00:00"),
     ("T1", 2, "B", "08:10:00", "08:11:00"),
-    ("T1", 3, "C", "08:20:00", "08:20:00"),
+    ("T1", 3, "C", "08:19:00", "08:20:00"),
     ("T1", 4, "D", "08:30:00", "08:30:00"),
     ("T2", 1, "E", "23:50:00", "23:50:00"),
     ("T2", 2, "F", "25:30:00", "25:30:00"),
