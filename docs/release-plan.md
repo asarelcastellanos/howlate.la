@@ -157,7 +157,7 @@ All of these run on the fixture day.
 - At the first stop, the time is the last `STOPPED_AT` and the row is labeled
   `origin_departure`.
 - Mid-route with several `STOPPED_AT` messages, the arrival is the first one
-  and `departure_time` is the last one.
+  and `departure_time` is the arriving vehicle's own last one.
 - With only `IN_TRANSIT_TO` messages, the arrival is the last one and the row
   is labeled `approach`.
 - A stop with no messages still has a row, with an empty delay and source
