@@ -19,6 +19,10 @@ dependencies = [
     "google-cloud-storage>=2.18",  # fetching the raw archive and the timetables
 ]
 
+# Only for running the tests. Never installed where the pipeline runs.
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
