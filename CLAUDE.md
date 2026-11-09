@@ -22,8 +22,9 @@ Each package installs on its own. Never add a pipeline or site dependency to
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e collector -e pipeline ruff
+.venv/bin/pip install -e collector -e "pipeline[test]" ruff
 .venv/bin/python collector/tests/test_record.py   # collector tests
+.venv/bin/python -m pytest pipeline/tests         # pipeline tests
 .venv/bin/ruff check .                            # lint
 .venv/bin/ruff format --check .                   # formatting
 ```
