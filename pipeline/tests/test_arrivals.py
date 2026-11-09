@@ -162,6 +162,22 @@ def test_departure_is_the_last_stopped_at(rows):
     assert rows[("T1", 2)]["departure"] == at(local(18, 8, 12, 30))
 
 
+def test_a_later_bus_at_the_same_stop_does_not_take_the_row(rows):
+    # 5000 stopped at B at 08:20, after 5816 arrived. The arrival, the vehicle
+    # and the departure all stay 5816's.
+    stop = rows[("T1", 2)]
+    assert stop["vehicle"] == "5816"
+    assert stop["actual"] == at(local(18, 8, 12))
+    assert stop["departure"] == at(local(18, 8, 12, 30))
+
+
+def test_the_origin_vehicle_is_the_one_that_left(rows):
+    # 5999 laid over first; 6001 left at 23:51 and is the departure.
+    stop = rows[("T2", 1)]
+    assert stop["vehicle"] == "6001"
+    assert stop["actual"] == at(local(18, 23, 51))
+
+
 def test_no_departure_where_the_vehicle_never_reported_stopping(rows):
     assert rows[("T1", 3)]["departure"] is None
     assert rows[("T1", 4)]["departure"] is None
@@ -196,12 +212,42 @@ def test_a_partly_observed_trip_counts_its_observed_stops(trips):
     # reports belong to other days and are not counted.
     t1 = trips["T1"]
     assert (t1["stops_scheduled"], t1["stops_observed"]) == (4, 3)
-    assert t1["reports"] == 8
+    assert t1["reports"] == 9
     assert t1["first_seen"] == at(local(18, 7, 50))
     assert t1["last_seen"] == at(local(18, 8, 21))
 
 
 def test_trip_vehicles_count_every_vehicle_that_carried_it(trips):
-    assert trips["T1"]["vehicles"] == 2
-    assert trips["T1"]["vehicle_id"] == "5816"  # the first to report
-    assert trips["T2"]["vehicles"] == 2
+    # T1: 5816, 5900, and 5000 at stop 2. T2: 5999, 6001 and 6002.
+    assert trips["T1"]["vehicles"] == 3
+    assert trips["T2"]["vehicles"] == 3
+
+
+def test_a_trips_vehicle_is_the_first_to_report_not_the_lowest_id(trips):
+    # 5000 has the lowest id on T1 but reported last; 5816 reported first.
+    assert trips["T1"]["vehicle_id"] == "5816"
+    assert trips["T2"]["vehicle_id"] == "5999"
+
+
+def test_a_report_without_a_vehicle_id_is_not_credited_to_another(tmp_path):
+    # The last approach to C carries no vehicle id. It still sets the time, so
+    # the row must say the vehicle is unknown rather than name 5900, whose
+    # report did not set it.
+    con = arrivals.connect()
+    files = arrivals.local_files(build_raw(tmp_path / "raw"), SERVICE_DATE)
+    arrivals.load_observations(con, files, SERVICE_DATE)
+    con.execute(
+        "INSERT INTO observations BY NAME SELECT 'LACMTA' AS agency, ? AS service_date, "
+        "'T1' AS trip_id, 'IN_TRANSIT_TO' AS status, 3 AS stop_sequence, 'C' AS stop_id, "
+        "NULL AS vehicle_id, ? AS ts",
+        [SERVICE_DATE, at(local(18, 8, 22))],
+    )
+    timetable = build_timetable(tmp_path / "gtfs_bus")
+    arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE)
+    arrivals.match(con, SERVICE_DATE)
+    actual, vehicle = con.sql(
+        "SELECT epoch(actual_time), vehicle_id FROM arrivals "
+        "WHERE trip_id = 'T1' AND stop_sequence = 3"
+    ).fetchall()[0]
+    assert actual == at(local(18, 8, 22))
+    assert vehicle is None
