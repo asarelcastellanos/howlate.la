@@ -28,6 +28,18 @@ What the vehicles reported, and the answer each one should produce:
     T2 stop 1  STOPPED_AT 23:51, 60 s after the scheduled departure
     T2 stop 2  STOPPED_AT 01:33 on 19 August, 180 s late
 
+Which vehicle, and when it left:
+
+    T1 stops 1-2 are vehicle 5816; T1 switches to 5900 before stop 3
+    at T1 stop 2 a second bus, 5000, also stops at 08:20; 5816 arrived first,
+    so the row is 5816's, and its departure is 5816's own last STOPPED_AT
+    departure_time: 08:01:30 at stop 1, 08:12:30 at stop 2, and empty at
+    stops 3 and 4, which never reported stopping
+    T2's origin: 5999 lays over from 23:40 and 6001 leaves at 23:51, so the
+    departure and the vehicle are 6001's
+    T2 stop 2 has 6001 and 6002 in the same second; the first report goes to
+    the lowest id, 6001
+
 T2's reports are after midnight UTC, so they sit in the dt=2026-08-19
 partition. Two reports belong to other service days and must be ignored: the
 17th's T1 at stop 2, in the 2026-08-18 partition, and the 19th's T1 at stop 4,
@@ -64,23 +76,38 @@ SCHEDULE = [
 ]
 
 REPORTS = [
-    # trip, start date, stop_sequence, stop_id, status, moment
-    ("T1", SERVICE_DATE, 1, "A", "STOPPED_AT", local(18, 7, 50)),
-    ("T1", SERVICE_DATE, 1, "A", "STOPPED_AT", local(18, 7, 58)),
-    ("T1", SERVICE_DATE, 1, "A", "STOPPED_AT", local(18, 8, 1, 30)),
-    ("T1", SERVICE_DATE, 2, "B", "IN_TRANSIT_TO", local(18, 8, 11)),
-    ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 12)),
-    ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 12, 30)),
-    ("T1", SERVICE_DATE, 3, "C", "IN_TRANSIT_TO", local(18, 8, 19)),
-    ("T1", SERVICE_DATE, 3, "C", "IN_TRANSIT_TO", local(18, 8, 21)),
-    ("T2", SERVICE_DATE, 1, "E", "STOPPED_AT", local(18, 23, 51)),
-    ("T2", SERVICE_DATE, 2, "F", "STOPPED_AT", local(19, 1, 33)),
+    # trip, start date, stop_sequence, stop_id, status, moment, vehicle
+    ("T1", SERVICE_DATE, 1, "A", "STOPPED_AT", local(18, 7, 50), "5816"),
+    ("T1", SERVICE_DATE, 1, "A", "STOPPED_AT", local(18, 7, 58), "5816"),
+    ("T1", SERVICE_DATE, 1, "A", "STOPPED_AT", local(18, 8, 1, 30), "5816"),
+    ("T1", SERVICE_DATE, 2, "B", "IN_TRANSIT_TO", local(18, 8, 11), "5816"),
+    ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 12), "5816"),
+    ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 12, 30), "5816"),
+    # A second bus claims T1 and stops at B later. It is not the arrival, and
+    # its 08:20 is not when 5816 left. Its lower id catches a rule that picks
+    # vehicles by sorting instead of by time.
+    ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 20), "5000"),
+    # T1 changes vehicles after stop 2: 5900 carries it on from here.
+    ("T1", SERVICE_DATE, 3, "C", "IN_TRANSIT_TO", local(18, 8, 19), "5900"),
+    ("T1", SERVICE_DATE, 3, "C", "IN_TRANSIT_TO", local(18, 8, 21), "5900"),
+    # At T2's origin one bus lays over and another leaves. The one that leaves
+    # is the departure, and it has the higher id.
+    ("T2", SERVICE_DATE, 1, "E", "STOPPED_AT", local(18, 23, 40), "5999"),
+    ("T2", SERVICE_DATE, 1, "E", "STOPPED_AT", local(18, 23, 51), "6001"),
+    # Two vehicles claim the same trip and stop in the same second. Rare, but
+    # it must resolve the same way on every rerun. For a first report the
+    # lowest id wins, for a last report the highest.
+    # Without the id tie-break, which of two equal rows wins depends on read
+    # order, which DuckDB does not promise. In this order a missing tie-break
+    # failed the tests in 4 runs of 5, so the order is kept as it is.
+    ("T2", SERVICE_DATE, 2, "F", "STOPPED_AT", local(19, 1, 33), "6001"),
+    ("T2", SERVICE_DATE, 2, "F", "STOPPED_AT", local(19, 1, 33), "6002"),
     # The previous service day's T1, still reporting. Same trip and stop, so
     # only the start date keeps it out of this day's answer.
-    ("T1", "20260817", 2, "B", "STOPPED_AT", local(18, 0, 5)),
+    ("T1", "20260817", 2, "B", "STOPPED_AT", local(18, 0, 5), "4100"),
     # The next service day's T1, at the stop this day never saw. Only the
     # start date keeps it from turning stop 4 into an observed arrival.
-    ("T1", "20260819", 4, "D", "STOPPED_AT", local(19, 8, 30)),
+    ("T1", "20260819", 4, "D", "STOPPED_AT", local(19, 8, 30), "4200"),
 ]
 
 
@@ -121,7 +148,9 @@ def build_timetable(directory: Path, *, services: bool = True) -> Path:
 _DOW = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 
-def record(trip: str, start: str, seq: int, stop: str, status: str, moment: datetime) -> dict:
+def record(
+    trip: str, start: str, seq: int, stop: str, status: str, moment: datetime, vehicle: str
+) -> dict:
     """One line of the raw archive, shaped as the collector writes it."""
     return {
         "received_at": moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
@@ -133,7 +162,7 @@ def record(trip: str, start: str, seq: int, stop: str, status: str, moment: date
                 "currentStatus": status,
                 "timestamp": str(int(moment.timestamp())),
                 "stopId": stop,
-                "vehicle": {"id": "5816"},
+                "vehicle": {"id": vehicle},
             }
         },
     }
@@ -142,13 +171,13 @@ def record(trip: str, start: str, seq: int, stop: str, status: str, moment: date
 def build_raw(directory: Path) -> Path:
     """The archive layout: one file per UTC hour, under dt= and hh= partitions."""
     by_file: dict[Path, list[dict]] = {}
-    for trip, start, seq, stop, status, moment in REPORTS:
+    for trip, start, seq, stop, status, moment, vehicle in REPORTS:
         moment_utc = moment.astimezone(UTC)
         folder = (
             directory / "vehicle_positions" / f"dt={moment_utc:%Y-%m-%d}" / f"hh={moment_utc:%H}"
         )
         path = folder / f"vehicle_positions-{moment_utc:%Y%m%dT%H}0000Z.jsonl.gz"
-        by_file.setdefault(path, []).append(record(trip, start, seq, stop, status, moment))
+        by_file.setdefault(path, []).append(record(trip, start, seq, stop, status, moment, vehicle))
 
     for path, rows in by_file.items():
         path.parent.mkdir(parents=True, exist_ok=True)

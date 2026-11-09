@@ -29,7 +29,7 @@ def result(tmp_path_factory):
     result = con.sql("""
         SELECT trip_id, stop_sequence, source, delay_seconds,
                epoch(scheduled_time) AS scheduled, epoch(actual_time) AS actual,
-               is_origin, is_terminus
+               is_origin, is_terminus, vehicle_id, epoch(departure_time) AS departure
         FROM arrivals
     """).fetchall()
     return result
@@ -39,7 +39,10 @@ def result(tmp_path_factory):
 def rows(result):
     """The same rows keyed by trip and stop. Duplicates collapse here, which is
     why the row count is checked on `result` instead."""
-    keys = ["source", "delay", "scheduled", "actual", "is_origin", "is_terminus"]
+    keys = [
+        "source", "delay", "scheduled", "actual",
+        "is_origin", "is_terminus", "vehicle", "departure",
+    ]  # fmt: skip
     return {(trip, seq): dict(zip(keys, rest, strict=True)) for trip, seq, *rest in result}
 
 
@@ -95,7 +98,7 @@ def test_a_time_past_24_00_lands_on_the_next_calendar_day(rows):
 
 
 def test_a_trip_crossing_midnight_is_read_from_the_next_partition(rows):
-    # Both T2 reports are after 00:00 UTC on the 19th, so they live only in
+    # Every T2 report is after 00:00 UTC on the 19th, so they live only in
     # dt=2026-08-19. Reading the service date's own partition alone would
     # leave T2 unobserved.
     assert rows[("T2", 1)]["delay"] == 60
@@ -132,3 +135,85 @@ def test_fixture_moments_are_in_daylight_time():
     # Guards the fixture itself: every expected value above assumes UTC-7.
     assert local(18, 8, 0).utcoffset().total_seconds() == -7 * 3600
     assert local(18, 8, 0).tzinfo is LA
+
+
+def test_vehicle_is_the_one_whose_report_set_the_time(rows):
+    assert rows[("T1", 1)]["vehicle"] == "5816"
+    assert rows[("T1", 2)]["vehicle"] == "5816"
+    assert rows[("T1", 4)]["vehicle"] is None
+
+
+def test_a_vehicle_change_partway_follows_the_new_vehicle(rows):
+    # 5900 took over T1 before stop 3, and its approach set that stop's time.
+    assert rows[("T1", 3)]["vehicle"] == "5900"
+
+
+def test_two_vehicles_in_the_same_second_resolve_the_same_way_every_time(rows):
+    assert rows[("T2", 2)]["vehicle"] == "6001"
+
+
+def test_departure_is_the_arriving_vehicles_own_last_stopped_at(rows):
+    assert rows[("T1", 1)]["departure"] == at(local(18, 8, 1, 30))
+    assert rows[("T1", 2)]["departure"] == at(local(18, 8, 12, 30))
+
+
+def test_a_later_bus_at_the_same_stop_does_not_take_the_row(rows):
+    # 5000 stopped at B at 08:20, after 5816 arrived. The arrival, the vehicle
+    # and the departure all stay 5816's.
+    stop = rows[("T1", 2)]
+    assert stop["vehicle"] == "5816"
+    assert stop["actual"] == at(local(18, 8, 12))
+    assert stop["departure"] == at(local(18, 8, 12, 30))
+
+
+def test_the_origin_vehicle_is_the_one_that_left(rows):
+    # 5999 laid over first; 6001 left at 23:51 and is the departure.
+    stop = rows[("T2", 1)]
+    assert stop["vehicle"] == "6001"
+    assert stop["actual"] == at(local(18, 23, 51))
+    assert stop["departure"] == at(local(18, 23, 51))
+
+
+def test_no_departure_where_the_vehicle_never_reported_stopping(rows):
+    assert rows[("T1", 3)]["departure"] is None
+    assert rows[("T1", 4)]["departure"] is None
+
+
+def with_idless_reports(tmp_path, reports):
+    """The fixture day with extra reports that carry no vehicle id."""
+    con = arrivals.connect()
+    files = arrivals.local_files(build_raw(tmp_path / "raw"), SERVICE_DATE)
+    arrivals.load_observations(con, files, SERVICE_DATE)
+    for trip, seq, stop, status, moment in reports:
+        con.execute(
+            "INSERT INTO observations BY NAME SELECT 'LACMTA' AS agency, ? AS service_date, "
+            "? AS trip_id, ? AS status, ? AS stop_sequence, ? AS stop_id, "
+            "NULL AS vehicle_id, ? AS ts",
+            [SERVICE_DATE, trip, status, seq, stop, at(moment)],
+        )
+    arrivals.load_schedule(con, {"LACMTA": build_timetable(tmp_path / "gtfs_bus")}, SERVICE_DATE)
+    arrivals.match(con, SERVICE_DATE)
+    return con
+
+
+def row(con, trip, seq):
+    return con.sql(
+        "SELECT epoch(actual_time), vehicle_id, epoch(departure_time) FROM arrivals "
+        f"WHERE trip_id = '{trip}' AND stop_sequence = {seq}"
+    ).fetchall()[0]
+
+
+def test_an_idless_report_that_sets_the_time_leaves_the_vehicle_unknown(tmp_path):
+    con = with_idless_reports(tmp_path, [
+        # The last approach to C: sets C's time, which was 5900's 08:21.
+        ("T1", 3, "C", "IN_TRANSIT_TO", local(18, 8, 22)),
+        # A STOPPED_AT at B before 5816's 08:12: the new arrival.
+        ("T1", 2, "B", "STOPPED_AT", local(18, 8, 11, 30)),
+        # The last STOPPED_AT at T2's origin, after 6001's 23:51: the departure.
+        ("T2", 1, "E", "STOPPED_AT", local(18, 23, 52)),
+    ])  # fmt: skip
+    assert row(con, "T1", 3)[:2] == (at(local(18, 8, 22)), None)
+    # Mid-route, the arriving bus has no id, so its departure cannot be told
+    # apart from another bus's and is left empty.
+    assert row(con, "T1", 2) == (at(local(18, 8, 11, 30)), None, None)
+    assert row(con, "T2", 1) == (at(local(18, 23, 52)), None, at(local(18, 23, 52)))

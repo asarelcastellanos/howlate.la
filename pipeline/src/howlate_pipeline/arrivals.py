@@ -48,6 +48,7 @@ SELECT
   json_extract_string(j, '$.payload.vehicle.currentStatus')    AS status,
   CAST(json_extract_string(j, '$.payload.vehicle.currentStopSequence') AS INTEGER) AS stop_sequence,
   json_extract_string(j, '$.payload.vehicle.stopId')           AS stop_id,
+  json_extract_string(j, '$.payload.vehicle.vehicle.id')       AS vehicle_id,
   CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts
 FROM read_json_objects(?) t(j)
 """
@@ -227,16 +228,53 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
     """
     con.execute("""
         CREATE OR REPLACE TABLE observed AS
-        SELECT
-          agency, trip_id, stop_sequence,
-          min(ts) FILTER (WHERE status = 'STOPPED_AT')    AS first_stopped,
-          max(ts) FILTER (WHERE status = 'STOPPED_AT')    AS last_stopped,
-          max(ts) FILTER (WHERE status = 'IN_TRANSIT_TO') AS last_approach,
-          count(*) FILTER (WHERE status = 'IN_TRANSIT_TO') > 0 AS in_transit_seen,
-          count(DISTINCT stop_id) AS distinct_stop_ids,
-          any_value(stop_id)      AS reported_stop_id
-        FROM observations
-        GROUP BY agency, trip_id, stop_sequence
+        -- Each vehicle's own story at each stop first, so that a vehicle and
+        -- the times credited to it always come from the same bus. A trip can
+        -- be claimed by two vehicles at once, or swap vehicles at a stop.
+        WITH per_vehicle AS (
+            SELECT
+              agency, trip_id, stop_sequence, vehicle_id,
+              min(ts) FILTER (WHERE status = 'STOPPED_AT')    AS first_stopped,
+              max(ts) FILTER (WHERE status = 'STOPPED_AT')    AS last_stopped,
+              max(ts) FILTER (WHERE status = 'IN_TRANSIT_TO') AS last_approach
+            FROM observations
+            GROUP BY agency, trip_id, stop_sequence, vehicle_id
+        ),
+        chosen AS (
+            -- The _null variants keep a report with no vehicle id in the
+            -- running, so a missing id shows up as a missing id rather than
+            -- as another vehicle's. Same-second ties go by id: the lowest for
+            -- a first report, the highest for a last one.
+            SELECT
+              agency, trip_id, stop_sequence,
+              min(first_stopped)  AS first_stopped,
+              max(last_stopped)   AS last_stopped,
+              max(last_approach)  AS last_approach,
+              arg_min_null(vehicle_id, {'t': first_stopped, 'v': vehicle_id})
+                FILTER (WHERE first_stopped IS NOT NULL) AS first_stopped_vehicle,
+              -- When the vehicle that arrived first left: its own last
+              -- STOPPED_AT, not the last one by any vehicle.
+              arg_min_null(last_stopped, {'t': first_stopped, 'v': vehicle_id})
+                FILTER (WHERE first_stopped IS NOT NULL) AS first_vehicle_left,
+              arg_max_null(vehicle_id, {'t': last_stopped, 'v': vehicle_id})
+                FILTER (WHERE last_stopped IS NOT NULL)  AS last_stopped_vehicle,
+              arg_max_null(vehicle_id, {'t': last_approach, 'v': vehicle_id})
+                FILTER (WHERE last_approach IS NOT NULL) AS last_approach_vehicle
+            FROM per_vehicle
+            GROUP BY agency, trip_id, stop_sequence
+        ),
+        reported AS (
+            SELECT
+              agency, trip_id, stop_sequence,
+              count(*) FILTER (WHERE status = 'IN_TRANSIT_TO') > 0 AS in_transit_seen,
+              count(DISTINCT stop_id) AS distinct_stop_ids,
+              -- min, not any_value: any_value differs between runs when a
+              -- stop reported two stop_ids, and report.py compares this.
+              min(stop_id)            AS reported_stop_id
+            FROM observations
+            GROUP BY agency, trip_id, stop_sequence
+        )
+        SELECT * FROM chosen JOIN reported USING (agency, trip_id, stop_sequence)
     """)
 
     con.execute(f"""
@@ -265,6 +303,24 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
             WHEN NOT s.is_origin AND o.last_approach IS NOT NULL THEN 'approach'
             ELSE 'none'
           END AS source,
+          -- The vehicle whose report set actual_time. A trip can change
+          -- vehicles partway, so this can differ from stop to stop.
+          CASE
+            WHEN s.is_origin THEN o.last_stopped_vehicle
+            WHEN o.first_stopped IS NOT NULL THEN o.first_stopped_vehicle
+            ELSE o.last_approach_vehicle
+          END AS vehicle_id,
+          -- When that same vehicle left: its own last STOPPED_AT there. At
+          -- the origin that is the departure already measured. Empty when it
+          -- never reported stopping, which is about half of all stops.
+          -- Mid-route with no vehicle id there is no way to tell one id-less
+          -- bus from another, so the departure is left empty rather than
+          -- guessed.
+          to_timestamp(CASE
+            WHEN s.is_origin THEN o.last_stopped
+            WHEN o.first_stopped_vehicle IS NULL THEN NULL
+            ELSE o.first_vehicle_left
+          END) AS departure_time,
           coalesce(o.in_transit_seen, false) AS in_transit_seen,
           s.is_origin, s.is_terminus,
           o.reported_stop_id,
