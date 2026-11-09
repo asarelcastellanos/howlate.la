@@ -1,0 +1,23 @@
+name: Something looks wrong
+description: A number that seems off, a page that breaks, or data that is missing.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you see?
+      description: The line, stop, page or command, and what it showed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: If you ride this line, what you see on the street counts.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Link, command or date
+      description: A URL, the command you ran, or the service date involved.
