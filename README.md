@@ -8,22 +8,22 @@ Is my bus usually late? And when is it worst? Nobody was writing that down, so t
 
 LA Metro publishes where every vehicle is and where it was supposed to be. Every bus and train reports its own position every six or seven seconds, all day, every day, in public.
 
-Trip planners, like Tranist, shows you the next arrival and then it disspears the moment the bus pulls up. The number was true for 90 seconds and then its gone. So a rider who wants to know whether the 720 westbound is reliably late at 8am on a Tuesday has nowhere to look.
+Trip planners like Transit show you the next arrival, and the number disappears the moment the bus pulls up. It was true for 90 seconds and then it's gone. So a rider who wants to know whether the 720 westbound is reliably late at 8am on a Tuesday has nowhere to look.
 
 HowLate.LA writes it down. Then publishes the answer.
 
 ## Status
 
-**Phase 1: collection.** This repo currently does one thing. It writes down what
-Metro's buses and trains actually do, and keeps a copy of the timetable they
-will be judged against.
+Collection started on 18 August 2026. It has missed one stretch since, 16 hours
+on 21 August, when Metro served a socket that stayed open and sent nothing. It records
+everything Metro runs to a schedule: all 114 bus routes and all six rail lines.
 
-It records everything Metro runs to a schedule: all 114 bus routes and all six
-rail lines.
+The pipeline that grades each day against the timetable is built and checked
+against two full days. The site is not built yet. Nothing is published.
 
-Collection started on 18 August 2026. Nothing is published yet.
-
-
+The road from here to howlate.la is in the [release plan](docs/release-plan.md),
+and progress is tracked in the
+[milestones](https://github.com/asarelcastellanos/howlate.la/milestones).
 
 ## What it collects
 
@@ -54,7 +54,10 @@ Separately, a few times a day, it checks whether Metro has republished its
 timetables and keeps a copy if so. That check is also how it notices Metro
 adding or dropping a line, which happens more often than you would think.
 
-That is the whole system. It costs under a dollar a month to run.
+Grading happens somewhere else, later. The pipeline reads a day of positions,
+finds the timetable that was in force that day, and writes one row for every
+stop every trip was scheduled to make: when it should have arrived, when it did,
+and the difference.
 
 
 ## By the numbers
@@ -66,7 +69,7 @@ That is the whole system. It costs under a dollar a month to run.
 | **~400** | updates arriving every second at the busy hours |
 | **~25 million** | records written down a day |
 | **~1 GB** | added to the archive a day, squeezed from 15 GB of raw text |
-| **under $1** | to run the whole thing for a month |
+| **about $2** | a month to run, almost all of it storage for the archive |
 
 
 ## What's in this repo
@@ -75,11 +78,13 @@ That is the whole system. It costs under a dollar a month to run.
 collector/    Listens to Metro and writes everything down.
               The only part that runs on the always-on machine.
 
-pipeline/     Turns the raw archive into how late each vehicle was.
-              Runs once a day, somewhere else. Not written yet.
+pipeline/     Turns the raw archive into how late each vehicle was,
+              and builds the files the site reads. Runs by hand for now.
 
 web/          The public site. Reads what the pipeline produced.
-              Not written yet.
+              Not built yet.
+
+docs/         The release plan.
 ```
 
 ## Data
