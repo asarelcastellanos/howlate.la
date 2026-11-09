@@ -217,18 +217,30 @@ def test_an_interrupted_extraction_is_not_trusted(tmp_path, monkeypatch):
     blob = FakeBlob(AUG_16, utc(8, 16, 12), zipped(source))
     cache = tmp_path / "cache"
 
+    target = cache / Path(AUG_16).stem
     real_extract = zipfile.ZipFile.extract
+    at_death = {}
 
     def dies_mid_file(self, member, path=None, pwd=None):
         if member == "stop_times.txt":
             (Path(path) / member).write_bytes(b"trip_id,arriv")
+            # A killed process runs no cleanup, so the disk at this moment
+            # is what the next run finds. Record it before any handler runs.
+            at_death["marker"] = (target / ".complete").exists()
+            at_death["files"] = {p.name: p.read_bytes() for p in target.iterdir() if p.is_file()}
             raise OSError("killed while unpacking")
         return real_extract(self, member, path, pwd)
 
     monkeypatch.setattr(zipfile.ZipFile, "extract", dies_mid_file)
     with pytest.raises(OSError):
         gtfs.ensure_local(blob, cache)
-    assert not (cache / Path(AUG_16).stem / ".complete").exists()
+    assert at_death["marker"] is False
+
+    # Put the disk back the way the kill left it, undoing anything a cleanup
+    # handler might have done, so the rerun starts where a real one would.
+    target.mkdir(parents=True, exist_ok=True)
+    for name, data in at_death["files"].items():
+        (target / name).write_bytes(data)
 
     monkeypatch.undo()
     directory = gtfs.ensure_local(blob, cache)
