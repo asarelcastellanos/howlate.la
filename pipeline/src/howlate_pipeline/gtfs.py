@@ -19,7 +19,6 @@ never change once written, so a rerun of the same day re-downloads nothing.
 """
 
 import csv
-import io
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path

@@ -25,7 +25,7 @@ import gzip
 import os
 import shutil
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Relative on purpose. systemd sets WorkingDirectory to /var/lib/howlate, so
@@ -36,7 +36,7 @@ PREFIX = "vehicle_positions"
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def stamp(moment: datetime) -> str:

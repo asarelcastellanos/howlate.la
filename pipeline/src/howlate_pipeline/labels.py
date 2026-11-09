@@ -22,7 +22,6 @@ import duckdb
 
 from howlate_pipeline import RAIL_AGENCY
 
-
 # Metro writes route descriptions in capitals. Title case reads better on a page
 # but turns "DOWNTOWN LA" into "Downtown La", so the handful of tokens that are
 # genuinely initialisms are put back.
@@ -50,7 +49,7 @@ def lines(con: duckdb.DuckDBPyConnection, directory: Path, agency: str) -> dict[
     """, [str(directory / "routes.txt")]).fetchall()
 
     out = {}
-    for line, short, long_name, desc, route_type in rows:
+    for line, short, long_name, desc, _route_type in rows:
         rail = agency == RAIL_AGENCY
         out[line] = {
             "label": (long_name or line).strip() if rail else (short or line).strip(),

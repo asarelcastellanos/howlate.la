@@ -27,7 +27,7 @@ from pathlib import Path
 import duckdb
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, ZONE, labels
+from howlate_pipeline import DERIVED_BUCKET, ZONE
 
 # Six parts of the day, three kinds of day. Coarse enough that cells hold real
 # numbers, fine enough to still answer "when".

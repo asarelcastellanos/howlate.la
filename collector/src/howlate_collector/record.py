@@ -125,7 +125,7 @@ async def feed(
                         message = await asyncio.wait_for(
                             socket.recv(), timeout=CHECK_SECONDS
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         quiet = time.monotonic() - last_message
                         if quiet < STALE_SECONDS:
                             continue

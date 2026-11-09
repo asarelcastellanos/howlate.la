@@ -32,7 +32,7 @@ from pathlib import Path
 import duckdb
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, RAW_BUCKET, ZONE, gtfs
+from howlate_pipeline import DERIVED_BUCKET, RAW_BUCKET, gtfs
 
 POSITIONS = "vehicle_positions"
 

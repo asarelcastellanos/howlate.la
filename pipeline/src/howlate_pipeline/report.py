@@ -51,7 +51,7 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     keys = ["scheduled_stops", "measured", "stopped", "approached",
             "terminus_stopped", "terminus_approach", "trips", "lines",
             "median_delay", "p75", "p95", "p99", "absurd", "early", "with_delay"]
-    stats = dict(zip(keys, row))
+    stats = dict(zip(keys, row, strict=True))
 
     # Observations are counted from the observation side, not the joined side: a
     # report that only ever looked at rows that joined could never notice one
@@ -66,7 +66,7 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
           ON s.agency = o.agency AND s.trip_id = o.trip_id
          AND s.stop_sequence = o.stop_sequence
     """).fetchone()
-    stats |= dict(zip(["observations", "joined", "stop_match", "ambiguous"], obs))
+    stats |= dict(zip(["observations", "joined", "stop_match", "ambiguous"], obs, strict=True))
 
     stats["join_rate"] = 100 * stats["joined"] / stats["observations"] if stats["observations"] else 0
     stats["stop_id_match"] = 100 * stats["stop_match"] / stats["joined"] if stats["joined"] else 0

@@ -21,7 +21,7 @@ line, so each new one has its line list compared against routes.py.
 
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 from google.cloud import storage
@@ -99,7 +99,7 @@ def snapshot(bucket: storage.Bucket, feed: str, source: str, recorded: list[str]
 
     published = routes.codes_from_timetable(response.content)
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
     name = f"{PREFIX}/{feed}-{today}-{(etag or 'noetag')[:8]}.zip"
 
     blob = bucket.blob(name)
@@ -110,7 +110,7 @@ def snapshot(bucket: storage.Bucket, feed: str, source: str, recorded: list[str]
     blob.metadata = {
         "source_etag": etag,
         "source_url": source,
-        "fetched_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "route_codes": ",".join(published),
     }
     blob.upload_from_string(response.content, content_type="application/zip")

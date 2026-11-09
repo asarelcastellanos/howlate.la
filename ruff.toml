@@ -1,0 +1,23 @@
+# One lint and format config for both packages.
+#
+# 3.11 because that is what Debian ships on the collector VM, and the code must
+# run there. 100 columns because that is roughly where the existing code already
+# wraps.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes: unused names, undefined names
+    "I",    # import order
+    "UP",   # syntax older than the target version
+    "B",    # bugbear: likely bugs
+]
+# The formatter owns line length. What it cannot wrap is long SQL and long
+# measured numbers in comments, which read better unbroken.
+ignore = ["E501"]
+
+[lint.isort]
+known-first-party = ["howlate_collector", "howlate_pipeline"]
