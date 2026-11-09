@@ -84,7 +84,7 @@ def test_only_approaches_uses_the_last_one(rows):
     stop = rows[("T1", 3)]
     assert stop["source"] == "approach"
     assert stop["actual"] == at(local(18, 8, 21))
-    assert stop["delay"] == 60
+    assert stop["delay"] == 120  # from the 08:19 arrival, not the 08:20 departure
 
 
 def test_a_stop_nobody_saw_still_has_a_row(rows):
