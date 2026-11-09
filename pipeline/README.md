@@ -94,7 +94,9 @@ sightings must not look like one resting on three hundred. Largest line file is
 ## Measured
 
 The whole network, both feeds, service day 2026-08-18. Not a sample and not an
-estimate:
+estimate. These are the first numbers, from before arrivals were timed from the
+last approach as well as from STOPPED_AT, which is why "measured" here counts
+STOPPED_AT rows only. The comparison below has the current figures.
 
 | | |
 |---|---|
@@ -118,5 +120,29 @@ Sizing, now from output rather than from the timetables:
 | Rows per day | 881,057, one per scheduled stop |
 | Rows per year | ~322 million |
 | Parquet size, zstd | **4.4 bytes/row**, against 6.7 predicted |
+
+## v1 against v2
+
+Checked on 2026-11-09 by grading 18, 19 and 20 August with the v0.1.0 code and
+with the v2 code from the same raw files and timetables, on DuckDB 1.5.6.
+
+| | 18 Aug | 19 Aug | 20 Aug |
+|---|---|---|---|
+| Scheduled stops | 881,057 | 879,646 | 880,685 |
+| Rows differing in any v1 column | **0** | **0** | **0** |
+| Same, against the v1 files in the bucket | **0** | **0** | not graded in v1 |
+| Timed arrivals (approach included) | 67.9% | 70.0% | 76.9% |
+| Median delay, mid-route | +1.3 min | +1.4 min | +1.6 min |
+| Timed arrivals naming a vehicle | 100% | 100% | 100% |
+| Rows with a departure time | 433,290 | 462,792 | 547,613 |
+| Departure before arrival | 0 | 0 | 0 |
+| Median dwell, where the bus stopped | 11 s | 14 s | 19 s |
+| Scheduled trips never seen | 235 (1.6%) | 268 (1.8%) | 259 (1.8%) |
+| Trips carried by more than one vehicle | 348 | 331 | 313 |
+| Arrivals Parquet, zstd | 7.5 bytes/row | 7.7 bytes/row | 8.2 bytes/row |
+| Trips Parquet | 308 KB | 304 KB | 304 KB |
+
+So v2 adds columns and changes nothing v1 measured. The two new columns raise a
+year of arrivals from about 1.4 GB to about 2.5 GB, which is still small.
 | **Whole year of delay data** | **~1.4 GB** |
 

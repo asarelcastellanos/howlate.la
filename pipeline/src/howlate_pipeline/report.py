@@ -23,9 +23,9 @@ EXPECTED = {
     "median_delay_min": (-1.0, 6.0, "median delay, mid-route"),
     "absurd_pct": (0.0, 0.5, "delays beyond an hour"),
     "early_pct": (0.0, 2.0, "mid-route arrivals over 5 min early"),
-    # Added with v2. Provisional until checked against real days in v0.2.0:
-    # every report carries a vehicle id, and about 98% of scheduled trips were
-    # seen on 2026-08-18 (14,340 of 14,588).
+    # Added with v2 and checked on 18 to 20 August: every timed arrival named a
+    # vehicle, and 98.2% to 98.4% of scheduled trips were seen. The trips range
+    # stays wide until weekends and holidays have been measured.
     "vehicle_known": (99.9, 100.0, "timed arrivals naming a vehicle"),
     "trips_seen": (90.0, 100.0, "scheduled trips with any report"),
 }
