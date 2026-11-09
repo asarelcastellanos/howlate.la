@@ -41,8 +41,9 @@ These go into `REVIEW.md` in 0.1.0.
    - Both feeds log `connected`.
    - The first new file finishes and leaves the spool, about six minutes after
      the restart, holding records from both feeds.
-   - healthchecks.io stays up for 15 minutes. That is three files, the time the
-     recorder takes to raise its alarm for one silent feed.
+   - healthchecks.io stays up until the fourth file after the restart finishes,
+     about 21 minutes. A feed that drops after the first file is only alarmed
+     after three more files with nothing from it.
    - Measure the gap as the v0.1.0 notes did: the last record in the file the
      stop signal closed, against the first record after the restart. Add both
      timestamps and the gap to the release notes. v0.1.0 lost 5.7 seconds.
@@ -220,6 +221,8 @@ doing it, and the storage bill stops growing.
 
 #### Behavioral
 
+- A merge to `main` that changes `pipeline/` updates the Cloud Run job's image
+  digest, and the next run logs the new version.
 - Triggering the daily job by hand grades yesterday, updates the site files,
   and pings healthchecks.io.
 - Pointing the job at a day with no raw data raises the alarm.
