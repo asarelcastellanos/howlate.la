@@ -22,12 +22,21 @@ import duckdb
 
 from howlate_pipeline import RAIL_AGENCY
 
-
 # Metro writes route descriptions in capitals. Title case reads better on a page
 # but turns "DOWNTOWN LA" into "Downtown La", so the handful of tokens that are
 # genuinely initialisms are put back.
-KEEP = {"La": "LA", "Usc": "USC", "Ucla": "UCLA", "Lax": "LAX", "Cbd": "CBD",
-        "Nb": "NB", "Sb": "SB", "Eb": "EB", "Wb": "WB", "Via": "via"}
+KEEP = {
+    "La": "LA",
+    "Usc": "USC",
+    "Ucla": "UCLA",
+    "Lax": "LAX",
+    "Cbd": "CBD",
+    "Nb": "NB",
+    "Sb": "SB",
+    "Eb": "EB",
+    "Wb": "WB",
+    "Via": "via",
+}
 
 
 def readable(text: str) -> str:
@@ -43,14 +52,17 @@ def lines(con: duckdb.DuckDBPyConnection, directory: Path, agency: str) -> dict[
     EXPOSITION PARK VIA SUNSET-ALVARADO". Rail leaves the number blank and puts
     "Metro A Line" in route_long_name.
     """
-    rows = con.execute("""
+    rows = con.execute(
+        """
         SELECT DISTINCT split_part(route_id, '-', 1) AS line,
                route_short_name, route_long_name, route_desc, route_type
         FROM read_csv(?, all_varchar = true)
-    """, [str(directory / "routes.txt")]).fetchall()
+    """,
+        [str(directory / "routes.txt")],
+    ).fetchall()
 
     out = {}
-    for line, short, long_name, desc, route_type in rows:
+    for line, short, long_name, desc, _route_type in rows:
         rail = agency == RAIL_AGENCY
         out[line] = {
             "label": (long_name or line).strip() if rail else (short or line).strip(),
@@ -64,7 +76,8 @@ def directions(con: duckdb.DuckDBPyConnection, directory: Path) -> dict[tuple[st
     """The place each direction is signed for, by how often it is signed for it."""
     # Counted first, ranked second. Ranking in the same query as the aggregate
     # would make the window refer to a column the GROUP BY has already collapsed.
-    rows = con.execute("""
+    rows = con.execute(
+        """
         SELECT line, direction_id, destination_code FROM (
             SELECT *, row_number() OVER (
                        PARTITION BY line, direction_id
@@ -80,7 +93,9 @@ def directions(con: duckdb.DuckDBPyConnection, directory: Path) -> dict[tuple[st
                 GROUP BY 1, 2, 3
             )
         ) WHERE rank = 1
-    """, [str(directory / "stop_times.txt"), str(directory / "trips.txt")]).fetchall()
+    """,
+        [str(directory / "stop_times.txt"), str(directory / "trips.txt")],
+    ).fetchall()
 
     return {(line, direction): name.strip() for line, direction, name in rows}
 
@@ -91,10 +106,13 @@ def stops(con: duckdb.DuckDBPyConnection, directory: Path) -> dict[str, dict]:
     Coordinates arrive with leading spaces in the bus feed, so they are cast
     rather than trusted as text.
     """
-    rows = con.execute("""
+    rows = con.execute(
+        """
         SELECT stop_id, stop_name, TRY_CAST(stop_lat AS DOUBLE), TRY_CAST(stop_lon AS DOUBLE)
         FROM read_csv(?, all_varchar = true)
-    """, [str(directory / "stops.txt")]).fetchall()
+    """,
+        [str(directory / "stops.txt")],
+    ).fetchall()
 
     return {
         stop_id: {"name": (name or stop_id).strip(), "lat": lat, "lon": lon}

@@ -27,7 +27,7 @@ from pathlib import Path
 import duckdb
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, ZONE, labels
+from howlate_pipeline import DERIVED_BUCKET, ZONE
 
 # Six parts of the day, three kinds of day. Coarse enough that cells hold real
 # numbers, fine enough to still answer "when".
@@ -35,7 +35,7 @@ DAYPARTS = [(0, "early"), (6, "am"), (9, "mid"), (15, "pm"), (19, "eve"), (22, "
 
 BUCKET_SQL = f"""
     CASE WHEN dow < 5 THEN 'wk' WHEN dow = 5 THEN 'sa' ELSE 'su' END || '-' ||
-    CASE {' '.join(f"WHEN hr >= {h} THEN '{name}'" for h, name in reversed(DAYPARTS))} END
+    CASE {" ".join(f"WHEN hr >= {h} THEN '{name}'" for h, name in reversed(DAYPARTS))} END
 """
 
 
@@ -112,7 +112,10 @@ def stop_cells(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
         FROM a GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 5, 4
     """).fetchall():
         out.setdefault((agency, line, direction), {})[stop] = {
-            "seq": seq, "n": n, "sched": sched, "cells": []
+            "seq": seq,
+            "n": n,
+            "sched": sched,
+            "cells": [],
         }
 
     for agency, line, direction, stop, bucket, sched, n, med, p90, pct5 in con.sql(f"""
@@ -152,8 +155,9 @@ def write_json(path: Path, payload: dict) -> int:
     return len(body)
 
 
-def build(con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path,
-          first: str, last: str, days: int) -> list[tuple[str, int, int]]:
+def build(
+    con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path, first: str, last: str, days: int
+) -> list[tuple[str, int, int]]:
     """Write index.json, status.json and one file per line."""
     profile = profiles(con)
     cells = stop_cells(con)
@@ -165,8 +169,15 @@ def build(con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path,
     for agency, line in sorted(known, key=lambda k: (k[0], len(k[1]), k[1])):
         meta = catalogue["lines"].get((agency, line), {"label": line, "via": "", "mode": "bus"})
 
-        payload = {"line": line, "agency": agency, **meta,
-                   "first_day": first, "last_day": last, "days": days, "directions": []}
+        payload = {
+            "line": line,
+            "agency": agency,
+            **meta,
+            "first_day": first,
+            "last_day": last,
+            "days": days,
+            "directions": [],
+        }
 
         for direction in (0, 1):
             key = (agency, line, direction)
@@ -178,47 +189,68 @@ def build(con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path,
             # where no bus was scheduled, and the site would quietly overstate
             # how much of the timetable it has actually checked.
             stops = [
-                {"id": stop_id,
-                 "name": catalogue["stops"].get((agency, stop_id), {}).get("name", stop_id),
-                 "lat": catalogue["stops"].get((agency, stop_id), {}).get("lat"),
-                 "lon": catalogue["stops"].get((agency, stop_id), {}).get("lon"),
-                 "seq": record["seq"],
-                 "n": record["n"], "sched": record["sched"],
-                 "cells": record["cells"]}
-                for stop_id, record in sorted(cells.get(key, {}).items(),
-                                              key=lambda pair: pair[1]["seq"])
+                {
+                    "id": stop_id,
+                    "name": catalogue["stops"].get((agency, stop_id), {}).get("name", stop_id),
+                    "lat": catalogue["stops"].get((agency, stop_id), {}).get("lat"),
+                    "lon": catalogue["stops"].get((agency, stop_id), {}).get("lon"),
+                    "seq": record["seq"],
+                    "n": record["n"],
+                    "sched": record["sched"],
+                    "cells": record["cells"],
+                }
+                for stop_id, record in sorted(
+                    cells.get(key, {}).items(), key=lambda pair: pair[1]["seq"]
+                )
             ]
-            payload["directions"].append({
-                "id": direction,
-                "to": catalogue["directions"].get((agency, line, direction), ""),
-                "n": sum(s["n"] for s in stops),
-                "sched": sum(s["sched"] for s in stops),
-                "profile": profile[key],
-                "stops": stops,
-            })
+            payload["directions"].append(
+                {
+                    "id": direction,
+                    "to": catalogue["directions"].get((agency, line, direction), ""),
+                    "n": sum(s["n"] for s in stops),
+                    "sched": sum(s["sched"] for s in stops),
+                    "profile": profile[key],
+                    "stops": stops,
+                }
+            )
 
         size = write_json(out / "lines" / f"{line}.json", payload)
         raw = (out / "lines" / f"{line}.json").read_bytes()
         written.append((line, size, len(gzip.compress(raw))))
 
         head = heads.get((agency, line), {})
-        index.append({"line": line, "agency": agency, **meta, **head,
-                      "to": [d["to"] for d in payload["directions"]]})
+        index.append(
+            {
+                "line": line,
+                "agency": agency,
+                **meta,
+                **head,
+                "to": [d["to"] for d in payload["directions"]],
+            }
+        )
 
-    write_json(out / "index.json", {"first_day": first, "last_day": last,
-                                    "days": days, "lines": index})
+    write_json(
+        out / "index.json", {"first_day": first, "last_day": last, "days": days, "lines": index}
+    )
 
     totals = con.sql("""
         SELECT count(*), count(*) FILTER (WHERE delay_seconds IS NOT NULL),
                count(DISTINCT line), count(DISTINCT trip_id)
         FROM a
     """).fetchone()
-    write_json(out / "status.json", {
-        "first_day": first, "last_day": last, "days": days,
-        "scheduled_stops": totals[0], "measured_arrivals": totals[1],
-        "coverage_pct": round(100 * totals[1] / totals[0], 1),
-        "lines": totals[2], "trips": totals[3],
-    })
+    write_json(
+        out / "status.json",
+        {
+            "first_day": first,
+            "last_day": last,
+            "days": days,
+            "scheduled_stops": totals[0],
+            "measured_arrivals": totals[1],
+            "coverage_pct": round(100 * totals[1] / totals[0], 1),
+            "lines": totals[2],
+            "trips": totals[3],
+        },
+    )
 
     return written
 

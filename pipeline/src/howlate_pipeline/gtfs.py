@@ -19,7 +19,6 @@ never change once written, so a rerun of the same day re-downloads nothing.
 """
 
 import csv
-import io
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -36,8 +35,15 @@ FEEDS = {"gtfs_bus": BUS_AGENCY, "gtfs_rail": RAIL_AGENCY}
 
 # The files actually used. shapes.txt is 18 MB of route geometry that nothing
 # here reads, so it is left in the zip.
-NEEDED = ["calendar.txt", "calendar_dates.txt", "trips.txt", "stop_times.txt",
-          "stops.txt", "routes.txt", "feed_info.txt"]
+NEEDED = [
+    "calendar.txt",
+    "calendar_dates.txt",
+    "trips.txt",
+    "stop_times.txt",
+    "stops.txt",
+    "routes.txt",
+    "feed_info.txt",
+]
 
 DOW = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
@@ -87,7 +93,9 @@ def candidates(client: storage.Client, feed: str, service_date: str) -> list[sto
         # In force first, newest of those first; everything else after, oldest
         # of those first, so the nearest miss is tried before a distant one.
         in_force = stamp.timestamp() <= start
-        scored.append(((0 if in_force else 1, -stamp.timestamp() if in_force else stamp.timestamp()), blob))
+        scored.append(
+            ((0 if in_force else 1, -stamp.timestamp() if in_force else stamp.timestamp()), blob)
+        )
 
     if not scored:
         raise SystemExit(
@@ -152,8 +160,10 @@ def check_covers(directory: Path, feed: str, service_date: str) -> None:
     """
     window = validity(directory)
     if window and not (window[0] <= service_date <= window[1]):
-        print(f"  WARNING {feed}: feed covers {window[0]}..{window[1]}, "
-              f"which does not include {service_date}")
+        print(
+            f"  WARNING {feed}: feed covers {window[0]}..{window[1]}, "
+            f"which does not include {service_date}"
+        )
 
 
 def active_services(directory: Path, service_date: str) -> set[str]:
@@ -212,7 +222,9 @@ def prepare(client: storage.Client, service_date: str, cache: Path) -> dict[str,
             if services:
                 chosen = (blob, directory, services)
                 break
-            print(f"  {feed}: {Path(blob.name).name} lists no service on {service_date}, trying older")
+            print(
+                f"  {feed}: {Path(blob.name).name} lists no service on {service_date}, trying older"
+            )
 
         if chosen is None:
             raise SystemExit(
@@ -222,6 +234,8 @@ def prepare(client: storage.Client, service_date: str, cache: Path) -> dict[str,
 
         blob, directory, services = chosen
         check_covers(directory, feed, service_date)
-        print(f"  {feed}: {Path(blob.name).name}, {len(services)} services active on {service_date}")
+        print(
+            f"  {feed}: {Path(blob.name).name}, {len(services)} services active on {service_date}"
+        )
         ready[agency] = directory
     return ready

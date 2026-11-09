@@ -16,13 +16,13 @@ import duckdb
 # Measured on 2026-08-18 across all 120 lines. Ranges, not points, because real
 # days differ: weekends run less service and holidays run almost none.
 EXPECTED = {
-    "join_rate":        (99.9, 100.0, "observations matching a scheduled stop"),
-    "stop_id_match":    (99.9, 100.0, "reported stop_id agreeing with the timetable"),
-    "coverage":         (55.0, 90.0,  "scheduled stops with a timed arrival"),
-    "stopped_pct":      (35.0, 75.0,  "of those, timed from a STOPPED_AT record"),
-    "median_delay_min": (-1.0, 6.0,   "median delay, mid-route"),
-    "absurd_pct":       (0.0,  0.5,   "delays beyond an hour"),
-    "early_pct":        (0.0,  2.0,   "mid-route arrivals over 5 min early"),
+    "join_rate": (99.9, 100.0, "observations matching a scheduled stop"),
+    "stop_id_match": (99.9, 100.0, "reported stop_id agreeing with the timetable"),
+    "coverage": (55.0, 90.0, "scheduled stops with a timed arrival"),
+    "stopped_pct": (35.0, 75.0, "of those, timed from a STOPPED_AT record"),
+    "median_delay_min": (-1.0, 6.0, "median delay, mid-route"),
+    "absurd_pct": (0.0, 0.5, "delays beyond an hour"),
+    "early_pct": (0.0, 2.0, "mid-route arrivals over 5 min early"),
 }
 
 
@@ -48,10 +48,24 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
         FROM arrivals
     """).fetchone()
 
-    keys = ["scheduled_stops", "measured", "stopped", "approached",
-            "terminus_stopped", "terminus_approach", "trips", "lines",
-            "median_delay", "p75", "p95", "p99", "absurd", "early", "with_delay"]
-    stats = dict(zip(keys, row))
+    keys = [
+        "scheduled_stops",
+        "measured",
+        "stopped",
+        "approached",
+        "terminus_stopped",
+        "terminus_approach",
+        "trips",
+        "lines",
+        "median_delay",
+        "p75",
+        "p95",
+        "p99",
+        "absurd",
+        "early",
+        "with_delay",
+    ]
+    stats = dict(zip(keys, row, strict=True))
 
     # Observations are counted from the observation side, not the joined side: a
     # report that only ever looked at rows that joined could never notice one
@@ -66,12 +80,18 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
           ON s.agency = o.agency AND s.trip_id = o.trip_id
          AND s.stop_sequence = o.stop_sequence
     """).fetchone()
-    stats |= dict(zip(["observations", "joined", "stop_match", "ambiguous"], obs))
+    stats |= dict(zip(["observations", "joined", "stop_match", "ambiguous"], obs, strict=True))
 
-    stats["join_rate"] = 100 * stats["joined"] / stats["observations"] if stats["observations"] else 0
+    stats["join_rate"] = (
+        100 * stats["joined"] / stats["observations"] if stats["observations"] else 0
+    )
     stats["stop_id_match"] = 100 * stats["stop_match"] / stats["joined"] if stats["joined"] else 0
-    stats["coverage"] = 100 * stats["measured"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
-    stats["stopped_pct"] = 100 * stats["stopped"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
+    stats["coverage"] = (
+        100 * stats["measured"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
+    )
+    stats["stopped_pct"] = (
+        100 * stats["stopped"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
+    )
     stats["median_delay_min"] = (stats["median_delay"] or 0) / 60
     stats["absurd_pct"] = 100 * stats["absurd"] / stats["with_delay"] if stats["with_delay"] else 0
     stats["early_pct"] = 100 * stats["early"] / stats["with_delay"] if stats["with_delay"] else 0
@@ -113,21 +133,29 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
     """Print the report. Returns True if everything was within expectations."""
     s = summarise(con)
 
-    print(f"\n  {service_date}: {s['lines']} lines, {s['trips']:,} trips, "
-          f"{s['scheduled_stops']:,} scheduled stops")
-    print(f"  timed {s['measured']:,} ({s['coverage']:.1f}%): "
-          f"{s['stopped']:,} from a stop record, "
-          f"{s['approached']:,} recovered from the approach "
-          f"(+{100 * s['approached'] / s['scheduled_stops']:.1f} points, of which "
-          f"{s['terminus_approach']:,} are trip termini), "
-          f"{s['scheduled_stops'] - s['measured']:,} never seen")
-    print(f"  delay mid-route: median {s['median_delay'] / 60:+.1f} | p75 {s['p75'] / 60:+.1f} "
-          f"| p95 {s['p95'] / 60:+.1f} | p99 {s['p99'] / 60:+.1f} min")
+    print(
+        f"\n  {service_date}: {s['lines']} lines, {s['trips']:,} trips, "
+        f"{s['scheduled_stops']:,} scheduled stops"
+    )
+    print(
+        f"  timed {s['measured']:,} ({s['coverage']:.1f}%): "
+        f"{s['stopped']:,} from a stop record, "
+        f"{s['approached']:,} recovered from the approach "
+        f"(+{100 * s['approached'] / s['scheduled_stops']:.1f} points, of which "
+        f"{s['terminus_approach']:,} are trip termini), "
+        f"{s['scheduled_stops'] - s['measured']:,} never seen"
+    )
+    print(
+        f"  delay mid-route: median {s['median_delay'] / 60:+.1f} | p75 {s['p75'] / 60:+.1f} "
+        f"| p95 {s['p95'] / 60:+.1f} | p99 {s['p99'] / 60:+.1f} min"
+    )
 
     print()
     for agency, lines, stops, measured in by_agency(con):
-        print(f"  {agency:<12} {lines:>4} lines  {stops:>8,} scheduled  "
-              f"{measured:>8,} measured ({100 * measured / stops:.1f}%)")
+        print(
+            f"  {agency:<12} {lines:>4} lines  {stops:>8,} scheduled  "
+            f"{measured:>8,} measured ({100 * measured / stops:.1f}%)"
+        )
 
     print()
     ok = True
@@ -145,8 +173,10 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
     # records do reach it, which is how 9,071 terminus arrivals on 2026-08-18
     # became measurable for the first time. Narrowed rather than deleted, because
     # a STOPPED_AT appearing there would still mean the feed had changed.
-    for count, label in ((s["terminus_stopped"], "STOPPED_AT records on a trip's final stop"),
-                         (s["ambiguous"], "stop_sequence values reporting two different stop_ids")):
+    for count, label in (
+        (s["terminus_stopped"], "STOPPED_AT records on a trip's final stop"),
+        (s["ambiguous"], "stop_sequence values reporting two different stop_ids"),
+    ):
         good = count == 0
         ok &= good
         print(f"  {'ok  ' if good else 'CHECK'} {count:8,}  {label} (expect 0)")
@@ -154,10 +184,14 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
     feeds = by_agency(con)
     good = len(feeds) == 2 and all(stops > 0 for _, _, stops, _ in feeds)
     ok &= good
-    print(f"  {'ok  ' if good else 'CHECK'} {len(feeds):8,}  feeds contributing scheduled stops (expect 2)")
+    print(
+        f"  {'ok  ' if good else 'CHECK'} {len(feeds):8,}  feeds contributing scheduled stops (expect 2)"
+    )
 
     silent = silent_lines(con)
-    print(f"  {'ok  ' if not silent else 'CHECK'} {len(silent):8,}  lines scheduled today but never seen (expect 0)")
+    print(
+        f"  {'ok  ' if not silent else 'CHECK'} {len(silent):8,}  lines scheduled today but never seen (expect 0)"
+    )
     for agency, line, stops in silent[:10]:
         print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
 
