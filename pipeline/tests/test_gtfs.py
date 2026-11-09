@@ -207,3 +207,30 @@ def test_an_interrupted_timetable_download_is_not_trusted(tmp_path):
     assert (directory / "stop_times.txt").read_bytes() == (
         tmp_path / "full" / "stop_times.txt"
     ).read_bytes()
+
+
+def test_an_interrupted_extraction_is_not_trusted(tmp_path, monkeypatch):
+    # The download succeeds and the process dies while unpacking: stop_times.txt
+    # is half written. No marker may exist, and the rerun must replace every
+    # file rather than keep the half-written one.
+    source = build_timetable(tmp_path / "full")
+    blob = FakeBlob(AUG_16, utc(8, 16, 12), zipped(source))
+    cache = tmp_path / "cache"
+
+    real_extract = zipfile.ZipFile.extract
+
+    def dies_mid_file(self, member, path=None, pwd=None):
+        if member == "stop_times.txt":
+            (Path(path) / member).write_bytes(b"trip_id,arriv")
+            raise OSError("killed while unpacking")
+        return real_extract(self, member, path, pwd)
+
+    monkeypatch.setattr(zipfile.ZipFile, "extract", dies_mid_file)
+    with pytest.raises(OSError):
+        gtfs.ensure_local(blob, cache)
+    assert not (cache / Path(AUG_16).stem / ".complete").exists()
+
+    monkeypatch.undo()
+    directory = gtfs.ensure_local(blob, cache)
+    for path in source.iterdir():
+        assert (directory / path.name).read_bytes() == path.read_bytes(), path.name
