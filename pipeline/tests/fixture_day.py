@@ -31,9 +31,14 @@ What the vehicles reported, and the answer each one should produce:
 Which vehicle, and when it left:
 
     T1 stops 1-2 are vehicle 5816; T1 switches to 5900 before stop 3
-    departure_time is the last STOPPED_AT: 08:01:30 at stop 1, 08:12:30 at
-    stop 2, and empty at stops 3 and 4, which never reported stopping
-    T2 stop 2 has 6001 and 6002 in the same second; the lower id, 6001, wins
+    at T1 stop 2 a second bus, 5000, also stops at 08:20; 5816 arrived first,
+    so the row is 5816's, and its departure is 5816's own last STOPPED_AT
+    departure_time: 08:01:30 at stop 1, 08:12:30 at stop 2, and empty at
+    stops 3 and 4, which never reported stopping
+    T2's origin: 5999 lays over from 23:40 and 6001 leaves at 23:51, so the
+    departure and the vehicle are 6001's
+    T2 stop 2 has 6001 and 6002 in the same second; the first report goes to
+    the lowest id, 6001
 
 T2's reports are after midnight UTC, so they sit in the dt=2026-08-19
 partition. Two reports belong to other service days and must be ignored: the
@@ -78,14 +83,25 @@ REPORTS = [
     ("T1", SERVICE_DATE, 2, "B", "IN_TRANSIT_TO", local(18, 8, 11), "5816"),
     ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 12), "5816"),
     ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 12, 30), "5816"),
+    # A second bus claims T1 and stops at B later. It is not the arrival, and
+    # its 08:20 is not when 5816 left. Its lower id catches a rule that picks
+    # vehicles by sorting instead of by time.
+    ("T1", SERVICE_DATE, 2, "B", "STOPPED_AT", local(18, 8, 20), "5000"),
     # T1 changes vehicles after stop 2: 5900 carries it on from here.
     ("T1", SERVICE_DATE, 3, "C", "IN_TRANSIT_TO", local(18, 8, 19), "5900"),
     ("T1", SERVICE_DATE, 3, "C", "IN_TRANSIT_TO", local(18, 8, 21), "5900"),
+    # At T2's origin one bus lays over and another leaves. The one that leaves
+    # is the departure, and it has the higher id.
+    ("T2", SERVICE_DATE, 1, "E", "STOPPED_AT", local(18, 23, 40), "5999"),
     ("T2", SERVICE_DATE, 1, "E", "STOPPED_AT", local(18, 23, 51), "6001"),
     # Two vehicles claim the same trip and stop in the same second. Rare, but
-    # it must resolve the same way on every rerun: the lower id wins.
-    ("T2", SERVICE_DATE, 2, "F", "STOPPED_AT", local(19, 1, 33), "6002"),
+    # it must resolve the same way on every rerun. For a first report the
+    # lowest id wins, for a last report the highest.
+    # Without the id tie-break, which of two equal rows wins depends on read
+    # order, which DuckDB does not promise. In this order a missing tie-break
+    # failed the tests in 4 runs of 5, so the order is kept as it is.
     ("T2", SERVICE_DATE, 2, "F", "STOPPED_AT", local(19, 1, 33), "6001"),
+    ("T2", SERVICE_DATE, 2, "F", "STOPPED_AT", local(19, 1, 33), "6002"),
     # The previous service day's T1, still reporting. Same trip and stop, so
     # only the start date keeps it out of this day's answer.
     ("T1", "20260817", 2, "B", "STOPPED_AT", local(18, 0, 5), "4100"),
