@@ -21,9 +21,11 @@
 # `--max-run-duration` deletes a VM still running after eight hours, and Spot
 # deletes one it reclaims; powering off clears that timer.
 #
-# Progress shows on the serial console, and the log is copied to
-# gs://howlate-derived/logs/ when the run ends and again when the VM shuts
-# down for any reason, including Spot reclaiming it.
+# Progress shows on the serial console. The log is copied to
+# gs://howlate-derived/logs/ when the run ends, and again, best effort, when the
+# VM shuts down, including when Spot reclaims it. Google runs shutdown scripts
+# only on a best-effort basis, so a reset or a host failure can lose the last
+# copy.
 
 set -euo pipefail
 
@@ -74,8 +76,8 @@ SCRIPT
 
 cat >"$SHUTDOWN" <<'SCRIPT'
 #!/usr/bin/env bash
-# Runs on every shutdown, including Spot reclaiming the VM, which allows about
-# 30 seconds: enough for one small copy.
+# Runs, best effort, when the VM shuts down, including when Spot reclaims it,
+# which allows up to 30 seconds: enough for one small copy if it gets them.
 [ -f /var/log/howlate-backfill.log ] && [ -f /var/tmp/howlate-log-url ] &&
   gcloud storage cp -q /var/log/howlate-backfill.log "$(cat /var/tmp/howlate-log-url)"
 true
@@ -91,6 +93,13 @@ if [ -n "$STATUS" ]; then
     echo "$NAME is $STATUS; wait for it to finish or delete it first" >&2
     exit 1
   fi
+  # Its disk holds the last run's log, and the copies to the bucket can fail
+  # without saying so. Show the end of it before the disk goes.
+  echo "==> The last run's console, before its VM is deleted:"
+  gcloud compute instances get-serial-port-output "$NAME" --project "$PROJECT" --zone "$ZONE" \
+    2>/dev/null | tail -40 | sed 's/^/    /' || true
+  echo "==> Logs in the bucket:"
+  gcloud storage ls gs://howlate-derived/logs/ 2>/dev/null | tail -5 | sed 's/^/    /' || true
   echo "==> Deleting the powered-off $NAME from the last run"
   gcloud compute instances delete "$NAME" --project "$PROJECT" --zone "$ZONE" --quiet
 fi

@@ -55,9 +55,10 @@ bind gs://howlate-derived roles/storage.objectUser
 
 echo "==> Done. Roles held by $EMAIL:"
 for bucket in gs://howlate-raw gs://howlate-derived; do
+  # get-iam-policy takes no --filter, so the member is matched here.
   roles=$(gcloud storage buckets get-iam-policy "$bucket" \
     --flatten='bindings[].members' \
-    --filter="bindings.members:serviceAccount:$EMAIL" \
-    --format='value(bindings.role)')
+    --format='csv[no-heading](bindings.members,bindings.role)' \
+    | awk -F, -v m="serviceAccount:$EMAIL" '$1 == m {print $2}')
   echo "    $bucket: ${roles:-none}"
 done
