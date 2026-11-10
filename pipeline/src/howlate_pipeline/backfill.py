@@ -2,17 +2,22 @@
 
     python -m howlate_pipeline backfill --from 2026-08-18 --to 2026-11-07
 
-Built for the first run over the whole archive, about 84 days, and for catching
-up after the daily job misses some. A day counts as done when its report is in
-the bucket, because the report is uploaded after both tables. So a run that is
-killed partway, by a Spot VM being reclaimed or by Ctrl-C, regrades only the
-day it was in the middle of.
+Built for the first run over the whole archive, 82 days, and for catching up
+after the daily job misses some. A day counts as done when its report is in the
+bucket. The report is uploaded after both tables, and a regrade deletes the old
+report before touching anything else, so a run that is killed partway, by a
+Spot VM being reclaimed or by Ctrl-C, grades again only the day it was in.
+
+`--regrade` grades days again that an older pipeline version graded. A day this
+version already regraded counts as done, so an interrupted regrade resumes
+rather than starting over.
 
 One day failing does not stop the rest. A day whose checks fail is still
-written, as `arrivals` does on its own, and a day that raises is listed at the
-end and left undone, so the next run tries it again.
+written, as `arrivals` does on its own, and a day that raises, or whose done
+check or cleanup raises, is listed at the end and left for the next run.
 """
 
+import json
 import shutil
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -31,12 +36,39 @@ def days_between(first: str, last: str) -> list[str]:
 def prune_cache(cache: Path, service_date: str) -> None:
     """Drop the raw partition no later day in the run will read.
 
-    Day D reads the UTC partitions D-1, D and D+1, so once D is graded the
-    D-1 partition is finished with. Without this a full backfill keeps every
-    raw file it downloaded, over 100 GB, on a disk sized for a few days.
+    Day D reads the UTC partitions D-1, D and D+1, so once D is graded every
+    partition before D is finished with, as long as days run in order. Without
+    this a full backfill keeps every raw file it downloaded, over 100 GB, on a
+    disk sized for a few days. Everything older goes, not only D-1, so days
+    skipped as done or ranges run separately cannot strand partitions.
     """
-    done = datetime.strptime(service_date, "%Y%m%d") - timedelta(days=1)
-    shutil.rmtree(cache / "vehicle_positions" / f"dt={done:%Y-%m-%d}", ignore_errors=True)
+    keep_from = f"dt={datetime.strptime(service_date, '%Y%m%d'):%Y-%m-%d}"
+    root = cache / "vehicle_positions"
+    if not root.exists():
+        return
+    for partition in root.iterdir():
+        # dt=YYYY-MM-DD names sort in date order.
+        if partition.name.startswith("dt=") and partition.name < keep_from:
+            shutil.rmtree(partition, ignore_errors=True)
+
+
+def done_check(
+    read_report: Callable[[str], str | None], regrade: bool, version: str
+) -> Callable[[str], bool]:
+    """Whether a day is done, from its saved report.
+
+    `read_report` returns the report's text, or None when there is none. With
+    `regrade`, a day counts as done only if `version` wrote its report, so an
+    interrupted regrade resumes instead of starting over.
+    """
+
+    def is_done(day: str) -> bool:
+        text = read_report(day)
+        if text is None:
+            return False
+        return not regrade or json.loads(text).get("pipeline_version") == version
+
+    return is_done
 
 
 def run(
@@ -54,19 +86,21 @@ def run(
     """
     result: dict[str, list[str]] = {"skipped": [], "passed": [], "checks_failed": [], "errors": []}
     for day in days:
-        if is_done(day):
-            result["skipped"].append(day)
-            continue
-
-        log(f"=== {day}")
         try:
-            code = grade(day)
+            if is_done(day):
+                result["skipped"].append(day)
+                continue
+            log(f"=== {day}")
+            try:
+                code = grade(day)
+            finally:
+                # Cleanup runs for a failed day too, before the error is noted.
+                after_day(day)
         except (Exception, SystemExit) as error:  # noqa: BLE001 - one day must not stop the rest
             log(f"  {day} failed: {error!r}")
             result["errors"].append(day)
         else:
             result["passed" if code == 0 else "checks_failed"].append(day)
-        after_day(day)
 
     log(
         f"\n  {len(result['passed'])} passed, {len(result['checks_failed'])} with failed "

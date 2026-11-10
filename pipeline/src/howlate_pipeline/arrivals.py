@@ -442,10 +442,15 @@ def upload(client: storage.Client, written: dict[str, Path], service_date: str) 
     rerun that produced a different number of files would leave the old extras
     behind and every later read would silently double-count the overlap.
 
-    Tables go up in the order given. The report is last, so a day with a
-    report in the bucket has every table there too.
+    Tables go up in the order given, and the report last. Before anything is
+    deleted, the day's old report is removed, so at every moment a report in
+    the bucket sits beside complete tables: a regrade that dies partway leaves
+    no report, and the next run grades the day again.
     """
     bucket = client.bucket(DERIVED_BUCKET)
+    if "reports" in written:
+        for old in client.list_blobs(DERIVED_BUCKET, prefix=partition("reports", service_date)):
+            old.delete()
     uploaded = []
     for table, path in written.items():
         prefix = partition(table, service_date)

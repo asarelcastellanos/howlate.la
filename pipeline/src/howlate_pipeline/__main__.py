@@ -21,7 +21,16 @@ from pathlib import Path
 
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, backfill, gtfs, labels, report
+from howlate_pipeline import (
+    DERIVED_BUCKET,
+    __version__,
+    aggregate,
+    arrivals,
+    backfill,
+    gtfs,
+    labels,
+    report,
+)
 
 
 def yesterday() -> str:
@@ -75,6 +84,9 @@ def grade_day(
     arrivals.match(con, service_date)
     arrivals.trips(con)
 
+    # The old report goes first. Until the new one is saved, nothing on disk
+    # may claim this day is finished.
+    (out / arrivals.partition("reports", service_date) / "report.json").unlink(missing_ok=True)
     written = arrivals.write(con, out, service_date)
     path = written["arrivals"]
     size = path.stat().st_size
@@ -88,7 +100,7 @@ def grade_day(
     )
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
-        f"{size / rows:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
+        f"{size / rows if rows else 0:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
     )
 
     if upload:
@@ -102,16 +114,24 @@ def grade_day(
 
 
 def run_backfill(args: argparse.Namespace) -> int:
+    if args.last.replace("-", "") > yesterday():
+        # A later day is still being written to the archive. Graded now it
+        # would be missing its evening, and its report would stop it ever
+        # being graded again.
+        sys.exit(f"--to {args.last} is not complete yet; the latest is {yesterday()}")
+
     client = storage.Client()
     upload = not args.no_upload
 
-    def is_done(day: str) -> bool:
-        if args.force:
-            return False
+    def read_report(day: str) -> str | None:
         name = arrivals.partition("reports", day) + "report.json"
         if upload:
-            return client.bucket(DERIVED_BUCKET).blob(name).exists()
-        return (args.out / name).exists()
+            blob = client.bucket(DERIVED_BUCKET).blob(name)
+            return blob.download_as_text() if blob.exists() else None
+        path = args.out / name
+        return path.read_text() if path.exists() else None
+
+    is_done = backfill.done_check(read_report, args.regrade, __version__)
 
     result = backfill.run(
         backfill.days_between(args.first, args.last),
@@ -205,7 +225,11 @@ def main() -> None:
         action="store_true",
         help="write locally; a day counts as done when its report is on local disk",
     )
-    many.add_argument("--force", action="store_true", help="regrade days that are already done")
+    many.add_argument(
+        "--regrade",
+        action="store_true",
+        help="also regrade days whose report came from a different pipeline version",
+    )
     many.set_defaults(run=run_backfill)
 
     every = jobs.add_parser(
