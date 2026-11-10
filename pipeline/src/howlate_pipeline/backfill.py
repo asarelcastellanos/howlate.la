@@ -73,12 +73,18 @@ def prune_cache(cache: Path, service_date: str) -> None:
     if not root.exists():
         return
     keep_from = f"dt={parse_day(service_date):%Y-%m-%d}"
+    stuck = []
     for partition in root.iterdir():
         # dt=YYYY-MM-DD names sort in date order.
         if partition.name.startswith("dt=") and partition.name < keep_from:
-            # Not ignore_errors: a partition that cannot be deleted is a
-            # gigabyte left on a small disk, and the run should say so.
-            shutil.rmtree(partition)
+            # One that cannot be deleted must not stop the rest from going,
+            # and must not pass unnoticed: each is a gigabyte on a small disk.
+            try:
+                shutil.rmtree(partition)
+            except OSError:
+                stuck.append(partition.name)
+    if stuck:
+        raise OSError(f"could not delete cached partitions: {', '.join(sorted(stuck))}")
 
 
 def run(

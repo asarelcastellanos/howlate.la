@@ -249,12 +249,23 @@ def test_arrivals_grades_the_normalised_day(monkeypatch):
     assert graded == ["20261102", "20261102"]
 
 
-def test_a_partition_that_cannot_be_deleted_is_reported(tmp_path):
+def test_a_partition_that_cannot_be_deleted_is_reported(tmp_path, monkeypatch):
     # Rule "Cache": a stray file where a partition directory should be cannot
     # be removed by rmtree. The real cleanup must say so, not stay quiet.
     root = tmp_path / "vehicle_positions"
     root.mkdir()
-    (root / "dt=2026-08-17").write_text("not a directory")
+    (root / "dt=2026-08-01").write_text("not a directory")
+    # Older partitions beside it must still go, whatever order they are read in.
+    for day in ["2026-07-30", "2026-08-02", "2026-08-17"]:
+        (root / f"dt={day}").mkdir()
+    # Read the stray entry first, so a cleanup that stops at its first error
+    # would leave every directory behind it.
+    real_iterdir = type(root).iterdir
+    monkeypatch.setattr(
+        type(root),
+        "iterdir",
+        lambda self: sorted(real_iterdir(self), key=lambda p: (p.is_dir(), p.name)),
+    )
     archive = Archive()
     result = backfill.run(
         ["20260818"], archive.grade, archive.is_done,
@@ -263,6 +274,7 @@ def test_a_partition_that_cannot_be_deleted_is_reported(tmp_path):
     assert result["passed"] == ["20260818"]
     assert result["cleanup_failed"] == ["20260818"]
     assert backfill.exit_code(result) == 1
+    assert sorted(p.name for p in root.iterdir()) == ["dt=2026-08-01"]
 
 
 def test_fullwidth_digits_are_not_a_day():
@@ -338,3 +350,14 @@ def test_a_regrade_killed_while_writing_leaves_no_local_report(tmp_path, monkeyp
             None, "20260818", cache=tmp_path / "cache", out=out, raw_dir=raw, upload=False
         )
     assert not old.exists()
+
+
+def test_a_bad_from_date_is_reported_before_anything_runs(monkeypatch):
+    import argparse
+
+    from howlate_pipeline import __main__ as cli
+
+    monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
+    monkeypatch.setattr(cli.storage, "Client", lambda: pytest.fail("made a client"))
+    with pytest.raises(SystemExit, match="not a day"):
+        cli.run_backfill(argparse.Namespace(first="2026-1-12", last="2026-11-01"))

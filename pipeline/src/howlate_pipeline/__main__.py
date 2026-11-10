@@ -149,13 +149,16 @@ def report_exists(client: storage.Client, out: Path, upload: bool):
 
 def run_backfill(args: argparse.Namespace) -> int:
     last = require_complete(args.last)
+    # The whole range is checked before a client is made, so a bad date is
+    # reported as one even without credentials.
+    days = backfill.days_between(args.first, last)
     client = storage.Client()
     upload = not args.no_upload
 
     is_done = report_exists(client, args.out, upload)
 
     result = backfill.run(
-        backfill.days_between(args.first, last),
+        days,
         grade=lambda day: grade_day(client, day, cache=args.cache, out=args.out, upload=upload),
         is_done=is_done,
         after_day=lambda day: backfill.prune_cache(args.cache, day),
