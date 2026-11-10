@@ -35,12 +35,14 @@ class Run:
     """One daily run with every outside effect recorded."""
 
     def __init__(self, monkeypatch, tmp_path, *, done=(), codes=None, raises=None, site=None):
-        self.graded, self.pings, self.built = [], [], []
+        self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
         done = {f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in done}
         monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
         monkeypatch.setattr(cli, "Bucket", lambda: lambda: FakeClient(done))
         monkeypatch.setattr(cli, "heartbeat", lambda ok, summary: self.pings.append(ok))
-        monkeypatch.setattr(cli.aggregate, "fetch_arrivals", lambda client, dest: 0)
+        monkeypatch.setattr(
+            cli.aggregate, "fetch_arrivals", lambda client, dest: self.fetched.append(dest)
+        )
 
         def grade(bucket, day, **kwargs):
             self.graded.append(day)
@@ -52,6 +54,7 @@ class Run:
             if site:
                 raise site
             self.built.append(graded)
+            self.published.append(kwargs.get("upload", True))
             return 0
 
         monkeypatch.setattr(cli, "grade_day", grade)
@@ -78,8 +81,17 @@ def test_days_already_graded_are_skipped(monkeypatch, tmp_path):
 def test_a_clean_run_rebuilds_the_site_and_reports_ok(monkeypatch, tmp_path):
     run = Run(monkeypatch, tmp_path)
     assert run() == 0
-    assert run.built == [tmp_path / "out" / "graded" / arrivals.VERSION]
+    assert run.built == [tmp_path / "cache" / "graded" / arrivals.VERSION]
     assert run.pings == [True]
+
+
+def test_a_clean_run_summarises_every_graded_day_and_publishes(monkeypatch, tmp_path):
+    # Issue #17: a run updates the site files. On Cloud Run the disk starts
+    # empty, so the summary must read days fetched from the bucket.
+    run = Run(monkeypatch, tmp_path)
+    run()
+    assert run.fetched == run.built
+    assert run.published == [True]
 
 
 def test_a_day_that_errors_leaves_the_site_alone_and_raises_the_alarm(monkeypatch, tmp_path):
@@ -140,6 +152,22 @@ def test_a_failed_ping_does_not_fail_the_run(monkeypatch):
     monkeypatch.setenv("HOWLATE_HEARTBEAT_URL", "https://hc-ping.com/abc")
     monkeypatch.setattr(cli.urllib.request, "urlopen", unreachable)
     cli.heartbeat(True, "fine")
+
+
+def test_a_secret_saved_with_a_newline_still_reaches_fail(monkeypatch):
+    opened = Opened()
+    monkeypatch.setenv("HOWLATE_HEARTBEAT_URL", "https://hc-ping.com/abc\n")
+    monkeypatch.setattr(cli.urllib.request, "urlopen", opened)
+    cli.heartbeat(False, "broken")
+    assert opened.urls == ["https://hc-ping.com/abc/fail"]
+
+
+def test_a_bad_url_is_ignored_without_printing_the_secret(monkeypatch, capsys):
+    monkeypatch.setenv("HOWLATE_HEARTBEAT_URL", "hc-ping.com/secret-uuid")
+    cli.heartbeat(False, "broken")
+    printed = capsys.readouterr().out
+    assert "heartbeat failed: ValueError" in printed
+    assert "secret-uuid" not in printed
 
 
 def test_duckdb_takes_its_memory_and_spill_settings_from_the_job(monkeypatch, tmp_path):

@@ -151,7 +151,8 @@ def headlines(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
 def fetch_arrivals(client: storage.Client, dest: Path) -> int:
     """Download every graded day of this layout version into `dest`.
 
-    Replaces what is there, because a day regraded in the bucket must not be
+    Empties `dest` first, so it must be a directory only this function writes.
+    It replaces what is there because a day regraded in the bucket must not be
     summarised from an old local copy. On Cloud Run every execution starts
     empty anyway, so this is how the summary sees days graded by other runs.
     """

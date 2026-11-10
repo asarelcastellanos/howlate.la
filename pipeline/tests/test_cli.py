@@ -77,3 +77,36 @@ def test_a_gtfs_dir_without_timetables_is_refused(tmp_path):
     )  # fmt: skip
     assert result.returncode != 0
     assert "no gtfs_bus/ or gtfs_rail/" in result.stderr
+
+
+def test_local_timetables_cannot_be_uploaded(tmp_path):
+    # They skip the archive's checks, and an uploaded report marks a day done.
+    result = cli(
+        "arrivals", "--service-date", "2026-08-18", "--raw-dir", str(tmp_path),
+        "--gtfs-dir", str(tmp_path), cwd=tmp_path,
+    )  # fmt: skip
+    assert result.returncode != 0
+    assert "add --no-upload" in result.stderr
+
+
+def test_aggregate_from_bucket_leaves_local_grading_alone(monkeypatch, tmp_path):
+    import argparse
+
+    from howlate_pipeline import __main__ as main
+    from howlate_pipeline import arrivals
+
+    local = tmp_path / "out" / "arrivals" / arrivals.VERSION / "service_date=2026-11-01"
+    local.mkdir(parents=True)
+    (local / "part-0.parquet").write_bytes(b"graded here, never uploaded")
+    fetched, built = [], []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(main, "Bucket", lambda: lambda: None)
+    monkeypatch.setattr(main.aggregate, "fetch_arrivals", lambda client, dest: fetched.append(dest))
+    monkeypatch.setattr(main, "build_site", lambda bucket, graded, **k: built.append(graded) or 0)
+    args = argparse.Namespace(
+        from_bucket=True, arrivals=None, cache=tmp_path / "cache", out=tmp_path / "site",
+        gtfs_dir=None, no_upload=False,
+    )  # fmt: skip
+    main.run_aggregate(args)
+    assert fetched == built == [tmp_path / "cache" / "graded" / arrivals.VERSION]
+    assert (local / "part-0.parquet").exists()

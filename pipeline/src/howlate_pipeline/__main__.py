@@ -18,8 +18,9 @@ one Tuesday is not an answer to "is my bus usually late".
 backfill.py for its rules. `daily` is what the scheduled job runs: a short
 backfill over the last few days, then `aggregate` over everything graded.
 
-With --raw-dir, --gtfs-dir and --no-upload nothing touches Cloud Storage, so
-the whole pipeline can run on local files without credentials.
+`arrivals` with --raw-dir, --gtfs-dir and --no-upload, and `aggregate` with
+--gtfs-dir and --no-upload, touch no Cloud Storage, so both run on local files
+without credentials. `backfill` and `daily` always read the buckets.
 """
 
 import argparse
@@ -69,9 +70,9 @@ def require_complete(service_date: str) -> str:
 class Bucket:
     """A Cloud Storage client made only when something needs one.
 
-    Grading from a local raw directory and local timetables, without uploading,
-    needs no credentials at all, which is what lets the container be tested
-    end to end in CI.
+    Grading one day from a local raw directory and local timetables, without
+    uploading, needs no credentials at all, which is what lets CI run
+    `arrivals` and `aggregate` inside the container.
     """
 
     def __init__(self) -> None:
@@ -83,10 +84,18 @@ class Bucket:
         return self._client
 
 
-def local_timetables(directory: Path | None) -> dict[str, Path] | None:
-    """Timetables already unpacked under DIR/gtfs_bus and DIR/gtfs_rail."""
+def local_timetables(directory: Path | None, upload: bool) -> dict[str, Path] | None:
+    """Timetables already unpacked under DIR/gtfs_bus and DIR/gtfs_rail.
+
+    Only for local runs. These skip the archive's checks that the timetable is
+    the one in force that day and that both feeds are there, so a day graded
+    with them must never reach the bucket, where its report would mark the day
+    done for good.
+    """
     if directory is None:
         return None
+    if upload:
+        sys.exit("--gtfs-dir is only for local runs; add --no-upload")
     found = {
         agency: directory / feed
         for feed, agency in gtfs.FEEDS.items()
@@ -107,7 +116,7 @@ def run_arrivals(args: argparse.Namespace) -> int:
         cache=args.cache,
         out=args.out,
         raw_dir=args.raw_dir,
-        timetables=local_timetables(args.gtfs_dir),
+        timetables=local_timetables(args.gtfs_dir, upload=not args.no_upload),
         upload=not args.no_upload,
     )
 
@@ -208,9 +217,11 @@ def heartbeat(ok: bool, summary: str) -> None:
     Silence is the alarm for a job that never ran; /fail is the alarm for one
     that ran and went wrong. The URL is a secret and comes from the job's
     environment. A failed ping is printed and ignored, because the run's own
-    result matters more than the report about it.
+    result matters more than the report about it. Only the error's type is
+    printed: urllib puts the URL, and so the secret, in its messages.
     """
-    url = os.environ.get("HOWLATE_HEARTBEAT_URL")
+    # A secret saved with `echo` ends in a newline, which breaks only /fail.
+    url = os.environ.get("HOWLATE_HEARTBEAT_URL", "").strip()
     if not url:
         return
     try:
@@ -218,8 +229,8 @@ def heartbeat(ok: bool, summary: str) -> None:
             url if ok else f"{url}/fail", data=summary.encode()[:10_000], method="POST"
         )
         urllib.request.urlopen(request, timeout=10).close()
-    except OSError as error:
-        print(f"  heartbeat failed: {error!r}")
+    except Exception as error:
+        print(f"  heartbeat failed: {type(error).__name__}")
 
 
 def run_daily(args: argparse.Namespace) -> int:
@@ -228,7 +239,8 @@ def run_daily(args: argparse.Namespace) -> int:
     Catching up over several days rather than grading only yesterday means a
     missed run, or a day that failed, is picked up by the next one without
     anyone doing anything. The site is rebuilt only when no day errored, so a
-    failure leaves the published files as they were.
+    grading failure leaves the published files as they were. A failure while
+    uploading the site can still leave a mix of old and new files.
     """
     last = backfill.parse_day(yesterday())
     first = last - timedelta(days=args.catch_up - 1)
@@ -246,7 +258,7 @@ def run_daily(args: argparse.Namespace) -> int:
             heartbeat(False, f"days failed, site left as it was: {summary}")
             return code
 
-        graded = args.out / "graded" / arrivals.VERSION
+        graded = args.cache / "graded" / arrivals.VERSION
         aggregate.fetch_arrivals(bucket(), graded)
         build_site(bucket, graded, cache=args.cache, out=args.out / "site")
     except BaseException as error:
@@ -259,14 +271,18 @@ def run_daily(args: argparse.Namespace) -> int:
 
 def run_aggregate(args: argparse.Namespace) -> int:
     bucket = Bucket()
+    graded = args.arrivals or Path(f"out/arrivals/{arrivals.VERSION}")
     if args.from_bucket:
-        aggregate.fetch_arrivals(bucket(), args.arrivals)
+        # A directory of its own under the cache, because fetching empties it
+        # first, and --arrivals may hold days graded locally and never uploaded.
+        graded = args.cache / "graded" / arrivals.VERSION
+        aggregate.fetch_arrivals(bucket(), graded)
     return build_site(
         bucket,
-        args.arrivals,
+        graded,
         cache=args.cache,
         out=args.out,
-        timetables=local_timetables(args.gtfs_dir),
+        timetables=local_timetables(args.gtfs_dir, upload=not args.no_upload),
         upload=not args.no_upload,
     )
 
@@ -384,11 +400,11 @@ def main() -> None:
     every = jobs.add_parser(
         "aggregate", parents=[shared], help="summarise every day measured so far"
     )
-    every.add_argument(
+    source = every.add_mutually_exclusive_group()
+    source.add_argument(
         "--arrivals",
         type=Path,
-        default=Path(f"out/arrivals/{arrivals.VERSION}"),
-        help="one version's partitions, e.g. out/arrivals/v2",
+        help=f"one version's partitions (default out/arrivals/{arrivals.VERSION})",
     )
     every.add_argument("--out", type=Path, default=Path("site"), help="where the JSON goes")
     every.add_argument(
@@ -401,10 +417,10 @@ def main() -> None:
         type=Path,
         help="unpacked timetables under DIR/gtfs_bus and DIR/gtfs_rail, instead of the archive",
     )
-    every.add_argument(
+    source.add_argument(
         "--from-bucket",
         action="store_true",
-        help="first download every graded day from the derived bucket into --arrivals",
+        help="summarise every graded day in the derived bucket, downloaded under --cache",
     )
     every.set_defaults(run=run_aggregate)
 
