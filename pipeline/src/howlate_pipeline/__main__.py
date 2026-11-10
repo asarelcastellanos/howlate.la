@@ -16,12 +16,20 @@ Tuesday is not an answer to "is my bus usually late".
 import argparse
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, backfill, gtfs, labels, report
+from howlate_pipeline import (
+    DERIVED_BUCKET,
+    aggregate,
+    arrivals,
+    backfill,
+    gtfs,
+    labels,
+    report,
+)
 
 
 def yesterday() -> str:
@@ -34,7 +42,20 @@ def yesterday() -> str:
     return (datetime.now() - timedelta(days=2)).strftime("%Y%m%d")
 
 
+def require_complete(service_date: str) -> None:
+    """Refuse a day the archive is still being written for.
+
+    Graded early it would be missing its evening, and its saved report would
+    stop it ever being graded again.
+    """
+    day = datetime.strptime(service_date.replace("-", ""), "%Y%m%d")
+    latest = datetime.strptime(yesterday(), "%Y%m%d")
+    if day > latest:
+        sys.exit(f"{day:%Y-%m-%d} is not complete yet; the latest is {latest:%Y-%m-%d}")
+
+
 def run_arrivals(args: argparse.Namespace) -> int:
+    require_complete(args.service_date)
     return grade_day(
         storage.Client(),
         args.service_date.replace("-", ""),
@@ -75,6 +96,9 @@ def grade_day(
     arrivals.match(con, service_date)
     arrivals.trips(con)
 
+    # The old report goes first. Until the new one is saved, nothing on disk
+    # may claim this day is finished.
+    (out / arrivals.partition("reports", service_date) / "report.json").unlink(missing_ok=True)
     written = arrivals.write(con, out, service_date)
     path = written["arrivals"]
     size = path.stat().st_size
@@ -88,7 +112,7 @@ def grade_day(
     )
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
-        f"{size / rows:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
+        f"{size / rows if rows else 0:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
     )
 
     if upload:
@@ -102,16 +126,23 @@ def grade_day(
 
 
 def run_backfill(args: argparse.Namespace) -> int:
+    require_complete(args.last)
+    regrade_before = (
+        datetime.fromisoformat(args.regrade_before).astimezone(UTC) if args.regrade_before else None
+    )
+
     client = storage.Client()
     upload = not args.no_upload
 
-    def is_done(day: str) -> bool:
-        if args.force:
-            return False
+    def report_time(day: str) -> datetime | None:
         name = arrivals.partition("reports", day) + "report.json"
         if upload:
-            return client.bucket(DERIVED_BUCKET).blob(name).exists()
-        return (args.out / name).exists()
+            blob = client.bucket(DERIVED_BUCKET).get_blob(name)
+            return blob.updated if blob else None
+        path = args.out / name
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC) if path.exists() else None
+
+    is_done = backfill.done_check(report_time, regrade_before)
 
     result = backfill.run(
         backfill.days_between(args.first, args.last),
@@ -205,7 +236,12 @@ def main() -> None:
         action="store_true",
         help="write locally; a day counts as done when its report is on local disk",
     )
-    many.add_argument("--force", action="store_true", help="regrade days that are already done")
+    many.add_argument(
+        "--regrade-before",
+        metavar="TIME",
+        help="also regrade days whose report was written before TIME, e.g. 2026-11-10T08:00-08:00; "
+        "rerun with the same TIME to resume",
+    )
     many.set_defaults(run=run_backfill)
 
     every = jobs.add_parser(

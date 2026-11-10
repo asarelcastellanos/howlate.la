@@ -4,6 +4,8 @@
 fake grade finishes, the way a report landing in the bucket does for real.
 """
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from howlate_pipeline import backfill
@@ -104,10 +106,11 @@ def test_failed_checks_are_written_and_reported():
     assert backfill.exit_code(result) == 2
 
 
-def test_cleanup_runs_after_every_graded_day_including_failures():
+def test_cleanup_runs_after_each_day_that_was_graded():
     archive = Archive(done=["20260818"], raises={"20260819": RuntimeError("boom")})
     archive.run()
-    assert archive.finished == ["20260819", "20260820", "20260821"]
+    # Not after the 19th, which raised: a retry needs its raw files again.
+    assert archive.finished == ["20260820", "20260821"]
 
 
 def test_pruning_drops_only_the_partition_no_later_day_reads(tmp_path):
@@ -121,3 +124,112 @@ def test_pruning_drops_only_the_partition_no_later_day_reads(tmp_path):
     # The 19th still needs the 18th and 19th partitions.
     assert left == ["dt=2026-08-18", "dt=2026-08-19"]
     assert (tmp_path / "gtfs").exists()
+
+
+def test_pruning_drops_every_older_partition_left_behind(tmp_path):
+    # A run that skipped done days, or an earlier separate run, can leave
+    # older partitions. All of them go once a later day is graded.
+    for day in ["2026-08-10", "2026-08-12", "2026-08-17", "2026-08-18", "2026-08-19"]:
+        (tmp_path / "vehicle_positions" / f"dt={day}").mkdir(parents=True)
+    backfill.prune_cache(tmp_path, "20260818")
+    left = sorted(p.name for p in (tmp_path / "vehicle_positions").iterdir())
+    assert left == ["dt=2026-08-18", "dt=2026-08-19"]
+
+
+def test_pruning_an_empty_cache_is_harmless(tmp_path):
+    backfill.prune_cache(tmp_path, "20260818")
+
+
+def test_a_failing_done_check_does_not_stop_the_rest():
+    archive = Archive()
+
+    def flaky(day):
+        if day == "20260819":
+            raise ConnectionError("bucket unreachable")
+        return archive.is_done(day)
+
+    result = backfill.run(DAYS, archive.grade, flaky, archive.after_day, log=lambda _: None)
+    assert result["errors"] == ["20260819"]
+    assert archive.graded == ["20260818", "20260820", "20260821"]
+
+
+def test_a_failing_cleanup_keeps_the_days_result_and_does_not_stop_the_rest():
+    archive = Archive(codes={"20260819": 2})
+
+    def cleanup(day):
+        if day == "20260819":
+            raise OSError("disk")
+
+    result = backfill.run(DAYS, archive.grade, archive.is_done, cleanup, log=lambda _: None)
+    # The 19th was graded and saved; its failed checks are still reported, and
+    # the cleanup failure is reported on its own.
+    assert result["checks_failed"] == ["20260819"]
+    assert result["cleanup_failed"] == ["20260819"]
+    assert result["errors"] == []
+    assert archive.graded == DAYS
+    assert backfill.exit_code(result) == 1
+
+
+def test_an_interrupt_during_a_grade_is_not_swallowed_by_cleanup():
+    archive = Archive(raises={"20260819": KeyboardInterrupt()})
+
+    def cleanup(day):
+        raise OSError("disk")
+
+    with pytest.raises(KeyboardInterrupt):
+        backfill.run(DAYS, archive.grade, archive.is_done, cleanup, log=lambda _: None)
+
+
+NOV_10 = datetime(2026, 11, 10, 8, tzinfo=UTC)
+
+
+def at(hours_after: int) -> datetime:
+    return NOV_10 + timedelta(hours=hours_after)
+
+
+def test_a_day_with_a_report_is_done():
+    is_done = backfill.done_check({"20260818": at(-48)}.get, None)
+    assert is_done("20260818") is True
+    assert is_done("20260819") is False
+
+
+def test_regrade_redoes_only_days_reported_before_the_cutoff():
+    written = {"20260818": at(-48), "20260819": at(+1)}
+    is_done = backfill.done_check(written.get, NOV_10)
+    # The 19th was regraded after the cutoff: restarted with the same cutoff,
+    # an interrupted regrade resumes from there instead of starting over.
+    assert is_done("20260818") is False
+    assert is_done("20260819") is True
+    assert is_done("20260820") is False
+
+
+def test_a_day_not_yet_complete_is_refused_before_anything_runs(monkeypatch):
+    import argparse
+
+    from howlate_pipeline import __main__ as cli
+
+    monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
+    # Refused before any client is made, so no credentials are needed here.
+    monkeypatch.setattr(cli.storage, "Client", lambda: pytest.fail("made a client"))
+    args = argparse.Namespace(last="2026-11-08", first="2026-11-01", regrade_before=None)
+    with pytest.raises(SystemExit):
+        cli.run_backfill(args)
+    # An unpadded date is a date, not a string that sorts after November.
+    args.last = "2026-1-9"
+    monkeypatch.setattr(cli, "grade_day", lambda *a, **k: pytest.fail("graded"))
+    monkeypatch.setattr(
+        cli.storage, "Client", lambda: (_ for _ in ()).throw(RuntimeError("client"))
+    )
+    with pytest.raises(RuntimeError, match="client"):
+        cli.run_backfill(args)
+
+
+def test_arrivals_refuses_an_incomplete_day_too(monkeypatch):
+    import argparse
+
+    from howlate_pipeline import __main__ as cli
+
+    monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
+    monkeypatch.setattr(cli, "grade_day", lambda *a, **k: pytest.fail("graded"))
+    with pytest.raises(SystemExit):
+        cli.run_arrivals(argparse.Namespace(service_date="2026-11-08"))

@@ -12,7 +12,10 @@ Nothing here writes to the raw bucket. The archive is append-only and this reads
 it; a bug in the analysis must never be able to damage the collection.
 """
 
-__version__ = "0.2.0"
+# A development version until 0.3.0 is released, so a report says which
+# release line wrote it. It does not tell two development commits apart, which
+# is why regrading goes by when a report was written, not by this.
+__version__ = "0.3.0.dev0"
 
 # The bucket the collector writes to. Read-only from here.
 RAW_BUCKET = "howlate-raw"
