@@ -1,16 +1,20 @@
-"""Two jobs: measure one day, then summarise every day measured so far.
+"""Grade days and summarise them.
 
     python -m howlate_pipeline arrivals --service-date 2026-08-18
+    python -m howlate_pipeline backfill --from 2026-08-18 --to 2026-11-07
     python -m howlate_pipeline aggregate
 
 `arrivals` reads the raw archive and the timetable in force and writes one
-Parquet partition per table, arrivals and trips. It handles one day, and
-rerunning a day replaces that day and touches nothing else, so any day can be
-recomputed at any time.
+Parquet partition per table, arrivals and trips, then the day's report. It
+handles one day, and rerunning a day replaces that day and touches nothing
+else, so any day can be recomputed at any time.
+
+`backfill` runs `arrivals` over a range, skipping days already done; its rules
+are in backfill.py.
 
 `aggregate` reads every partition of one layout version and produces the small
-JSON files a browser fetches. It handles all days at once, because a median over one
-Tuesday is not an answer to "is my bus usually late".
+JSON files a browser fetches. It handles all days at once, because a median over
+one Tuesday is not an answer to "is my bus usually late".
 """
 
 import argparse
@@ -21,7 +25,15 @@ from pathlib import Path
 
 from google.cloud import storage
 
-from howlate_pipeline import aggregate, arrivals, gtfs, labels, report
+from howlate_pipeline import (
+    DERIVED_BUCKET,
+    aggregate,
+    arrivals,
+    backfill,
+    gtfs,
+    labels,
+    report,
+)
 
 
 def yesterday() -> str:
@@ -34,20 +46,54 @@ def yesterday() -> str:
     return (datetime.now() - timedelta(days=2)).strftime("%Y%m%d")
 
 
+def require_complete(service_date: str) -> str:
+    """The day as YYYYMMDD, refused if the archive is still being written for it.
+
+    Graded early a day would be missing its evening, and its saved report would
+    stop it ever being graded again.
+    """
+    day = backfill.parse_day(service_date)
+    latest = backfill.parse_day(yesterday())
+    if day > latest:
+        sys.exit(f"{day:%Y-%m-%d} is not complete yet; the latest is {latest:%Y-%m-%d}")
+    return f"{day:%Y%m%d}"
+
+
 def run_arrivals(args: argparse.Namespace) -> int:
-    service_date = args.service_date.replace("-", "")
+    # The day is checked before a client is made, so refusing a day needs no
+    # credentials.
+    day = require_complete(args.service_date)
+    return grade_day(
+        storage.Client(),
+        day,
+        cache=args.cache,
+        out=args.out,
+        raw_dir=args.raw_dir,
+        upload=not args.no_upload,
+    )
+
+
+def grade_day(
+    client: storage.Client,
+    service_date: str,
+    *,
+    cache: Path,
+    out: Path,
+    raw_dir: Path | None = None,
+    upload: bool = True,
+) -> int:
+    """Grade one service day, write it, and upload it unless told not to."""
     started = time.monotonic()
-    client = storage.Client()
 
     print(f"timetables in force on {service_date}:")
-    directories = gtfs.prepare(client, service_date, args.cache / "gtfs")
+    directories = gtfs.prepare(client, service_date, cache / "gtfs")
 
     print("raw archive:")
-    if args.raw_dir:
-        files = arrivals.local_files(args.raw_dir, service_date)
-        print(f"  raw: {len(files)} files from {args.raw_dir}")
+    if raw_dir:
+        files = arrivals.local_files(raw_dir, service_date)
+        print(f"  raw: {len(files)} files from {raw_dir}")
     else:
-        files = arrivals.fetch_raw(client, service_date, args.cache)
+        files = arrivals.fetch_raw(client, service_date, cache)
     if not files:
         sys.exit(f"no raw files found for {service_date}")
 
@@ -59,8 +105,8 @@ def run_arrivals(args: argparse.Namespace) -> int:
 
     # The old report goes first. Until the new one is saved, nothing on disk
     # may claim this day is finished.
-    (args.out / arrivals.partition("reports", service_date) / "report.json").unlink(missing_ok=True)
-    written = arrivals.write(con, args.out, service_date)
+    (out / report_path(service_date)).unlink(missing_ok=True)
+    written = arrivals.write(con, out, service_date)
     path = written["arrivals"]
     size = path.stat().st_size
     rows = con.sql("SELECT count(*) FROM arrivals").fetchone()[0]
@@ -68,15 +114,13 @@ def run_arrivals(args: argparse.Namespace) -> int:
     report.show(con, service_date)
     # Saved last so that, in the bucket, a report is the sign a day finished.
     saved = report.document(con, service_date)
-    written["reports"] = report.save(
-        saved, args.out / arrivals.partition("reports", service_date) / "report.json"
-    )
+    written["reports"] = report.save(saved, out / report_path(service_date))
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
         f"{size / rows if rows else 0:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
     )
 
-    if not args.no_upload:
+    if upload:
         for where in arrivals.upload(client, written, service_date):
             print(f"  uploaded {where}")
 
@@ -84,6 +128,42 @@ def run_arrivals(args: argparse.Namespace) -> int:
     # way. The status is here so a scheduler shows a red job rather than burying
     # a drifting feed in a log nobody reads.
     return 0 if saved["ok"] else 2
+
+
+def report_path(day: str) -> str:
+    """Where a day's report lives, relative to the output root or the bucket."""
+    return arrivals.partition("reports", day) + "report.json"
+
+
+def report_exists(client: storage.Client, out: Path, upload: bool):
+    """The Done rule: a day is done when its report exists, in the bucket or,
+    without uploading, on disk."""
+
+    def is_done(day: str) -> bool:
+        if upload:
+            return client.bucket(DERIVED_BUCKET).blob(report_path(day)).exists()
+        return (out / report_path(day)).exists()
+
+    return is_done
+
+
+def run_backfill(args: argparse.Namespace) -> int:
+    last = require_complete(args.last)
+    # The whole range is checked before a client is made, so a bad date is
+    # reported as one even without credentials.
+    days = backfill.days_between(args.first, last)
+    client = storage.Client()
+    upload = not args.no_upload
+
+    is_done = report_exists(client, args.out, upload)
+
+    result = backfill.run(
+        days,
+        grade=lambda day: grade_day(client, day, cache=args.cache, out=args.out, upload=upload),
+        is_done=is_done,
+        after_day=lambda day: backfill.prune_cache(args.cache, day),
+    )
+    return backfill.exit_code(result)
 
 
 def run_aggregate(args: argparse.Namespace) -> int:
@@ -155,6 +235,21 @@ def main() -> None:
         help="write locally without pushing to the derived bucket",
     )
     one.set_defaults(run=run_arrivals)
+
+    many = jobs.add_parser(
+        "backfill", parents=[shared], help="grade every day in a range not already done"
+    )
+    many.add_argument("--from", dest="first", required=True, help="first service day, YYYY-MM-DD")
+    many.add_argument(
+        "--to", dest="last", default=yesterday(), help="last service day. Defaults to two days ago."
+    )
+    many.add_argument("--out", type=Path, default=Path("out"), help="where the Parquet goes")
+    many.add_argument(
+        "--no-upload",
+        action="store_true",
+        help="write locally; a day counts as done when its report is on local disk",
+    )
+    many.set_defaults(run=run_backfill)
 
     every = jobs.add_parser(
         "aggregate", parents=[shared], help="summarise every day measured so far"
