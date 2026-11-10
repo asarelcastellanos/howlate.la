@@ -245,7 +245,8 @@ def run_daily(args: argparse.Namespace) -> int:
     such as one the collector missed, would otherwise hold back every newer day
     for as long as it stays in the window. A failed day adds nothing to the
     site, because only days with a report are summarised. A failure while
-    uploading the site can still leave a mix of old and new files.
+    uploading the site leaves the last complete one published; see
+    aggregate.upload.
     """
     last = backfill.parse_day(yesterday())
     first = last - timedelta(days=args.catch_up - 1)
