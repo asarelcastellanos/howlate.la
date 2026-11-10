@@ -83,6 +83,47 @@ cat >"$SHUTDOWN" <<'SCRIPT'
 true
 SCRIPT
 
+# The daily job grades the last seven days. A backfill grading the same days
+# at the same time could interleave their uploads, so the schedule must be
+# paused first, no daily run may be unfinished, and the schedule is resumed
+# once the backfill VM has powered off.
+# Prints a field of a resource, or nothing when the resource does not exist,
+# including when its API is still disabled. Any other error stops the script: a guard that read a permission error or an
+# outage as "absent" would let two graders overlap.
+lookup() {
+  local err out
+  err=$(mktemp)
+  if out=$("$@" 2>"$err"); then
+    rm -f "$err"
+    printf '%s' "$out"
+    return 0
+  fi
+  if grep -qiE 'not.?found|SERVICE_DISABLED' "$err"; then
+    rm -f "$err"
+    return 0
+  fi
+  cat "$err" >&2
+  rm -f "$err"
+  return 1
+}
+
+SCHEDULE=$(lookup gcloud scheduler jobs describe howlate-daily --project "$PROJECT" \
+  --location us-west1 --format 'value(state)')
+if [ "$SCHEDULE" = ENABLED ]; then
+  echo "the daily job's schedule is enabled. Pause it first:" >&2
+  echo "  gcloud scheduler jobs pause howlate-daily --project $PROJECT --location us-west1" >&2
+  echo "and resume it once the backfill VM has powered off:" >&2
+  echo "  gcloud scheduler jobs resume howlate-daily --project $PROJECT --location us-west1" >&2
+  exit 1
+fi
+# An execution with no completion time is still running.
+UNFINISHED=$(lookup gcloud run jobs executions list --job howlate-daily --project "$PROJECT" \
+  --region us-west1 --format 'value(name,status.completionTime)' | awk -F '\t' '$2 == "" {print $1}')
+if [ -n "$UNFINISHED" ]; then
+  echo "a daily run is unfinished ($UNFINISHED); wait for it to end" >&2
+  exit 1
+fi
+
 # A finished run leaves its VM powered off. Delete it so this one can start;
 # refuse if one is still running, since two backfills must not grade the same
 # days at once.

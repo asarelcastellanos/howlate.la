@@ -226,7 +226,9 @@ doing it, and the storage bill stops growing.
 - Triggering the daily job by hand grades yesterday, updates the site files,
   and pings healthchecks.io.
 - Pointing the job at a day with no raw data raises the alarm.
-- A failed run leaves the previous site files untouched.
+- A run that crashes before publishing leaves the previous site files
+  untouched. A day that fails sends /fail, and the site is still rebuilt from
+  the days that finished.
 - After the backfill, the number of graded days equals the number of raw days.
   Every day passes the `report.py` ranges or has a written note.
 - After the lifecycle rule, files older than 30 days show Coldline, new files
