@@ -57,6 +57,9 @@ def run_arrivals(args: argparse.Namespace) -> int:
     arrivals.match(con, service_date)
     arrivals.trips(con)
 
+    # The old report goes first. Until the new one is saved, nothing on disk
+    # may claim this day is finished.
+    (args.out / arrivals.partition("reports", service_date) / "report.json").unlink(missing_ok=True)
     written = arrivals.write(con, args.out, service_date)
     path = written["arrivals"]
     size = path.stat().st_size
@@ -70,7 +73,7 @@ def run_arrivals(args: argparse.Namespace) -> int:
     )
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
-        f"{size / rows:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
+        f"{size / rows if rows else 0:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
     )
 
     if not args.no_upload:

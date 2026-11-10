@@ -208,3 +208,44 @@ def test_the_report_goes_up_last_as_json(tmp_path):
         ("trips/v2/service_date=2026-08-18/part-0.parquet", "application/vnd.apache.parquet"),
         ("reports/v2/service_date=2026-08-18/report.json", "application/json"),
     ]
+
+
+class FailsOn(FakeClient):
+    """A bucket whose upload of one table dies partway, as a reclaimed VM would."""
+
+    def __init__(self, objects, dies_on: str):
+        super().__init__(objects)
+        self.dies_on = dies_on
+
+    def bucket(self, name: str) -> FakeBucket:
+        client = self
+
+        class Dying(FakeBucket):
+            def blob(self, blob_name: str) -> FakeBlob:
+                if client.dies_on in blob_name:
+                    raise ConnectionError("killed mid-upload")
+                return FakeBlob(self.name, blob_name, self.store)
+
+        return Dying(name, self.store)
+
+
+def test_a_regrade_that_dies_partway_leaves_no_report(tmp_path):
+    # The day was graded before, so its report is in the bucket. The regrade
+    # replaces arrivals and then dies on trips. The old report must be gone,
+    # or every later run would skip a day whose tables no longer match it.
+    day = [
+        (DERIVED_BUCKET, "arrivals/v2/service_date=2026-08-18/part-0.parquet"),
+        (DERIVED_BUCKET, "trips/v2/service_date=2026-08-18/part-0.parquet"),
+        (DERIVED_BUCKET, "reports/v2/service_date=2026-08-18/report.json"),
+    ]
+    client = FailsOn(day, dies_on="trips/")
+    con = run_day(tmp_path / "day")
+    out = tmp_path / "out"
+    written = arrivals.write(con, out, SERVICE_DATE)
+    written["reports"] = report.save(
+        report.document(con, SERVICE_DATE),
+        out / arrivals.partition("reports", SERVICE_DATE) / "report.json",
+    )
+    with pytest.raises(ConnectionError):
+        arrivals.upload(client, written, SERVICE_DATE)
+    assert not any(name.startswith("reports/") for _, name in client.store)

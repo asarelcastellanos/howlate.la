@@ -5,7 +5,9 @@ rows out of DuckDB, which is the first thing a DuckDB upgrade broke.
 """
 
 import json
+from pathlib import Path
 
+import duckdb
 import pytest
 from fixture_day import SERVICE_DATE, run_day
 
@@ -67,3 +69,40 @@ def test_saving_the_same_day_twice_writes_the_same_bytes(con, tmp_path):
     second = report.save(report.document(con, SERVICE_DATE), tmp_path / "b.json").read_bytes()
     assert first == second
     assert json.loads(first)["service_date"] == "2026-08-18"
+
+
+def test_silent_lines_come_out_in_the_same_order_every_time():
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE arrivals AS SELECT * FROM (VALUES "
+        "('LACMTA', '33', 'none'), ('LACMTA', '4', 'none'), ('LACMTA_Rail', '801', 'none'), "
+        "('LACMTA', '2', 'none'), ('LACMTA', '2', 'none')) t(agency, line, source)"
+    )
+    # Line 2 has the most scheduled stops; the three ties follow by name.
+    assert report.silent_lines(con) == [
+        ("LACMTA", "2", 2), ("LACMTA", "33", 1), ("LACMTA", "4", 1), ("LACMTA_Rail", "801", 1),
+    ]  # fmt: skip
+
+
+def test_a_save_killed_mid_write_leaves_no_report(tmp_path, monkeypatch):
+    # The write dies halfway, as a killed process would. Whatever is on disk
+    # must not be the report itself, or the day would count as done.
+    real_write = Path.write_text
+
+    def dies_halfway(self, data, *args, **kwargs):
+        real_write(self, data[: len(data) // 2])
+        raise OSError("killed while writing")
+
+    monkeypatch.setattr(Path, "write_text", dies_halfway)
+    path = tmp_path / "report.json"
+    with pytest.raises(OSError):
+        report.save({"service_date": "2026-08-18", "ok": True}, path)
+    assert not path.exists()
+
+
+def test_the_printed_report_survives_a_day_with_nothing_timed(tmp_path, capsys):
+    # A fresh day, emptied, so the shared fixture is left alone.
+    con = run_day(tmp_path)
+    con.execute("CREATE OR REPLACE TABLE arrivals AS SELECT * FROM arrivals WHERE false")
+    report.show(con, SERVICE_DATE)
+    assert "median n/a" in capsys.readouterr().out

@@ -12,7 +12,9 @@ Nothing here writes to the raw bucket. The archive is append-only and this reads
 it; a bug in the analysis must never be able to damage the collection.
 """
 
-__version__ = "0.2.0"
+# A development version until 0.3.0 is released, so reports written by the
+# backfill name the code that wrote them rather than an earlier release.
+__version__ = "0.3.0.dev0"
 
 # The bucket the collector writes to. Read-only from here.
 RAW_BUCKET = "howlate-raw"
