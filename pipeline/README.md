@@ -86,6 +86,10 @@ site/index.json         every line with headline numbers
 site/lines/720.json     hour-of-week profile + per-stop dayparts
 ```
 
+In the bucket each run goes under `site/runs/<UTC time>/`, and
+`site/current.json` names the run to read. The pointer moves only after a run
+is complete, so a reader never gets a mix of two runs.
+
 Every cell carries what was measured *and* what was scheduled, because only
 about half of all scheduled stops can be observed and a cell resting on three
 sightings must not look like one resting on three hundred. Largest line file is
