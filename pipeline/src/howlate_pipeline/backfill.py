@@ -23,10 +23,11 @@ Outcomes
 
 Cache
     After every day attempted, whatever the outcome, raw partitions older
-    than that day are deleted. A failed day's retry downloads one partition
-    again; in exchange the cache never grows past about four days, even when
-    every day fails. A failed cleanup is reported on its own and does not
-    change the day's result.
+    than that day are deleted. A failed day's retry downloads up to three
+    partitions again (the day and the day either side); in exchange the
+    cache stays at a few days, even when every day fails. A cleanup that
+    cannot delete a partition is reported on its own and does not change the
+    day's result.
 
 To grade a done day again, delete its report and run the backfill over it:
 
@@ -39,7 +40,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DAY = re.compile(r"(\d{4})-(\d{2})-(\d{2})|(\d{4})(\d{2})(\d{2})")
+# ASCII digits only: \d alone would also accept other scripts' digits.
+DAY = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})|([0-9]{4})([0-9]{2})([0-9]{2})")
 
 
 def parse_day(text: str) -> datetime:
@@ -74,7 +76,9 @@ def prune_cache(cache: Path, service_date: str) -> None:
     for partition in root.iterdir():
         # dt=YYYY-MM-DD names sort in date order.
         if partition.name.startswith("dt=") and partition.name < keep_from:
-            shutil.rmtree(partition, ignore_errors=True)
+            # Not ignore_errors: a partition that cannot be deleted is a
+            # gigabyte left on a small disk, and the run should say so.
+            shutil.rmtree(partition)
 
 
 def run(
