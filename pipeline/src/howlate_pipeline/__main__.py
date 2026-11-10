@@ -248,6 +248,8 @@ def run_daily(args: argparse.Namespace) -> int:
     uploading the site leaves the last complete one published; see
     aggregate.upload.
     """
+    # Set in the image, so each run's log shows which code it ran.
+    print(f"howlate-pipeline at commit {os.environ.get('HOWLATE_COMMIT', 'unknown')}")
     last = backfill.parse_day(yesterday())
     first = last - timedelta(days=args.catch_up - 1)
     bucket = Bucket()

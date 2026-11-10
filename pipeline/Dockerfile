@@ -35,4 +35,9 @@ RUN useradd --create-home --uid 10001 howlate && mkdir /work && chown howlate /w
 USER howlate
 WORKDIR /work
 
+# The commit the image was built from, so every run's log names the code it
+# ran. Set late, so changing it does not invalidate the dependency layers.
+ARG COMMIT=unknown
+ENV HOWLATE_COMMIT=$COMMIT
+
 ENTRYPOINT ["python", "-m", "howlate_pipeline"]

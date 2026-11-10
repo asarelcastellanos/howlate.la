@@ -108,7 +108,7 @@ echo "==> Image repository"
 if ! gcloud artifacts repositories describe howlate --project "$PROJECT" \
     --location "$REGION" >/dev/null 2>&1; then
   gcloud artifacts repositories create howlate --project "$PROJECT" \
-    --location "$REGION" --repository-format docker \
+    --location "$REGION" --repository-format docker --immutable-tags \
     --description "HowLate pipeline images"
 fi
 
@@ -122,7 +122,8 @@ if ! gcloud artifacts docker images describe "$IMAGE:$TAG" >/dev/null 2>&1; then
   cat >"$CONTEXT/cloudbuild.yaml" <<YAML
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: [build, --platform, linux/amd64, -f, pipeline/Dockerfile, -t, "$IMAGE:$TAG", .]
+    args: [build, --platform, linux/amd64, --build-arg, "COMMIT=$TAG",
+           -f, pipeline/Dockerfile, -t, "$IMAGE:$TAG", .]
 images: ["$IMAGE:$TAG"]
 YAML
   gcloud builds submit "$CONTEXT" --project "$PROJECT" --region "$REGION" \

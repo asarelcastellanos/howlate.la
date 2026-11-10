@@ -31,9 +31,11 @@ on:
 
 # One run per PR at a time. A newer run cancels the older one, and a cancelled
 # run ends with a failed all-checks, so a stale run cannot finish last and pass.
+# Pushes to main are never cancelled: each commit there needs its own result,
+# because the deploy workflow waits for all-checks on exactly that commit.
 concurrency:
-  group: checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
