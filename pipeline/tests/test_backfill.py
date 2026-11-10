@@ -205,6 +205,8 @@ def test_arrivals_refuses_an_incomplete_day_too(monkeypatch):
 
     monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
     monkeypatch.setattr(cli, "grade_day", lambda *a, **k: pytest.fail("graded"))
+    # Refused before any client is made, so no credentials are needed.
+    monkeypatch.setattr(cli.storage, "Client", lambda: pytest.fail("made a client"))
     with pytest.raises(SystemExit):
         cli.run_arrivals(argparse.Namespace(service_date="2026-11-08"))
 
@@ -245,3 +247,138 @@ def test_arrivals_grades_the_normalised_day(monkeypatch):
     args.service_date = "2026-11-02"
     cli.run_arrivals(args)
     assert graded == ["20261102", "20261102"]
+
+
+def test_a_partition_that_cannot_be_deleted_is_reported(tmp_path, monkeypatch):
+    # Rule "Cache": a stray file where a partition directory should be cannot
+    # be removed by rmtree. The real cleanup must say so, not stay quiet.
+    root = tmp_path / "vehicle_positions"
+    root.mkdir()
+    (root / "dt=2026-08-01").write_text("not a directory")
+    # Older partitions beside it must still go, whatever order they are read in.
+    for day in ["2026-07-30", "2026-08-02", "2026-08-17"]:
+        (root / f"dt={day}").mkdir()
+    # Read the stray entry first, so a cleanup that stops at its first error
+    # would leave every directory behind it.
+    real_iterdir = type(root).iterdir
+    monkeypatch.setattr(
+        type(root),
+        "iterdir",
+        lambda self: sorted(real_iterdir(self), key=lambda p: (p.is_dir(), p.name)),
+    )
+    archive = Archive()
+    result = backfill.run(
+        ["20260818"], archive.grade, archive.is_done,
+        lambda day: backfill.prune_cache(tmp_path, day), log=lambda _: None,
+    )  # fmt: skip
+    assert result["passed"] == ["20260818"]
+    assert result["cleanup_failed"] == ["20260818"]
+    assert backfill.exit_code(result) == 1
+    assert sorted(p.name for p in root.iterdir()) == ["dt=2026-08-01"]
+
+
+def test_one_stuck_file_does_not_keep_the_rest_of_its_partition(tmp_path):
+    # A read-only hour directory: its file cannot be removed by a normal user.
+    partition = tmp_path / "vehicle_positions" / "dt=2026-08-17"
+    for hour in range(4):
+        (partition / f"hh={hour:02d}").mkdir(parents=True)
+        (partition / f"hh={hour:02d}" / "file.jsonl.gz").write_text("x")
+    locked = partition / "hh=01"
+    locked.chmod(0o500)
+    try:
+        with pytest.raises(OSError, match="dt=2026-08-17: .*ermission denied"):
+            backfill.prune_cache(tmp_path, "20260818")
+        assert sorted(p.name for p in partition.iterdir()) == ["hh=01"]
+    finally:
+        locked.chmod(0o700)
+
+
+def test_fullwidth_digits_are_not_a_day():
+    with pytest.raises(SystemExit):
+        backfill.parse_day("\uff12\uff10\uff12\uff16\uff11\uff11\uff10\uff12")
+
+
+class FakeClient:
+    def __init__(self, names):
+        self.names = set(names)
+
+    def bucket(self, name):
+        assert name == "howlate-derived"
+        return self
+
+    def blob(self, name):
+        names = self.names
+
+        class Blob:
+            def exists(self):
+                return name in names
+
+        return Blob()
+
+
+def test_done_means_the_report_is_in_the_bucket():
+    # Rule "Done", against the code the command runs, with the exact name
+    # the upload writes.
+    from howlate_pipeline import __main__ as cli
+    from howlate_pipeline import arrivals
+
+    name = arrivals.partition("reports", "20260818") + "report.json"
+    assert name == "reports/v2/service_date=2026-08-18/report.json"
+    is_done = cli.report_exists(lambda: FakeClient([name]), None, upload=True)
+    assert is_done("20260818") is True
+    # Tables without a report are not a finished day.
+    tables = FakeClient(["arrivals/v2/service_date=2026-08-19/part-0.parquet"])
+    assert cli.report_exists(lambda: tables, None, upload=True)("20260819") is False
+
+
+def test_done_without_upload_means_the_report_is_on_disk(tmp_path):
+    from howlate_pipeline import __main__ as cli
+
+    is_done = cli.report_exists(None, tmp_path, upload=False)
+    assert is_done("20260818") is False
+    path = tmp_path / cli.report_path("20260818")
+    path.parent.mkdir(parents=True)
+    path.write_text("{}")
+    assert is_done("20260818") is True
+
+
+def test_a_regrade_killed_while_writing_leaves_no_local_report(tmp_path, monkeypatch):
+    # Rule "Done" without uploading: the old report must be gone before any
+    # table is touched, or a killed regrade would still look finished.
+    from fixture_day import build_raw, build_timetable
+
+    from howlate_pipeline import __main__ as cli
+
+    raw = build_raw(tmp_path / "raw")
+    timetable = build_timetable(tmp_path / "gtfs_bus")
+    out = tmp_path / "out"
+    old = out / cli.report_path("20260818")
+    old.parent.mkdir(parents=True)
+    old.write_text('{"old": true}')
+
+    def killed(*args):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.arrivals, "write", killed)
+    with pytest.raises(KeyboardInterrupt):
+        cli.grade_day(
+            lambda: pytest.fail("made a client"),
+            "20260818",
+            cache=tmp_path / "cache",
+            out=out,
+            raw_dir=raw,
+            timetables={"LACMTA": timetable},
+            upload=False,
+        )
+    assert not old.exists()
+
+
+def test_a_bad_from_date_is_reported_before_anything_runs(monkeypatch):
+    import argparse
+
+    from howlate_pipeline import __main__ as cli
+
+    monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
+    monkeypatch.setattr(cli.storage, "Client", lambda: pytest.fail("made a client"))
+    with pytest.raises(SystemExit, match="not a day"):
+        cli.run_backfill(argparse.Namespace(first="2026-1-12", last="2026-11-01"))

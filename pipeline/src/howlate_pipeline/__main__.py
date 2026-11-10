@@ -98,9 +98,12 @@ def local_timetables(directory: Path | None) -> dict[str, Path] | None:
 
 
 def run_arrivals(args: argparse.Namespace) -> int:
+    # The day is checked before a client is made, so refusing a day needs no
+    # credentials.
+    day = require_complete(args.service_date)
     return grade_day(
         Bucket(),
-        require_complete(args.service_date),
+        day,
         cache=args.cache,
         out=args.out,
         raw_dir=args.raw_dir,
@@ -142,7 +145,7 @@ def grade_day(
 
     # The old report goes first. Until the new one is saved, nothing on disk
     # may claim this day is finished.
-    (out / arrivals.partition("reports", service_date) / "report.json").unlink(missing_ok=True)
+    (out / report_path(service_date)).unlink(missing_ok=True)
     written = arrivals.write(con, out, service_date)
     path = written["arrivals"]
     size = path.stat().st_size
@@ -151,9 +154,7 @@ def grade_day(
     report.show(con, service_date)
     # Saved last so that, in the bucket, a report is the sign a day finished.
     saved = report.document(con, service_date)
-    written["reports"] = report.save(
-        saved, out / arrivals.partition("reports", service_date) / "report.json"
-    )
+    written["reports"] = report.save(saved, out / report_path(service_date))
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
         f"{size / rows if rows else 0:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
@@ -169,21 +170,33 @@ def grade_day(
     return 0 if saved["ok"] else 2
 
 
+def report_path(day: str) -> str:
+    """Where a day's report lives, relative to the output root or the bucket."""
+    return arrivals.partition("reports", day) + "report.json"
+
+
+def report_exists(bucket: Bucket, out: Path, upload: bool):
+    """The Done rule: a day is done when its report exists, in the bucket or,
+    without uploading, on disk."""
+
+    def is_done(day: str) -> bool:
+        if upload:
+            return bucket().bucket(DERIVED_BUCKET).blob(report_path(day)).exists()
+        return (out / report_path(day)).exists()
+
+    return is_done
+
+
 def run_backfill(args: argparse.Namespace) -> int:
     last = require_complete(args.last)
+    days = backfill.days_between(args.first, last)
     bucket = Bucket()
     upload = not args.no_upload
 
-    def is_done(day: str) -> bool:
-        name = arrivals.partition("reports", day) + "report.json"
-        if upload:
-            return bucket().bucket(DERIVED_BUCKET).blob(name).exists()
-        return (args.out / name).exists()
-
     result = backfill.run(
-        backfill.days_between(args.first, last),
+        days,
         grade=lambda day: grade_day(bucket, day, cache=args.cache, out=args.out, upload=upload),
-        is_done=is_done,
+        is_done=report_exists(bucket, args.out, upload),
         after_day=lambda day: backfill.prune_cache(args.cache, day),
     )
     return backfill.exit_code(result)
@@ -224,12 +237,7 @@ def run_daily(args: argparse.Namespace) -> int:
         result = backfill.run(
             backfill.days_between(f"{first:%Y%m%d}", f"{last:%Y%m%d}"),
             grade=lambda day: grade_day(bucket, day, cache=args.cache, out=args.out),
-            is_done=lambda day: (
-                bucket()
-                .bucket(DERIVED_BUCKET)
-                .blob(arrivals.partition("reports", day) + "report.json")
-                .exists()
-            ),
+            is_done=report_exists(bucket, args.out, upload=True),
             after_day=lambda day: backfill.prune_cache(args.cache, day),
         )
         code = backfill.exit_code(result)
