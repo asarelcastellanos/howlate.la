@@ -238,8 +238,13 @@ def run_daily(args: argparse.Namespace) -> int:
 
     Catching up over several days rather than grading only yesterday means a
     missed run, or a day that failed, is picked up by the next one without
-    anyone doing anything. The site is rebuilt only when no day errored, so a
-    grading failure leaves the published files as they were. A failure while
+    anyone doing anything.
+
+    The site is rebuilt even when a day errored, from the days that finished,
+    and the heartbeat still reports the failure. A day that fails every time,
+    such as one the collector missed, would otherwise hold back every newer day
+    for as long as it stays in the window. A failed day adds nothing to the
+    site, because only days with a report are summarised. A failure while
     uploading the site can still leave a mix of old and new files.
     """
     last = backfill.parse_day(yesterday())
@@ -254,12 +259,13 @@ def run_daily(args: argparse.Namespace) -> int:
         )
         code = backfill.exit_code(result)
         summary = ", ".join(f"{key} {len(days)}" for key, days in result.items())
-        if result["errors"]:
-            heartbeat(False, f"days failed, site left as it was: {summary}")
-            return code
-
         graded = args.cache / "graded" / arrivals.VERSION
-        aggregate.fetch_arrivals(bucket(), graded)
+        if not aggregate.fetch_arrivals(bucket(), graded):
+            # No day of this layout version has finished yet, as on a first
+            # deploy or after a version bump. The day counts say more than the
+            # error `aggregate` would raise over an empty directory.
+            heartbeat(False, f"no finished day to publish: {summary}")
+            return code or 1
         build_site(bucket, graded, cache=args.cache, out=args.out / "site")
     except BaseException as error:
         heartbeat(False, f"daily run crashed: {error!r}")
@@ -271,6 +277,8 @@ def run_daily(args: argparse.Namespace) -> int:
 
 def run_aggregate(args: argparse.Namespace) -> int:
     bucket = Bucket()
+    # Before any download, so a refused run costs nothing.
+    timetables = local_timetables(args.gtfs_dir, upload=not args.no_upload)
     graded = args.arrivals or Path(f"out/arrivals/{arrivals.VERSION}")
     if args.from_bucket:
         # A directory of its own under the cache, because fetching empties it
@@ -282,7 +290,7 @@ def run_aggregate(args: argparse.Namespace) -> int:
         graded,
         cache=args.cache,
         out=args.out,
-        timetables=local_timetables(args.gtfs_dir, upload=not args.no_upload),
+        timetables=timetables,
         upload=not args.no_upload,
     )
 

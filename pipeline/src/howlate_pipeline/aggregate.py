@@ -149,7 +149,11 @@ def headlines(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
 
 
 def fetch_arrivals(client: storage.Client, dest: Path) -> int:
-    """Download every graded day of this layout version into `dest`.
+    """Download every finished day of this layout version into `dest`.
+
+    A day counts only once its report is in the bucket. The upload puts the
+    report last, so a day whose upload died partway has tables and no report,
+    and summarising it would publish half a day.
 
     Empties `dest` first, so it must be a directory only this function writes.
     It replaces what is there because a day regraded in the bucket must not be
@@ -158,16 +162,23 @@ def fetch_arrivals(client: storage.Client, dest: Path) -> int:
     """
     if dest.exists():
         shutil.rmtree(dest)
+    finished = {
+        blob.name.split("/")[2]
+        for blob in client.list_blobs(DERIVED_BUCKET, prefix=f"reports/{VERSION}/")
+        if blob.name.endswith("/report.json")
+    }
     prefix = f"arrivals/{VERSION}/"
     count = 0
     for blob in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
         if not blob.name.endswith(".parquet"):
             continue
+        if blob.name.removeprefix(prefix).split("/")[0] not in finished:
+            continue
         target = dest / blob.name.removeprefix(prefix)
         target.parent.mkdir(parents=True, exist_ok=True)
         blob.download_to_filename(target)
         count += 1
-    print(f"  fetched {count} graded day(s) from gs://{DERIVED_BUCKET}/{prefix}")
+    print(f"  fetched {count} file(s) of {len(finished)} finished day(s) from {prefix}")
     return count
 
 

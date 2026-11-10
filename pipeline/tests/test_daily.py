@@ -1,4 +1,4 @@
-"""The daily job: catch up, rebuild the site only after a clean run, and report.
+"""The daily job: catch up, rebuild the site from every finished day, and report.
 
 Grading, fetching and building are replaced by fakes, so these tests check the
 job's decisions rather than repeat the grading tests.
@@ -34,15 +34,20 @@ class FakeClient:
 class Run:
     """One daily run with every outside effect recorded."""
 
-    def __init__(self, monkeypatch, tmp_path, *, done=(), codes=None, raises=None, site=None):
+    def __init__(
+        self, monkeypatch, tmp_path, *, done=(), codes=None, raises=None, site=None, fetched=1
+    ):
         self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
         done = {f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in done}
         monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
         monkeypatch.setattr(cli, "Bucket", lambda: lambda: FakeClient(done))
         monkeypatch.setattr(cli, "heartbeat", lambda ok, summary: self.pings.append(ok))
-        monkeypatch.setattr(
-            cli.aggregate, "fetch_arrivals", lambda client, dest: self.fetched.append(dest)
-        )
+
+        def fetch(client, dest):
+            self.fetched.append(dest)
+            return fetched
+
+        monkeypatch.setattr(cli.aggregate, "fetch_arrivals", fetch)
 
         def grade(bucket, day, **kwargs):
             self.graded.append(day)
@@ -94,9 +99,19 @@ def test_a_clean_run_summarises_every_graded_day_and_publishes(monkeypatch, tmp_
     assert run.published == [True]
 
 
-def test_a_day_that_errors_leaves_the_site_alone_and_raises_the_alarm(monkeypatch, tmp_path):
-    # A day with no raw files is how a collector outage shows up here.
-    run = Run(monkeypatch, tmp_path, raises={"20261107": SystemExit("no raw files")})
+def test_a_day_that_errors_still_rebuilds_the_site_and_raises_the_alarm(monkeypatch, tmp_path):
+    # A day with no raw files is how a collector outage shows up here. It must
+    # not hold back the days after it.
+    run = Run(monkeypatch, tmp_path, raises={"20261101": SystemExit("no raw files")})
+    assert run() == 1
+    assert run.graded == [f"202611{day:02d}" for day in range(1, 8)]
+    assert len(run.built) == 1
+    assert run.pings == [False]
+
+
+def test_with_no_finished_day_the_site_is_left_and_the_days_reported(monkeypatch, tmp_path):
+    every = {f"202611{day:02d}": SystemExit("no raw files") for day in range(1, 8)}
+    run = Run(monkeypatch, tmp_path, raises=every, fetched=0)
     assert run() == 1
     assert run.built == []
     assert run.pings == [False]
@@ -179,3 +194,31 @@ def test_duckdb_takes_its_memory_and_spill_settings_from_the_job(monkeypatch, tm
     ).fetchall()[0]
     assert limit in ("1.0 GiB", "953.6 MiB", "1.0 GB", "1000.0 MB")
     assert spill == str(tmp_path / "spill")
+
+
+class Listed:
+    def __init__(self, name):
+        self.name = name
+
+    def download_to_filename(self, target):
+        target.write_text(self.name)
+
+
+class Listing:
+    def __init__(self, names):
+        self.names = names
+
+    def list_blobs(self, bucket, prefix):
+        return [Listed(name) for name in self.names if name.startswith(prefix)]
+
+
+def test_only_days_with_a_report_are_summarised(tmp_path):
+    # 2026-11-02's upload died after its table and before its report.
+    client = Listing([
+        "reports/v2/service_date=2026-11-01/report.json",
+        "arrivals/v2/service_date=2026-11-01/part-0.parquet",
+        "arrivals/v2/service_date=2026-11-02/part-0.parquet",
+    ])  # fmt: skip
+    dest = tmp_path / "graded"
+    assert cli.aggregate.fetch_arrivals(client, dest) == 1
+    assert [p.parent.name for p in dest.rglob("*.parquet")] == ["service_date=2026-11-01"]
