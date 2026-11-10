@@ -237,7 +237,7 @@ def test_arrivals_grades_the_normalised_day(monkeypatch):
     monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
     monkeypatch.setattr(cli.storage, "Client", lambda: None)
     monkeypatch.setattr(cli, "grade_day", lambda client, day, **kwargs: graded.append(day) or 0)
-    args = argparse.Namespace(service_date="20261102", cache=None, out=None, raw_dir=None,
+    args = argparse.Namespace(service_date="20261102", cache=None, out=None, raw_dir=None, gtfs_dir=None,
                               no_upload=True)  # fmt: skip
     cli.run_arrivals(args)
     # The bucket path is built from this, so it is always the same form.

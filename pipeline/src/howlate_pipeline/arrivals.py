@@ -25,6 +25,7 @@ change in the feed's behaviour shows up as a surprise rather than as data.
 """
 
 import glob as globlib
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -64,6 +65,13 @@ def connect() -> duckdb.DuckDBPyConnection:
     trip to the wrong end of the day.
     """
     con = duckdb.connect()
+    # On Cloud Run the disk is memory, shared with the raw cache, so DuckDB's
+    # own share and where it spills are set from the job, not left at 80% of
+    # the whole limit.
+    if limit := os.environ.get("HOWLATE_DUCKDB_MEMORY_LIMIT"):
+        con.execute(f"SET memory_limit = '{limit}'")
+    if spill := os.environ.get("HOWLATE_DUCKDB_TEMP_DIRECTORY"):
+        con.execute(f"SET temp_directory = '{spill}'")
     con.execute("""
         CREATE OR REPLACE MACRO epoch_offset(t) AS
             CAST(split_part(t, ':', 1) AS BIGINT) * 3600
