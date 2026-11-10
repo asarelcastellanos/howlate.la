@@ -2,5 +2,6 @@
 # build context, which also keeps local data and credentials from being sent.
 *
 !pipeline/pyproject.toml
+!pipeline/requirements.lock
 !pipeline/src/**
 pipeline/src/**/__pycache__

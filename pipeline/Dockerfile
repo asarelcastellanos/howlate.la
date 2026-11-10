@@ -15,9 +15,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Only the pipeline. The collector and the site have no business in an image
 # whose job is grading days, and leaving them out keeps it small.
+#
+# Dependencies come from the hashed lock alone. Then the package installs with
+# no index and no build isolation, so pip cannot fetch anything unpinned, and it
+# fails if the lock lacks a dependency pyproject.toml declares.
+COPY pipeline/requirements.lock /src/pipeline/requirements.lock
+RUN pip install --require-hashes --only-binary :all: --no-deps -r /src/pipeline/requirements.lock
 COPY pipeline/pyproject.toml /src/pipeline/pyproject.toml
 COPY pipeline/src /src/pipeline/src
-RUN pip install /src/pipeline && rm -rf /src
+RUN pip install --no-index --no-build-isolation /src/pipeline && rm -rf /src
 
 # Runs as an unprivileged user in a directory it owns. On Cloud Run /work is
 # memory, and it holds the raw cache (three UTC partitions, about 3 GB), the
