@@ -16,14 +16,13 @@ Tuesday is not an answer to "is my bus usually late".
 import argparse
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from google.cloud import storage
 
 from howlate_pipeline import (
     DERIVED_BUCKET,
-    __version__,
     aggregate,
     arrivals,
     backfill,
@@ -43,7 +42,20 @@ def yesterday() -> str:
     return (datetime.now() - timedelta(days=2)).strftime("%Y%m%d")
 
 
+def require_complete(service_date: str) -> None:
+    """Refuse a day the archive is still being written for.
+
+    Graded early it would be missing its evening, and its saved report would
+    stop it ever being graded again.
+    """
+    day = datetime.strptime(service_date.replace("-", ""), "%Y%m%d")
+    latest = datetime.strptime(yesterday(), "%Y%m%d")
+    if day > latest:
+        sys.exit(f"{day:%Y-%m-%d} is not complete yet; the latest is {latest:%Y-%m-%d}")
+
+
 def run_arrivals(args: argparse.Namespace) -> int:
+    require_complete(args.service_date)
     return grade_day(
         storage.Client(),
         args.service_date.replace("-", ""),
@@ -114,24 +126,23 @@ def grade_day(
 
 
 def run_backfill(args: argparse.Namespace) -> int:
-    if args.last.replace("-", "") > yesterday():
-        # A later day is still being written to the archive. Graded now it
-        # would be missing its evening, and its report would stop it ever
-        # being graded again.
-        sys.exit(f"--to {args.last} is not complete yet; the latest is {yesterday()}")
+    require_complete(args.last)
+    regrade_before = (
+        datetime.fromisoformat(args.regrade_before).astimezone(UTC) if args.regrade_before else None
+    )
 
     client = storage.Client()
     upload = not args.no_upload
 
-    def read_report(day: str) -> str | None:
+    def report_time(day: str) -> datetime | None:
         name = arrivals.partition("reports", day) + "report.json"
         if upload:
-            blob = client.bucket(DERIVED_BUCKET).blob(name)
-            return blob.download_as_text() if blob.exists() else None
+            blob = client.bucket(DERIVED_BUCKET).get_blob(name)
+            return blob.updated if blob else None
         path = args.out / name
-        return path.read_text() if path.exists() else None
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC) if path.exists() else None
 
-    is_done = backfill.done_check(read_report, args.regrade, __version__)
+    is_done = backfill.done_check(report_time, regrade_before)
 
     result = backfill.run(
         backfill.days_between(args.first, args.last),
@@ -226,9 +237,10 @@ def main() -> None:
         help="write locally; a day counts as done when its report is on local disk",
     )
     many.add_argument(
-        "--regrade",
-        action="store_true",
-        help="also regrade days whose report came from a different pipeline version",
+        "--regrade-before",
+        metavar="TIME",
+        help="also regrade days whose report was written before TIME, e.g. 2026-11-10T08:00-08:00; "
+        "rerun with the same TIME to resume",
     )
     many.set_defaults(run=run_backfill)
 
