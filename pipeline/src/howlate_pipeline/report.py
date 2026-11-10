@@ -11,7 +11,12 @@ having, and a job that refuses to write anything because one line looks odd
 would lose a day of results to protect nothing.
 """
 
+import json
+from pathlib import Path
+
 import duckdb
+
+from howlate_pipeline import __version__
 
 # Measured on 2026-08-18 across all 120 lines. Ranges, not points, because real
 # days differ: weekends run less service and holidays run almost none.
@@ -148,8 +153,18 @@ def silent_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
         SELECT agency, line, count(*) AS scheduled_stops
         FROM arrivals GROUP BY agency, line
         HAVING count(*) FILTER (WHERE source <> 'none') = 0
-        ORDER BY scheduled_stops DESC
+        -- Ties broken by name, so the saved report is the same on every run.
+        ORDER BY scheduled_stops DESC, agency, line
     """).fetchall()
+
+
+def pct(part: float, whole: float) -> float:
+    return 100 * part / whole if whole else 0.0
+
+
+def minutes(seconds: float | None) -> str:
+    """A delay in minutes, or n/a for a day with nothing timed mid-route."""
+    return "n/a" if seconds is None else f"{seconds / 60:+.1f}"
 
 
 def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
@@ -164,29 +179,57 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
         f"  timed {s['measured']:,} ({s['coverage']:.1f}%): "
         f"{s['stopped']:,} from a stop record, "
         f"{s['approached']:,} recovered from the approach "
-        f"(+{100 * s['approached'] / s['scheduled_stops']:.1f} points, of which "
+        f"(+{pct(s['approached'], s['scheduled_stops']):.1f} points, of which "
         f"{s['terminus_approach']:,} are trip termini), "
         f"{s['scheduled_stops'] - s['measured']:,} never seen"
     )
     print(
-        f"  delay mid-route: median {s['median_delay'] / 60:+.1f} | p75 {s['p75'] / 60:+.1f} "
-        f"| p95 {s['p95'] / 60:+.1f} | p99 {s['p99'] / 60:+.1f} min"
+        f"  delay mid-route: median {minutes(s['median_delay'])} | p75 {minutes(s['p75'])} "
+        f"| p95 {minutes(s['p95'])} | p99 {minutes(s['p99'])} min"
     )
 
     print()
     for agency, lines, stops, measured in by_agency(con):
         print(
             f"  {agency:<12} {lines:>4} lines  {stops:>8,} scheduled  "
-            f"{measured:>8,} measured ({100 * measured / stops:.1f}%)"
+            f"{measured:>8,} measured ({pct(measured, stops):.1f}%)"
         )
 
     print()
     ok = True
-    for key, (low, high, label) in EXPECTED.items():
-        value = s[key]
-        good = low <= value <= high
-        ok &= good
-        print(f"  {'ok  ' if good else 'CHECK'} {value:8.2f}  {label} (expect {low} to {high})")
+    for check in checks(con, s):
+        ok &= check["ok"]
+        mark = "ok  " if check["ok"] else "CHECK"
+        if check["kind"] == "range":
+            print(
+                f"  {mark} {check['value']:8.2f}  {check['label']} "
+                f"(expect {check['low']} to {check['high']})"
+            )
+        else:
+            print(f"  {mark} {check['value']:8,}  {check['label']} (expect {check['expect']})")
+    for agency, line, stops in silent_lines(con)[:10]:
+        print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
+    return ok
+
+
+def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
+    """Every check, with its value and whether it passed.
+
+    One list feeds both the printed report and the saved one, so the two
+    cannot disagree about what passed.
+    """
+    found = [
+        {
+            "name": key,
+            "kind": "range",
+            "label": label,
+            "value": s[key],
+            "low": low,
+            "high": high,
+            "ok": low <= s[key] <= high,
+        }
+        for key, (low, high, label) in EXPECTED.items()
+    ]
 
     # Two absolutes rather than ranges. Both were exactly zero across a full day
     # and neither can move without something real having changed.
@@ -196,26 +239,76 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
     # records do reach it, which is how 9,071 terminus arrivals on 2026-08-18
     # became measurable for the first time. Narrowed rather than deleted, because
     # a STOPPED_AT appearing there would still mean the feed had changed.
-    for count, label in (
-        (s["terminus_stopped"], "STOPPED_AT records on a trip's final stop"),
-        (s["ambiguous"], "stop_sequence values reporting two different stop_ids"),
+    for name, label in (
+        ("terminus_stopped", "STOPPED_AT records on a trip's final stop"),
+        ("ambiguous", "stop_sequence values reporting two different stop_ids"),
     ):
-        good = count == 0
-        ok &= good
-        print(f"  {'ok  ' if good else 'CHECK'} {count:8,}  {label} (expect 0)")
+        found.append(
+            {"name": name, "kind": "count", "label": label, "value": s[name], "expect": 0,
+             "ok": s[name] == 0}
+        )  # fmt: skip
 
     feeds = by_agency(con)
-    good = len(feeds) == 2 and all(stops > 0 for _, _, stops, _ in feeds)
-    ok &= good
-    print(
-        f"  {'ok  ' if good else 'CHECK'} {len(feeds):8,}  feeds contributing scheduled stops (expect 2)"
+    found.append(
+        {
+            "name": "feeds",
+            "kind": "count",
+            "label": "feeds contributing scheduled stops",
+            "value": len(feeds),
+            "expect": 2,
+            "ok": len(feeds) == 2 and all(stops > 0 for _, _, stops, _ in feeds),
+        }
     )
 
     silent = silent_lines(con)
-    print(
-        f"  {'ok  ' if not silent else 'CHECK'} {len(silent):8,}  lines scheduled today but never seen (expect 0)"
+    found.append(
+        {
+            "name": "silent_lines",
+            "kind": "count",
+            "label": "lines scheduled today but never seen",
+            "value": len(silent),
+            "expect": 0,
+            "ok": not silent,
+        }
     )
-    for agency, line, stops in silent[:10]:
-        print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
+    return found
 
-    return bool(ok and not silent)
+
+def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
+    """The whole report as data, for saving beside the day's Parquet.
+
+    The site's behind-the-scenes page will read these, and the backfill treats a
+    saved report as the sign that a day finished, because it is written last.
+    No wall-clock time goes in, so regrading an unchanged day writes the same
+    bytes.
+    """
+    s = summarise(con)
+    found = checks(con, s)
+    return {
+        "service_date": f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}",
+        "pipeline_version": __version__,
+        "stats": s,
+        "agencies": [
+            {"agency": agency, "lines": lines, "scheduled_stops": stops, "measured": measured}
+            for agency, lines, stops, measured in by_agency(con)
+        ],
+        "silent_lines": [
+            {"agency": agency, "line": line, "scheduled_stops": stops}
+            for agency, line, stops in silent_lines(con)
+        ],
+        "checks": found,
+        "ok": all(check["ok"] for check in found),
+    }
+
+
+def save(document: dict, path: Path) -> Path:
+    """Write one report as sorted, compact JSON.
+
+    Written beside the target and renamed, because a report on disk is what
+    marks a day done when nothing is uploaded, and a half-written one must not.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n")
+    partial.replace(path)
+    return path
