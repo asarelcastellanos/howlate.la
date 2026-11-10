@@ -12,7 +12,7 @@ Nothing here writes to the raw bucket. The archive is append-only and this reads
 it; a bug in the analysis must never be able to damage the collection.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # The bucket the collector writes to. Read-only from here.
 RAW_BUCKET = "howlate-raw"
@@ -22,9 +22,9 @@ RAW_BUCKET = "howlate-raw"
 # Everything in this bucket is derived and can be thrown away and recomputed.
 DERIVED_BUCKET = "howlate-derived"
 
-# Every scheduled time in GTFS is an offset from local midnight on the service
-# day, so every conversion in this package goes through this zone and never
-# through the machine's own.
+# Every scheduled time in GTFS is an offset from noon minus twelve hours on the
+# service day, in local time (see gtfs.day_base), so every conversion in this
+# package goes through this zone and never through the machine's own.
 ZONE = "America/Los_Angeles"
 
 BUS_AGENCY = "LACMTA"

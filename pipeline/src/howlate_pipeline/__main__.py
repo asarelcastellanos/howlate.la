@@ -4,11 +4,12 @@
     python -m howlate_pipeline aggregate
 
 `arrivals` reads the raw archive and the timetable in force and writes one
-Parquet partition. It handles one day, and rerunning a day replaces that day and
-touches nothing else, so any day can be recomputed at any time.
+Parquet partition per table, arrivals and trips. It handles one day, and
+rerunning a day replaces that day and touches nothing else, so any day can be
+recomputed at any time.
 
-`aggregate` reads every partition written so far and produces the small JSON
-files a browser fetches. It handles all days at once, because a median over one
+`aggregate` reads every partition of one layout version and produces the small
+JSON files a browser fetches. It handles all days at once, because a median over one
 Tuesday is not an answer to "is my bus usually late".
 """
 
@@ -54,8 +55,10 @@ def run_arrivals(args: argparse.Namespace) -> int:
     arrivals.load_observations(con, files, service_date)
     arrivals.load_schedule(con, directories, service_date)
     arrivals.match(con, service_date)
+    arrivals.trips(con)
 
-    path = arrivals.write(con, args.out, service_date)
+    written = arrivals.write(con, args.out, service_date)
+    path = written["arrivals"]
     size = path.stat().st_size
     rows = con.sql("SELECT count(*) FROM arrivals").fetchone()[0]
 
@@ -66,7 +69,8 @@ def run_arrivals(args: argparse.Namespace) -> int:
     )
 
     if not args.no_upload:
-        print(f"  uploaded {arrivals.upload(client, path, service_date)}")
+        for where in arrivals.upload(client, written, service_date):
+            print(f"  uploaded {where}")
 
     # A failed check is not a failed run: the day's numbers are written either
     # way. The status is here so a scheduler shows a red job rather than burying
@@ -150,8 +154,8 @@ def main() -> None:
     every.add_argument(
         "--arrivals",
         type=Path,
-        default=Path("out/arrivals"),
-        help="where the Parquet partitions are",
+        default=Path(f"out/arrivals/{arrivals.VERSION}"),
+        help="one version's partitions, e.g. out/arrivals/v2",
     )
     every.add_argument("--out", type=Path, default=Path("site"), help="where the JSON goes")
     every.add_argument(

@@ -20,7 +20,7 @@ never change once written, so a rerun of the same day re-downloads nothing.
 
 import csv
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -57,7 +57,11 @@ def day_base(service_date: str) -> float:
     twice a year and look like a genuine service collapse.
     """
     noon = datetime.strptime(service_date, "%Y%m%d").replace(hour=12, tzinfo=ZoneInfo(ZONE))
-    return (noon - timedelta(hours=12)).timestamp()
+    # Twelve elapsed hours, subtracted from the instant. Subtracting a
+    # timedelta from an aware datetime moves the wall clock instead, which
+    # lands on local midnight and is an hour wrong on exactly the two days
+    # this exists for. That shipped once and was caught by a test.
+    return noon.timestamp() - 12 * 3600
 
 
 def day_bounds(service_date: str) -> tuple[float, float]:

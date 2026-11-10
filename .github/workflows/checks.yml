@@ -104,13 +104,19 @@ jobs:
       - name: Install the pipeline alone
         run: pip install -e pipeline
 
-      # No pipeline tests exist yet; they arrive in 0.2.0. Until then this
-      # proves every module imports with only its declared dependencies.
       - name: Import every module
         run: >-
           python -c "import howlate_pipeline.__main__, howlate_pipeline.aggregate,
           howlate_pipeline.arrivals, howlate_pipeline.gtfs,
           howlate_pipeline.labels, howlate_pipeline.report"
+
+      # Only after the import check: pytest brings packages of its own, and a
+      # module that leaned on one of them would otherwise pass.
+      - name: Install the test extra
+        run: pip install -e "pipeline[test]"
+
+      - name: Pipeline tests
+        run: python -m pytest pipeline/tests -q
 
   # One stable name for branch protection to require, whatever the jobs above
   # become later.

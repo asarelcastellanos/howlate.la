@@ -48,6 +48,7 @@ SELECT
   json_extract_string(j, '$.payload.vehicle.currentStatus')    AS status,
   CAST(json_extract_string(j, '$.payload.vehicle.currentStopSequence') AS INTEGER) AS stop_sequence,
   json_extract_string(j, '$.payload.vehicle.stopId')           AS stop_id,
+  json_extract_string(j, '$.payload.vehicle.vehicle.id')       AS vehicle_id,
   CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts
 FROM read_json_objects(?) t(j)
 """
@@ -227,16 +228,53 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
     """
     con.execute("""
         CREATE OR REPLACE TABLE observed AS
-        SELECT
-          agency, trip_id, stop_sequence,
-          min(ts) FILTER (WHERE status = 'STOPPED_AT')    AS first_stopped,
-          max(ts) FILTER (WHERE status = 'STOPPED_AT')    AS last_stopped,
-          max(ts) FILTER (WHERE status = 'IN_TRANSIT_TO') AS last_approach,
-          count(*) FILTER (WHERE status = 'IN_TRANSIT_TO') > 0 AS in_transit_seen,
-          count(DISTINCT stop_id) AS distinct_stop_ids,
-          any_value(stop_id)      AS reported_stop_id
-        FROM observations
-        GROUP BY agency, trip_id, stop_sequence
+        -- Each vehicle's own story at each stop first, so that a vehicle and
+        -- the times credited to it always come from the same bus. A trip can
+        -- be claimed by two vehicles at once, or swap vehicles at a stop.
+        WITH per_vehicle AS (
+            SELECT
+              agency, trip_id, stop_sequence, vehicle_id,
+              min(ts) FILTER (WHERE status = 'STOPPED_AT')    AS first_stopped,
+              max(ts) FILTER (WHERE status = 'STOPPED_AT')    AS last_stopped,
+              max(ts) FILTER (WHERE status = 'IN_TRANSIT_TO') AS last_approach
+            FROM observations
+            GROUP BY agency, trip_id, stop_sequence, vehicle_id
+        ),
+        chosen AS (
+            -- The _null variants keep a report with no vehicle id in the
+            -- running, so a missing id shows up as a missing id rather than
+            -- as another vehicle's. Same-second ties go by id: the lowest for
+            -- a first report, the highest for a last one.
+            SELECT
+              agency, trip_id, stop_sequence,
+              min(first_stopped)  AS first_stopped,
+              max(last_stopped)   AS last_stopped,
+              max(last_approach)  AS last_approach,
+              arg_min_null(vehicle_id, {'t': first_stopped, 'v': vehicle_id})
+                FILTER (WHERE first_stopped IS NOT NULL) AS first_stopped_vehicle,
+              -- When the vehicle that arrived first left: its own last
+              -- STOPPED_AT, not the last one by any vehicle.
+              arg_min_null(last_stopped, {'t': first_stopped, 'v': vehicle_id})
+                FILTER (WHERE first_stopped IS NOT NULL) AS first_vehicle_left,
+              arg_max_null(vehicle_id, {'t': last_stopped, 'v': vehicle_id})
+                FILTER (WHERE last_stopped IS NOT NULL)  AS last_stopped_vehicle,
+              arg_max_null(vehicle_id, {'t': last_approach, 'v': vehicle_id})
+                FILTER (WHERE last_approach IS NOT NULL) AS last_approach_vehicle
+            FROM per_vehicle
+            GROUP BY agency, trip_id, stop_sequence
+        ),
+        reported AS (
+            SELECT
+              agency, trip_id, stop_sequence,
+              count(*) FILTER (WHERE status = 'IN_TRANSIT_TO') > 0 AS in_transit_seen,
+              count(DISTINCT stop_id) AS distinct_stop_ids,
+              -- min, not any_value: any_value differs between runs when a
+              -- stop reported two stop_ids, and report.py compares this.
+              min(stop_id)            AS reported_stop_id
+            FROM observations
+            GROUP BY agency, trip_id, stop_sequence
+        )
+        SELECT * FROM chosen JOIN reported USING (agency, trip_id, stop_sequence)
     """)
 
     con.execute(f"""
@@ -265,6 +303,24 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
             WHEN NOT s.is_origin AND o.last_approach IS NOT NULL THEN 'approach'
             ELSE 'none'
           END AS source,
+          -- The vehicle whose report set actual_time. A trip can change
+          -- vehicles partway, so this can differ from stop to stop.
+          CASE
+            WHEN s.is_origin THEN o.last_stopped_vehicle
+            WHEN o.first_stopped IS NOT NULL THEN o.first_stopped_vehicle
+            ELSE o.last_approach_vehicle
+          END AS vehicle_id,
+          -- When that same vehicle left: its own last STOPPED_AT there. At
+          -- the origin that is the departure already measured. Empty when it
+          -- never reported stopping, which is about half of all stops.
+          -- Mid-route with no vehicle id there is no way to tell one id-less
+          -- bus from another, so the departure is left empty rather than
+          -- guessed.
+          to_timestamp(CASE
+            WHEN s.is_origin THEN o.last_stopped
+            WHEN o.first_stopped_vehicle IS NULL THEN NULL
+            ELSE o.first_vehicle_left
+          END) AS departure_time,
           coalesce(o.in_transit_seen, false) AS in_transit_seen,
           s.is_origin, s.is_terminus,
           o.reported_stop_id,
@@ -277,49 +333,123 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
     """)
 
 
-def write(con: duckdb.DuckDBPyConnection, out: Path, service_date: str) -> Path:
-    """Write the day, replacing whatever was there before.
+def trips(con: duckdb.DuckDBPyConnection) -> None:
+    """One row per scheduled trip: whether it was seen, when, and by what.
 
-    One date in, one partition out, and a rerun replaces only that partition.
-    That property is what makes it safe to schedule this before it is perfect:
-    any day can be recomputed later without touching any other day.
+    Metro marks every trip SCHEDULED and never flags a cancellation, so a trip
+    that did not run looks exactly like one that ran with its tracker off. This
+    table records what was seen and leaves that judgement to later. It counts
+    every report for the trip, including ones at stop sequences the timetable
+    does not list, because a vehicle that reported at all was there.
+
+    Run after match(), which builds the arrivals rows counted here.
+    """
+    con.execute("""
+        CREATE OR REPLACE TABLE trips AS
+        WITH seen AS (
+            SELECT agency, trip_id,
+                   count(*)                   AS reports,
+                   min(ts)                    AS first_ts,
+                   max(ts)                    AS last_ts,
+                   count(DISTINCT vehicle_id) AS vehicles,
+                   -- The vehicle that reported first, ties broken by id so a
+                   -- rerun agrees. _null keeps an id-less first report as
+                   -- unknown instead of naming a later vehicle.
+                   arg_min_null(vehicle_id, {'t': ts, 'v': vehicle_id}) AS first_vehicle
+            FROM observations
+            GROUP BY agency, trip_id
+        ),
+        planned AS (
+            SELECT service_date, agency, line, route_id, direction_id, trip_id,
+                   min(scheduled_time)                       AS scheduled_start,
+                   max(scheduled_time)                       AS scheduled_end,
+                   count(*)                                  AS stops_scheduled,
+                   count(*) FILTER (WHERE source <> 'none')  AS stops_observed
+            FROM arrivals
+            GROUP BY service_date, agency, line, route_id, direction_id, trip_id
+        )
+        SELECT p.*,
+               coalesce(s.reports, 0)        AS reports,
+               to_timestamp(s.first_ts)      AS first_seen,
+               to_timestamp(s.last_ts)       AS last_seen,
+               coalesce(s.vehicles, 0)       AS vehicles,
+               s.first_vehicle               AS vehicle_id
+        FROM planned p
+        LEFT JOIN seen s USING (agency, trip_id)
+    """)
+
+
+# The layout version of everything written below. Bumped when a column is added
+# or changes meaning, so a reader never mixes days written by different code.
+# v1 lives at arrivals/service_date=... and is left where it is; v2 adds
+# vehicle_id and departure_time to arrivals, and the trips table.
+VERSION = "v2"
+
+# What each table writes, and the order its rows go in. Sorted so a rerun over
+# the same input writes the same rows in the same order.
+TABLES = {
+    "arrivals": """
+        SELECT service_date, agency, line, route_id, direction_id, trip_id,
+               stop_id, stop_sequence, scheduled_time, actual_time,
+               delay_seconds, source, vehicle_id, departure_time,
+               in_transit_seen, is_origin, is_terminus
+        FROM arrivals ORDER BY agency, line, trip_id, stop_sequence
+    """,
+    "trips": """
+        SELECT service_date, agency, line, route_id, direction_id, trip_id,
+               scheduled_start, scheduled_end, stops_scheduled, stops_observed,
+               reports, first_seen, last_seen, vehicles, vehicle_id
+        FROM trips ORDER BY agency, line, trip_id
+    """,
+}
+
+
+def partition(table: str, service_date: str) -> str:
+    """Where one table's day lives, relative to the output root or the bucket.
+
+    The trailing slash keeps a bucket prefix from matching any longer name
+    that happens to start the same way, such as a stray `...-18-old/`.
     """
     stamp = f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}"
-    target = out / "arrivals" / f"service_date={stamp}"
-    if target.exists():
-        for stale in target.glob("*.parquet"):
-            stale.unlink()
-    target.mkdir(parents=True, exist_ok=True)
-
-    path = target / "part-0.parquet"
-    con.execute(
-        """
-        COPY (
-          SELECT service_date, agency, line, route_id, direction_id, trip_id,
-                 stop_id, stop_sequence, scheduled_time, actual_time,
-                 delay_seconds, source, in_transit_seen, is_origin, is_terminus
-          FROM arrivals ORDER BY agency, line, trip_id, stop_sequence
-        ) TO ? (FORMAT parquet, COMPRESSION zstd)
-    """,
-        [str(path)],
-    )
-    return path
+    return f"{table}/{VERSION}/service_date={stamp}/"
 
 
-def upload(client: storage.Client, path: Path, service_date: str) -> str:
-    """Put one day's partition in the derived bucket, replacing that day only.
+def write(con: duckdb.DuckDBPyConnection, out: Path, service_date: str) -> dict[str, Path]:
+    """Write the day's arrivals and trips, replacing whatever was there before.
+
+    One date in, one partition per table out, and a rerun replaces only that
+    partition. That property is what makes it safe to schedule this before it
+    is perfect: any day can be recomputed later without touching any other day.
+    """
+    written = {}
+    for table, query in TABLES.items():
+        target = out / partition(table, service_date)
+        if target.exists():
+            for stale in target.glob("*.parquet"):
+                stale.unlink()
+        target.mkdir(parents=True, exist_ok=True)
+
+        path = target / "part-0.parquet"
+        con.execute(f"COPY ({query}) TO ? (FORMAT parquet, COMPRESSION zstd)", [str(path)])
+        written[table] = path
+    return written
+
+
+def upload(client: storage.Client, written: dict[str, Path], service_date: str) -> list[str]:
+    """Put one day's partitions in the derived bucket, replacing that day only.
 
     Anything already under the date's prefix is deleted first. Without that, a
     rerun that produced a different number of files would leave the old extras
     behind and every later read would silently double-count the overlap.
     """
-    stamp = f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}"
-    prefix = f"arrivals/service_date={stamp}/"
     bucket = client.bucket(DERIVED_BUCKET)
+    uploaded = []
+    for table, path in written.items():
+        prefix = partition(table, service_date)
+        for stale in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
+            stale.delete()
 
-    for stale in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
-        stale.delete()
-
-    blob = bucket.blob(prefix + path.name)
-    blob.upload_from_filename(path, content_type="application/vnd.apache.parquet")
-    return f"gs://{DERIVED_BUCKET}/{blob.name}"
+        blob = bucket.blob(prefix + path.name)
+        blob.upload_from_filename(path, content_type="application/vnd.apache.parquet")
+        uploaded.append(f"gs://{DERIVED_BUCKET}/{blob.name}")
+    return uploaded

@@ -23,6 +23,11 @@ EXPECTED = {
     "median_delay_min": (-1.0, 6.0, "median delay, mid-route"),
     "absurd_pct": (0.0, 0.5, "delays beyond an hour"),
     "early_pct": (0.0, 2.0, "mid-route arrivals over 5 min early"),
+    # Added with v2 and checked on 18 to 20 August: every timed arrival named a
+    # vehicle, and 98.2% to 98.4% of scheduled trips were seen. The trips range
+    # stays wide until weekends and holidays have been measured.
+    "vehicle_known": (99.9, 100.0, "timed arrivals naming a vehicle"),
+    "trips_seen": (90.0, 100.0, "scheduled trips with any report"),
 }
 
 
@@ -94,6 +99,24 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     )
     stats["median_delay_min"] = (stats["median_delay"] or 0) / 60
     stats["absurd_pct"] = 100 * stats["absurd"] / stats["with_delay"] if stats["with_delay"] else 0
+    stats |= dict(
+        zip(
+            ["timed", "timed_with_vehicle"],
+            con.sql("""
+                SELECT count(*) FILTER (WHERE actual_time IS NOT NULL),
+                       count(*) FILTER (WHERE actual_time IS NOT NULL AND vehicle_id IS NOT NULL)
+                FROM arrivals
+            """).fetchall()[0],
+            strict=True,
+        )
+    )
+    stats["vehicle_known"] = (
+        100 * stats["timed_with_vehicle"] / stats["timed"] if stats["timed"] else 0
+    )
+    trips_total, trips_seen = con.sql(
+        "SELECT count(*), count(*) FILTER (WHERE reports > 0) FROM trips"
+    ).fetchall()[0]
+    stats["trips_seen"] = 100 * trips_seen / trips_total if trips_total else 0
     stats["early_pct"] = 100 * stats["early"] / stats["with_delay"] if stats["with_delay"] else 0
     return stats
 

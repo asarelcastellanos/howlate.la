@@ -7,7 +7,7 @@
 
 [project]
 name = "howlate-pipeline"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turns the raw archive into how late each LA Metro vehicle actually was"
 requires-python = ">=3.11"
 
@@ -15,9 +15,17 @@ requires-python = ">=3.11"
 # dependencies collapsed into one. It also means the joins are SQL, so they move
 # to BigQuery later without being rewritten.
 dependencies = [
-    "duckdb>=1.1",                 # reading, joining, writing Parquet
+    # Pinned exactly. 2.0 removed relation.fetchone() and broke every run, and
+    # any upgrade can change how a median or quantile is computed. Upgrades
+    # are their own PR, checked against a graded day.
+    "duckdb==1.5.6",               # reading, joining, writing Parquet
     "google-cloud-storage>=2.18",  # fetching the raw archive and the timetables
 ]
+
+# Only for running the tests. Never installed where the pipeline runs. Pinned,
+# like ruff in CI, so a new release cannot fail a PR that changed nothing.
+[project.optional-dependencies]
+test = ["pytest==9.2.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
