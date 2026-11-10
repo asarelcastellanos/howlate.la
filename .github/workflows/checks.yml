@@ -87,6 +87,9 @@ jobs:
       - name: Collector tests
         run: python collector/tests/test_record.py
 
+      - name: Raw bucket lifecycle rule
+        run: python collector/tests/test_lifecycle.py
+
   pipeline:
     name: pipeline (python ${{ matrix.python }})
     runs-on: ubuntu-latest
