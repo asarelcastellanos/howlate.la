@@ -16,7 +16,7 @@ Tuesday is not an answer to "is my bus usually late".
 import argparse
 import sys
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from google.cloud import storage
@@ -42,23 +42,23 @@ def yesterday() -> str:
     return (datetime.now() - timedelta(days=2)).strftime("%Y%m%d")
 
 
-def require_complete(service_date: str) -> None:
-    """Refuse a day the archive is still being written for.
+def require_complete(service_date: str) -> str:
+    """The day as YYYYMMDD, refused if the archive is still being written for it.
 
-    Graded early it would be missing its evening, and its saved report would
+    Graded early a day would be missing its evening, and its saved report would
     stop it ever being graded again.
     """
-    day = datetime.strptime(service_date.replace("-", ""), "%Y%m%d")
-    latest = datetime.strptime(yesterday(), "%Y%m%d")
+    day = backfill.parse_day(service_date)
+    latest = backfill.parse_day(yesterday())
     if day > latest:
         sys.exit(f"{day:%Y-%m-%d} is not complete yet; the latest is {latest:%Y-%m-%d}")
+    return f"{day:%Y%m%d}"
 
 
 def run_arrivals(args: argparse.Namespace) -> int:
-    require_complete(args.service_date)
     return grade_day(
         storage.Client(),
-        args.service_date.replace("-", ""),
+        require_complete(args.service_date),
         cache=args.cache,
         out=args.out,
         raw_dir=args.raw_dir,
@@ -126,26 +126,18 @@ def grade_day(
 
 
 def run_backfill(args: argparse.Namespace) -> int:
-    require_complete(args.last)
-    regrade_before = (
-        datetime.fromisoformat(args.regrade_before).astimezone(UTC) if args.regrade_before else None
-    )
-
+    last = require_complete(args.last)
     client = storage.Client()
     upload = not args.no_upload
 
-    def report_time(day: str) -> datetime | None:
+    def is_done(day: str) -> bool:
         name = arrivals.partition("reports", day) + "report.json"
         if upload:
-            blob = client.bucket(DERIVED_BUCKET).get_blob(name)
-            return blob.updated if blob else None
-        path = args.out / name
-        return datetime.fromtimestamp(path.stat().st_mtime, UTC) if path.exists() else None
-
-    is_done = backfill.done_check(report_time, regrade_before)
+            return client.bucket(DERIVED_BUCKET).blob(name).exists()
+        return (args.out / name).exists()
 
     result = backfill.run(
-        backfill.days_between(args.first, args.last),
+        backfill.days_between(args.first, last),
         grade=lambda day: grade_day(client, day, cache=args.cache, out=args.out, upload=upload),
         is_done=is_done,
         after_day=lambda day: backfill.prune_cache(args.cache, day),
@@ -235,12 +227,6 @@ def main() -> None:
         "--no-upload",
         action="store_true",
         help="write locally; a day counts as done when its report is on local disk",
-    )
-    many.add_argument(
-        "--regrade-before",
-        metavar="TIME",
-        help="also regrade days whose report was written before TIME, e.g. 2026-11-10T08:00-08:00; "
-        "rerun with the same TIME to resume",
     )
     many.set_defaults(run=run_backfill)
 
