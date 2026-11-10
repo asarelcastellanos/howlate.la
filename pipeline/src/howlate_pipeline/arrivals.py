@@ -441,6 +441,9 @@ def upload(client: storage.Client, written: dict[str, Path], service_date: str) 
     Anything already under the date's prefix is deleted first. Without that, a
     rerun that produced a different number of files would leave the old extras
     behind and every later read would silently double-count the overlap.
+
+    Tables go up in the order given. The report is last, so a day with a
+    report in the bucket has every table there too.
     """
     bucket = client.bucket(DERIVED_BUCKET)
     uploaded = []
@@ -450,6 +453,7 @@ def upload(client: storage.Client, written: dict[str, Path], service_date: str) 
             stale.delete()
 
         blob = bucket.blob(prefix + path.name)
-        blob.upload_from_filename(path, content_type="application/vnd.apache.parquet")
+        kind = "application/json" if path.suffix == ".json" else "application/vnd.apache.parquet"
+        blob.upload_from_filename(path, content_type=kind)
         uploaded.append(f"gs://{DERIVED_BUCKET}/{blob.name}")
     return uploaded

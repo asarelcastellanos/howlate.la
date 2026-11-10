@@ -62,7 +62,12 @@ def run_arrivals(args: argparse.Namespace) -> int:
     size = path.stat().st_size
     rows = con.sql("SELECT count(*) FROM arrivals").fetchone()[0]
 
-    ok = report.show(con, service_date)
+    report.show(con, service_date)
+    # Saved last so that, in the bucket, a report is the sign a day finished.
+    saved = report.document(con, service_date)
+    written["reports"] = report.save(
+        saved, args.out / arrivals.partition("reports", service_date) / "report.json"
+    )
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
         f"{size / rows:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
@@ -75,7 +80,7 @@ def run_arrivals(args: argparse.Namespace) -> int:
     # A failed check is not a failed run: the day's numbers are written either
     # way. The status is here so a scheduler shows a red job rather than burying
     # a drifting feed in a log nobody reads.
-    return 0 if ok else 2
+    return 0 if saved["ok"] else 2
 
 
 def run_aggregate(args: argparse.Namespace) -> int:

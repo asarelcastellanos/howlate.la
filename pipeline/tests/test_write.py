@@ -67,6 +67,10 @@ class FakeBlob:
 
     def upload_from_filename(self, path, content_type=None) -> None:
         self.store[(self.bucket_name, self.name)] = Path(path).read_bytes()
+        UPLOADS.append((self.name, content_type))
+
+
+UPLOADS: list[tuple[str, str]] = []
 
 
 class FakeBucket:
@@ -187,3 +191,20 @@ def test_vehicle_known_counts_only_timed_arrivals(day, capsys):
     day.execute("UPDATE arrivals SET vehicle_id = NULL WHERE trip_id = 'T1' AND stop_sequence = 2")
     assert report.summarise(day)["vehicle_known"] == pytest.approx(80)
     assert any("naming a vehicle" in line for line in check_lines(day, capsys))
+
+
+def test_the_report_goes_up_last_as_json(tmp_path):
+    con = run_day(tmp_path / "day")
+    out = tmp_path / "out"
+    written = arrivals.write(con, out, SERVICE_DATE)
+    written["reports"] = report.save(
+        report.document(con, SERVICE_DATE),
+        out / arrivals.partition("reports", SERVICE_DATE) / "report.json",
+    )
+    UPLOADS.clear()
+    arrivals.upload(FakeClient([]), written, SERVICE_DATE)
+    assert UPLOADS == [
+        ("arrivals/v2/service_date=2026-08-18/part-0.parquet", "application/vnd.apache.parquet"),
+        ("trips/v2/service_date=2026-08-18/part-0.parquet", "application/vnd.apache.parquet"),
+        ("reports/v2/service_date=2026-08-18/report.json", "application/json"),
+    ]
