@@ -149,8 +149,21 @@ def build_timetable(directory: Path, *, services: bool = True) -> Path:
     )
     write_csv(
         directory / "stop_times.txt",
-        ["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence"],
-        [[trip, arrive, depart, stop, seq] for trip, seq, stop, arrive, depart in SCHEDULE],
+        ["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence",
+         "destination_code"],
+        [[trip, arrive, depart, stop, seq, "SANTA MONICA" if trip != "T3" else "DOWNTOWN LA"]
+         for trip, seq, stop, arrive, depart in SCHEDULE],
+    )  # fmt: skip
+    # What labels.py reads to name lines, directions and stops for the site.
+    write_csv(
+        directory / "routes.txt",
+        ["route_id", "route_short_name", "route_long_name", "route_desc", "route_type"],
+        [["720-13201", "720", "", "WILSHIRE BLVD RAPID", "3"]],
+    )
+    write_csv(
+        directory / "stops.txt",
+        ["stop_id", "stop_name", "stop_lat", "stop_lon"],
+        [[stop, f"Stop {stop}", "34.06", "-118.30"] for stop in "ABCDEFGH"],
     )
     return directory
 

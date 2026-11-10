@@ -239,7 +239,7 @@ def test_arrivals_grades_the_normalised_day(monkeypatch):
     monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
     monkeypatch.setattr(cli.storage, "Client", lambda: None)
     monkeypatch.setattr(cli, "grade_day", lambda client, day, **kwargs: graded.append(day) or 0)
-    args = argparse.Namespace(service_date="20261102", cache=None, out=None, raw_dir=None,
+    args = argparse.Namespace(service_date="20261102", cache=None, out=None, raw_dir=None, gtfs_dir=None,
                               no_upload=True)  # fmt: skip
     cli.run_arrivals(args)
     # The bucket path is built from this, so it is always the same form.
@@ -298,7 +298,7 @@ def test_fullwidth_digits_are_not_a_day():
         backfill.parse_day("\uff12\uff10\uff12\uff16\uff11\uff11\uff10\uff12")
 
 
-class Bucket:
+class FakeClient:
     def __init__(self, names):
         self.names = set(names)
 
@@ -324,11 +324,11 @@ def test_done_means_the_report_is_in_the_bucket():
 
     name = arrivals.partition("reports", "20260818") + "report.json"
     assert name == "reports/v2/service_date=2026-08-18/report.json"
-    is_done = cli.report_exists(Bucket([name]), None, upload=True)
+    is_done = cli.report_exists(lambda: FakeClient([name]), None, upload=True)
     assert is_done("20260818") is True
     # Tables without a report are not a finished day.
-    tables = Bucket(["arrivals/v2/service_date=2026-08-19/part-0.parquet"])
-    assert cli.report_exists(tables, None, upload=True)("20260819") is False
+    tables = FakeClient(["arrivals/v2/service_date=2026-08-19/part-0.parquet"])
+    assert cli.report_exists(lambda: tables, None, upload=True)("20260819") is False
 
 
 def test_done_without_upload_means_the_report_is_on_disk(tmp_path):
@@ -351,7 +351,6 @@ def test_a_regrade_killed_while_writing_leaves_no_local_report(tmp_path, monkeyp
 
     raw = build_raw(tmp_path / "raw")
     timetable = build_timetable(tmp_path / "gtfs_bus")
-    monkeypatch.setattr(cli.gtfs, "prepare", lambda *a: {"LACMTA": timetable})
     out = tmp_path / "out"
     old = out / cli.report_path("20260818")
     old.parent.mkdir(parents=True)
@@ -363,7 +362,13 @@ def test_a_regrade_killed_while_writing_leaves_no_local_report(tmp_path, monkeyp
     monkeypatch.setattr(cli.arrivals, "write", killed)
     with pytest.raises(KeyboardInterrupt):
         cli.grade_day(
-            None, "20260818", cache=tmp_path / "cache", out=out, raw_dir=raw, upload=False
+            lambda: pytest.fail("made a client"),
+            "20260818",
+            cache=tmp_path / "cache",
+            out=out,
+            raw_dir=raw,
+            timetables={"LACMTA": timetable},
+            upload=False,
         )
     assert not old.exists()
 
