@@ -118,9 +118,10 @@ jobs:
       - name: Pipeline tests
         run: python -m pytest pipeline/tests -q
 
-  # The image the daily job and the backfill run. Built here because nothing
-  # else builds it before it reaches the cloud, and tested with the same suite,
-  # against the code installed in the image rather than the checkout.
+  # Builds the Dockerfile and runs the suite inside the image, against the
+  # installed code rather than the checkout, as the unprivileged user the image
+  # runs as. A broken image fails here. The deploy builds its own image, so
+  # this does not prove what is deployed; pinning that build is part of #17.
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -135,9 +136,10 @@ jobs:
 
       - name: Pipeline tests inside the image
         run: >-
-          docker run --rm --user root -v "$PWD/pipeline/tests:/tests:ro"
+          docker run --rm -v "$PWD/pipeline/tests:/tests:ro"
           --entrypoint sh howlate-pipeline -c
-          "pip install --quiet pytest==9.2.0 && cd /tmp && python -m pytest /tests -q -p no:cacheprovider"
+          "pip install --quiet --user pytest==9.2.0 &&
+          python -m pytest /tests -q -p no:cacheprovider --basetemp /work/pytest"
 
   # One stable name for branch protection to require, whatever the jobs above
   # become later.
