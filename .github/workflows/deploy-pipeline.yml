@@ -1,0 +1,134 @@
+# Build the pipeline image and point the daily Cloud Run job at it whenever a
+# pipeline change reaches main, so a merged fix reaches the next daily run
+# without anyone remembering to deploy.
+#
+# No key file exists anywhere. GitHub's token for this workflow, run by a push
+# to this repository's main branch, is exchanged for the howlate-deployer
+# account through Workload Identity Federation. pipeline/deploy/github.sh sets
+# that up and limits the account to pushing to the howlate image repository
+# and reading and updating the howlate-daily job.
+#
+# Nothing is built until all-checks has passed on this exact commit: a PR's
+# checks ran against main as it was then, and a merge commit can differ. The
+# job is updated only after the image is pushed, so a failed build leaves it on
+# its previous image. It is left alone when it already runs a later commit of
+# main, so re-running an older run cannot roll it back.
+#
+# Actions are pinned to a commit rather than a tag, because a tag can be moved
+# to point at different code after it was reviewed.
+
+name: deploy-pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pipeline/**"
+      - ".dockerignore"
+      - ".github/workflows/deploy-pipeline.yml"
+
+# One deploy at a time, never cancelled halfway. GitHub keeps only the newest
+# waiting run.
+concurrency:
+  group: deploy-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  checks: read # to wait for all-checks on this commit
+  id-token: write # the token exchanged with Google
+
+# bash with pipefail, so a failed command inside a pipe fails the step.
+defaults:
+  run:
+    shell: bash
+
+env:
+  PROJECT: howlate-la
+  REGION: us-west1
+  JOB: howlate-daily
+  IMAGE: us-west1-docker.pkg.dev/howlate-la/howlate/pipeline
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Before any cloud token is requested, so untested code never gets one.
+      - name: Wait for all-checks on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 60); do
+            STATE=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=all-checks" \
+              --jq '.check_runs[0] | "\(.status) \(.conclusion)"')
+            case "$STATE" in
+              "completed success") echo "all-checks passed"; exit 0 ;;
+              completed*) echo "all-checks ended $STATE; not deploying" >&2; exit 1 ;;
+            esac
+            sleep 15
+          done
+          echo "all-checks did not finish in 15 minutes; not deploying" >&2
+          exit 1
+
+      # Full history, so the deploy step can tell whether the commit the job
+      # runs now is older than this one.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/712625281696/locations/global/workloadIdentityPools/github/providers/howlate-la
+          service_account: howlate-deployer@howlate-la.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      # Tagged with the commit, the same way pipeline/deploy/daily.sh tags it.
+      # An image already built for this commit is reused: pushing the tag again
+      # would give it a new digest, and the tag would stop naming one image.
+      - name: Build and push the image
+        run: |
+          TAG="${GITHUB_SHA::12}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          if gcloud artifacts docker images describe "$IMAGE:$TAG" >/dev/null 2>&1; then
+            echo "$IMAGE:$TAG already exists"
+            exit 0
+          fi
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --build-arg "COMMIT=$TAG" -f pipeline/Dockerfile -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+
+      # By digest, because a tag can be pushed again with other contents. Only
+      # the image and the commit label change; the job's other settings stay as
+      # pipeline/deploy/daily.sh set them. The loop then reads the job back
+      # until it names the new digest, using only the access granted on the
+      # job itself.
+      - name: Point the job at it
+        run: |
+          # The job's commit label names what it runs. Only a commit of main
+          # that this one does not contain is newer, which is what a re-run of
+          # an older run finds, so only then is the job left alone. A commit
+          # from another branch, or one unknown here, is replaced.
+          DEPLOYED=$(gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" \
+            --format json | jq -r '.metadata.labels.commit // empty')
+          if [ -n "$DEPLOYED" ] \
+              && git merge-base --is-ancestor "$DEPLOYED" origin/main 2>/dev/null \
+              && ! git merge-base --is-ancestor "$DEPLOYED" "$GITHUB_SHA"; then
+            echo "$JOB runs $DEPLOYED, a later commit of main than $TAG; leaving it"
+            exit 0
+          fi
+          DIGEST=$(gcloud artifacts docker images describe "$IMAGE:$TAG" \
+            --format 'value(image_summary.digest)')
+          gcloud run jobs update "$JOB" --project "$PROJECT" --region "$REGION" \
+            --image "$IMAGE@$DIGEST" --update-labels "commit=$TAG" --async
+          for attempt in $(seq 1 24); do
+            if gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" \
+                --format json | grep -qF "\"$IMAGE@$DIGEST\""; then
+              echo "$JOB now runs $TAG ($DIGEST)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "$JOB does not name $DIGEST after two minutes" >&2
+          exit 1

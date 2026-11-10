@@ -222,3 +222,9 @@ def test_only_days_with_a_report_are_summarised(tmp_path):
     dest = tmp_path / "graded"
     assert cli.aggregate.fetch_arrivals(client, dest) == 1
     assert [p.parent.name for p in dest.rglob("*.parquet")] == ["service_date=2026-11-01"]
+
+
+def test_a_run_logs_the_commit_it_was_built_from(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("HOWLATE_COMMIT", "545ec6d1a2b3")
+    Run(monkeypatch, tmp_path)()
+    assert "howlate-pipeline at commit 545ec6d1a2b3" in capsys.readouterr().out
