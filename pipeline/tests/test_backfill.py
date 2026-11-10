@@ -277,6 +277,22 @@ def test_a_partition_that_cannot_be_deleted_is_reported(tmp_path, monkeypatch):
     assert sorted(p.name for p in root.iterdir()) == ["dt=2026-08-01"]
 
 
+def test_one_stuck_file_does_not_keep_the_rest_of_its_partition(tmp_path):
+    # A read-only hour directory: its file cannot be removed by a normal user.
+    partition = tmp_path / "vehicle_positions" / "dt=2026-08-17"
+    for hour in range(4):
+        (partition / f"hh={hour:02d}").mkdir(parents=True)
+        (partition / f"hh={hour:02d}" / "file.jsonl.gz").write_text("x")
+    locked = partition / "hh=01"
+    locked.chmod(0o500)
+    try:
+        with pytest.raises(OSError, match="dt=2026-08-17: .*ermission denied"):
+            backfill.prune_cache(tmp_path, "20260818")
+        assert sorted(p.name for p in partition.iterdir()) == ["hh=01"]
+    finally:
+        locked.chmod(0o700)
+
+
 def test_fullwidth_digits_are_not_a_day():
     with pytest.raises(SystemExit):
         backfill.parse_day("\uff12\uff10\uff12\uff16\uff11\uff11\uff10\uff12")

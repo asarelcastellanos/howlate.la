@@ -81,8 +81,11 @@ def prune_cache(cache: Path, service_date: str) -> None:
             # and must not pass unnoticed: each is a gigabyte on a small disk.
             try:
                 shutil.rmtree(partition)
-            except OSError:
-                stuck.append(partition.name)
+            except OSError as error:
+                # rmtree stops at its first failure; a second pass that ignores
+                # errors removes everything else it can inside the partition.
+                shutil.rmtree(partition, ignore_errors=True)
+                stuck.append(f"{partition.name}: {error}")
     if stuck:
         raise OSError(f"could not delete cached partitions: {', '.join(sorted(stuck))}")
 
