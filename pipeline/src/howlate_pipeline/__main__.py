@@ -1,16 +1,20 @@
-"""Two jobs: measure one day, then summarise every day measured so far.
+"""Grade days and summarise them.
 
     python -m howlate_pipeline arrivals --service-date 2026-08-18
+    python -m howlate_pipeline backfill --from 2026-08-18 --to 2026-11-07
     python -m howlate_pipeline aggregate
 
 `arrivals` reads the raw archive and the timetable in force and writes one
-Parquet partition per table, arrivals and trips. It handles one day, and
-rerunning a day replaces that day and touches nothing else, so any day can be
-recomputed at any time.
+Parquet partition per table, arrivals and trips, then the day's report. It
+handles one day, and rerunning a day replaces that day and touches nothing
+else, so any day can be recomputed at any time.
+
+`backfill` runs `arrivals` over a range, skipping days already done; its rules
+are in backfill.py.
 
 `aggregate` reads every partition of one layout version and produces the small
-JSON files a browser fetches. It handles all days at once, because a median over one
-Tuesday is not an answer to "is my bus usually late".
+JSON files a browser fetches. It handles all days at once, because a median over
+one Tuesday is not an answer to "is my bus usually late".
 """
 
 import argparse
@@ -56,9 +60,12 @@ def require_complete(service_date: str) -> str:
 
 
 def run_arrivals(args: argparse.Namespace) -> int:
+    # The day is checked before a client is made, so refusing a day needs no
+    # credentials.
+    day = require_complete(args.service_date)
     return grade_day(
         storage.Client(),
-        require_complete(args.service_date),
+        day,
         cache=args.cache,
         out=args.out,
         raw_dir=args.raw_dir,
@@ -98,7 +105,7 @@ def grade_day(
 
     # The old report goes first. Until the new one is saved, nothing on disk
     # may claim this day is finished.
-    (out / arrivals.partition("reports", service_date) / "report.json").unlink(missing_ok=True)
+    (out / report_path(service_date)).unlink(missing_ok=True)
     written = arrivals.write(con, out, service_date)
     path = written["arrivals"]
     size = path.stat().st_size
@@ -107,9 +114,7 @@ def grade_day(
     report.show(con, service_date)
     # Saved last so that, in the bucket, a report is the sign a day finished.
     saved = report.document(con, service_date)
-    written["reports"] = report.save(
-        saved, out / arrivals.partition("reports", service_date) / "report.json"
-    )
+    written["reports"] = report.save(saved, out / report_path(service_date))
     print(
         f"\n  wrote {path} ({size / 1e6:.1f} MB, {rows:,} rows, "
         f"{size / rows if rows else 0:.1f} bytes/row) in {time.monotonic() - started:.0f}s"
@@ -125,19 +130,35 @@ def grade_day(
     return 0 if saved["ok"] else 2
 
 
+def report_path(day: str) -> str:
+    """Where a day's report lives, relative to the output root or the bucket."""
+    return arrivals.partition("reports", day) + "report.json"
+
+
+def report_exists(client: storage.Client, out: Path, upload: bool):
+    """The Done rule: a day is done when its report exists, in the bucket or,
+    without uploading, on disk."""
+
+    def is_done(day: str) -> bool:
+        if upload:
+            return client.bucket(DERIVED_BUCKET).blob(report_path(day)).exists()
+        return (out / report_path(day)).exists()
+
+    return is_done
+
+
 def run_backfill(args: argparse.Namespace) -> int:
     last = require_complete(args.last)
+    # The whole range is checked before a client is made, so a bad date is
+    # reported as one even without credentials.
+    days = backfill.days_between(args.first, last)
     client = storage.Client()
     upload = not args.no_upload
 
-    def is_done(day: str) -> bool:
-        name = arrivals.partition("reports", day) + "report.json"
-        if upload:
-            return client.bucket(DERIVED_BUCKET).blob(name).exists()
-        return (args.out / name).exists()
+    is_done = report_exists(client, args.out, upload)
 
     result = backfill.run(
-        backfill.days_between(args.first, last),
+        days,
         grade=lambda day: grade_day(client, day, cache=args.cache, out=args.out, upload=upload),
         is_done=is_done,
         after_day=lambda day: backfill.prune_cache(args.cache, day),

@@ -1,0 +1,6 @@
+# The image needs pipeline/ and nothing else. Everything else stays out of the
+# build context, which also keeps local data and credentials from being sent.
+*
+!pipeline/pyproject.toml
+!pipeline/src/**
+pipeline/src/**/__pycache__
