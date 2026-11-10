@@ -94,12 +94,16 @@ if [ -n "$STATUS" ]; then
     exit 1
   fi
   # Its disk holds the last run's log, and the copies to the bucket can fail
-  # without saying so. Show the end of it before the disk goes.
-  echo "==> The last run's console, before its VM is deleted:"
-  gcloud compute instances get-serial-port-output "$NAME" --project "$PROJECT" --zone "$ZONE" \
-    2>/dev/null | tail -40 | sed 's/^/    /' || true
-  echo "==> Logs in the bucket:"
+  # without saying so. A stopped VM's serial console cannot be read, so show
+  # the newest log the bucket has; if it is not from the last run, stop here
+  # and recover the log from the disk before deleting.
+  echo "==> Newest backfill logs in the bucket:"
   gcloud storage ls gs://howlate-derived/logs/ 2>/dev/null | tail -5 | sed 's/^/    /' || true
+  NEWEST=$(gcloud storage ls gs://howlate-derived/logs/ 2>/dev/null | tail -1 || true)
+  if [ -n "$NEWEST" ]; then
+    echo "==> End of $NEWEST:"
+    gcloud storage cat "$NEWEST" 2>/dev/null | tail -20 | sed 's/^/    /' || true
+  fi
   echo "==> Deleting the powered-off $NAME from the last run"
   gcloud compute instances delete "$NAME" --project "$PROJECT" --zone "$ZONE" --quiet
 fi
