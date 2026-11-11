@@ -135,6 +135,31 @@ means Metro is consistently serving dead subscriptions.
 nothing is lost yet; there are about three weeks of room. Check
 `journalctl -u howlate-upload`.
 
+## Cold storage
+
+Raw vehicle positions move to Coldline after 30 days and to Archive after 365,
+following `raw-lifecycle.json`. Timetables under `gtfs/` stay Standard, because
+every regrade reads them. The rule never deletes anything. `tests/test_lifecycle.py`
+checks those properties of the file; CI runs it on every PR and every push to
+main, and the command below runs it on the exact file being applied.
+
+The rule is applied by hand, by the owner, and only once a backfill has graded
+every day it needs: a backfill run after the rule pays a retrieval fee on every
+day older than 30 days.
+
+```
+.venv/bin/python collector/tests/test_lifecycle.py && \
+  gcloud storage buckets update gs://howlate-raw --lifecycle-file=collector/deploy/raw-lifecycle.json
+gcloud storage buckets describe gs://howlate-raw --format='yaml(lifecycle_config)'
+```
+
+Google applies it within about a day. Reading raw positions older than 30 days
+then costs a retrieval fee of $0.02/GB from Coldline and $0.05/GB from Archive.
+A day's partition is about 1.2 GB. Grading one day reads three partitions, the
+day and the UTC days either side, so regrading a single old day reads about
+3.6 GB; a backfill over a range shares them and averages about 1.2 GB a day.
+The daily job reads files up to about ten days old, so it pays none.
+
 ## Security
 
 The instance has its own identity with permission to write to one bucket and
