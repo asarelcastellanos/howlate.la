@@ -15,10 +15,10 @@ running anything. The raw bucket now moves old files to cheaper storage.
   rebuild cannot pick up a different version.
 - A resumable `backfill` command that grades a date range and skips days that
   already have a report.
-- A `daily` command that grades the days since the last report, rebuilds the
-  site files from every finished day, and pings healthchecks.io. A day that
-  fails sends the failure ping, and the site is still rebuilt from the days
-  that finished.
+- A `daily` command that grades the last seven days that have no report,
+  rebuilds the site files from every finished day, and pings healthchecks.io.
+  A day that fails sends the failure ping, and the site is still rebuilt from
+  the days that finished.
 - A Cloud Run job, `howlate-daily`, started by Cloud Scheduler at 05:00
   Pacific. It runs with `--max-retries 0`, so a retry cannot clear a failure
   ping.
