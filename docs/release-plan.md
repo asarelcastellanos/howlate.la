@@ -233,7 +233,7 @@ doing it, and the storage bill stops growing.
   Every day passes the `report.py` ranges or has a written note.
 - After the lifecycle rule, files older than 30 days show Coldline, new files
   stay Standard, and the collector heartbeat stays up for 24 hours. (Manual)
-- Seven days in a row are graded with no manual step. (Manual)
+- Three days in a row are graded with no manual step. (Manual)
 
 #### UI/UX
 
