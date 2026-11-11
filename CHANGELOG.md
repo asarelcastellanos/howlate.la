@@ -4,6 +4,56 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## 0.3.0 - unreleased
+
+Every collected day is graded, and every new day is graded without anyone
+running anything. The raw bucket now moves old files to cheaper storage.
+
+### Added
+
+- A container for the pipeline, installed from a hashed dependency lock so a
+  rebuild cannot pick up a different version.
+- A resumable `backfill` command that grades a date range and skips days that
+  already have a report.
+- A `daily` command that grades the last seven days that have no report,
+  rebuilds the site files from every finished day, and pings healthchecks.io.
+  A day that fails sends the failure ping, and the site is still rebuilt from
+  the days that finished.
+- A Cloud Run job, `howlate-daily`, started by Cloud Scheduler at 05:00
+  Pacific. It runs with `--max-retries 0`, so a retry cannot clear a failure
+  ping.
+- A GitHub Actions workflow that builds the image and points the job at it when
+  a pipeline change reaches `main`. It waits for the checks on that exact
+  commit and uses Workload Identity Federation, so no key file exists.
+- Each day's `report.py` numbers saved as JSON in `reports/v2/`.
+- The site files publish all at once, under a new run prefix, and
+  `site/current.json` switches to it last. A run that crashes before that
+  leaves the previous site files in place.
+- A lifecycle rule for `gs://howlate-raw`: `vehicle_positions/` moves to
+  Coldline after 30 days and Archive after 365. `gtfs/` stays Standard. It was
+  applied on 2026-11-10, after the backfill, so grading does not pay retrieval
+  fees on those days.
+
+### Checked
+
+- The backfill ran on a Spot VM in us-west1 on 2026-11-09 and graded 82 days,
+  2026-08-18 to 2026-11-07, at about 1 minute 45 seconds each. 56 passed every
+  check, 26 had failed checks, and none errored. The notes on those failed
+  checks are on #16.
+- The 05:00 run on 2026-11-10 finished with exit code 0 and published 117 site
+  files in 39 seconds.
+
+### Removed
+
+- The v1 files for 18 and 19 August in `gs://howlate-derived/arrivals/`.
+  They were two files, 9.2 MiB. Every day, including those two, has a v2
+  report.
+
+### Not changed
+
+- The collector. Its code did not change, so it stays at 0.1.0 and the VM is
+  not redeployed.
+
 ## 0.2.0 - 2026-11-09
 
 Arrivals v2: every graded stop now says which vehicle it was and when it left,
