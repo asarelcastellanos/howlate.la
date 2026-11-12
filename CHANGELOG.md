@@ -53,6 +53,14 @@ running anything. The raw bucket now moves old files to cheaper storage.
   of the reported trips, so a day that already graded correctly keeps its copy.
   A same-day copy that cannot be read is skipped and logged. The log shows the
   match rate of both.
+- Lines 9 and 22 no longer fail the silent-lines check. The timetable schedules
+  them on 24 days and the vehicle feed never reported a stop on either. Of those
+  24 days, 23 now pass. 2026-08-21 still fails, because lines 128 and 202 were
+  also silent that day. Lines 694 to 697 stay under the check. Line 697 was
+  scheduled on 6 days and reported on every one of them, so a silent 697 would
+  be a fault. The report lists the exempt lines separately as
+  `silent_event_lines`, and a silent line that is not exempt still fails the
+  check.
 
 ### Checked
 

@@ -36,6 +36,27 @@ EXPECTED = {
 }
 
 
+# Stadium shuttles that the bus timetable schedules on some days and the vehicle
+# feed never reports. A subset of EVENT_ONLY in
+# collector/src/howlate_collector/routes.py (9, 22 and 694 to 697), copied here
+# because the two packages install separately and neither may import the other.
+# A test reads the collector's file and fails if this set holds a line that the
+# collector's does not.
+#
+# Only the lines that are silent on every day they are scheduled are exempt.
+# Over the 85 graded days 2026-08-18 to 2026-11-10, lines 9 and 22 were
+# scheduled on the same 24 days and had no timed stop on any of them. Line 9 had
+# 38 trips and 76 scheduled stops a day, line 22 had 19 trips and 114. That
+# failed the silent-lines check on all 24. Whether Metro ran them on those days
+# is not established.
+#
+# Lines 694 to 697 stay under the check. Line 697 was scheduled on 6 days with
+# 50 trips a day, and between 29 and 40 of those trips had a timed arrival each
+# day, so a silent 697 would be an outage that exempting it would hide. Lines
+# 694 to 696 were not scheduled on any of the 85 days.
+EVENT_ONLY = frozenset({"9", "22"})
+
+
 def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     """Every headline number for the day, in one pass over the joined table."""
     row = con.sql("""
@@ -142,13 +163,7 @@ def by_agency(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     """).fetchall()
 
 
-def silent_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
-    """Lines the timetable ran today that nothing was ever seen on.
-
-    No list of exceptions is needed. A line that does not run today has no
-    scheduled stops and so cannot appear here, which is why the stadium shuttles
-    are absent on an ordinary Tuesday without anyone having to say so.
-    """
+def _never_seen(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     return con.sql("""
         SELECT agency, line, count(*) AS scheduled_stops
         FROM arrivals GROUP BY agency, line
@@ -156,6 +171,27 @@ def silent_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
         -- Ties broken by name, so the saved report is the same on every run.
         ORDER BY scheduled_stops DESC, agency, line
     """).fetchall()
+
+
+def silent_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
+    """Lines the timetable ran today that nothing was ever seen on.
+
+    A line that does not run today has no scheduled stops and so cannot appear
+    here. Lines 9 and 22 are the exception: the timetable schedules them on
+    days the feed never reports them, so they are left out and listed by
+    silent_event_lines instead. Every other silent line, including the other
+    shuttles, is a fault.
+    """
+    return [row for row in _never_seen(con) if row[1] not in EVENT_ONLY]
+
+
+def silent_event_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
+    """Exempt event-only lines (9 and 22) that were scheduled today and never seen.
+
+    Informational only. Nothing was measured on these, and a day where they
+    were never seen does not say whether Metro ran them.
+    """
+    return [row for row in _never_seen(con) if row[1] in EVENT_ONLY]
 
 
 def pct(part: float, whole: float) -> float:
@@ -209,6 +245,11 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             print(f"  {mark} {check['value']:8,}  {check['label']} (expect {check['expect']})")
     for agency, line, stops in silent_lines(con)[:10]:
         print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
+    for agency, line, stops in silent_event_lines(con):
+        print(
+            f"          info {agency} {line}: event-only line, {stops:,} scheduled stops, "
+            "nothing observed, not checked"
+        )
     return ok
 
 
@@ -295,6 +336,10 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
         "silent_lines": [
             {"agency": agency, "line": line, "scheduled_stops": stops}
             for agency, line, stops in silent_lines(con)
+        ],
+        "silent_event_lines": [
+            {"agency": agency, "line": line, "scheduled_stops": stops}
+            for agency, line, stops in silent_event_lines(con)
         ],
         "checks": found,
         "ok": all(check["ok"] for check in found),
