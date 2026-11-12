@@ -1,15 +1,17 @@
 """The daily job: catch up, rebuild the site from every finished day, and report.
 
 Grading, fetching and building are replaced by fakes, so these tests check the
-job's decisions rather than repeat the grading tests.
+job's decisions rather than repeat the grading tests. A few name the part they
+leave real, where the decision under test sits across that part's boundary.
 """
 
 import argparse
 
 import pytest
+import test_write
 
+from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, labels
 from howlate_pipeline import __main__ as cli
-from howlate_pipeline import arrivals
 
 
 class FakeBlob:
@@ -35,8 +37,18 @@ class Run:
     """One daily run with every outside effect recorded."""
 
     def __init__(
-        self, monkeypatch, tmp_path, *, done=(), codes=None, raises=None, site=None, fetched=1
+        self,
+        monkeypatch,
+        tmp_path,
+        *,
+        done=(),
+        codes=None,
+        raises=None,
+        site=None,
+        fetched=1,
+        real=(),
     ):
+        # `real` names what is left unfaked: "grade" or "build".
         self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
         done = {f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in done}
         monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
@@ -62,8 +74,10 @@ class Run:
             self.published.append(kwargs.get("upload", True))
             return 0
 
-        monkeypatch.setattr(cli, "grade_day", grade)
-        monkeypatch.setattr(cli, "build_site", build)
+        if "grade" not in real:
+            monkeypatch.setattr(cli, "grade_day", grade)
+        if "build" not in real:
+            monkeypatch.setattr(cli, "build_site", build)
         self.args = argparse.Namespace(catch_up=7, cache=tmp_path / "cache", out=tmp_path / "out")
 
     def __call__(self):
@@ -129,6 +143,92 @@ def test_a_crash_while_building_the_site_raises_the_alarm_and_the_error(monkeypa
     with pytest.raises(RuntimeError):
         run()
     assert run.pings == [False]
+
+
+def test_a_day_with_no_raw_files_raises_the_alarm_and_names_the_day(monkeypatch, tmp_path, capsys):
+    # Issue #98: the other tests raise SystemExit from a fake grade. This one
+    # lets grade_day raise it, so a reworded or removed exit in grade_day, or a
+    # run_daily that stopped catching it, fails here.
+    done = [f"202611{day:02d}" for day in range(1, 7)]
+    run = Run(monkeypatch, tmp_path, done=done, real=("grade",))
+    monkeypatch.setattr(cli.gtfs, "prepare", lambda client, day, cache: {})
+    monkeypatch.setattr(cli.arrivals, "fetch_raw", lambda client, day, cache: [])
+    assert run() == 1
+    assert run.pings == [False]
+    # The heartbeat summary only counts days. The day is named in the log.
+    log = capsys.readouterr().out
+    assert "20261107 failed: SystemExit('no raw files found for 20261107')" in log
+    assert "errors: 20261107" in log
+
+
+class StoredBlob(test_write.FakeBlob):
+    def exists(self) -> bool:
+        return (self.bucket_name, self.name) in self.store
+
+
+class StoredBucket(test_write.FakeBucket):
+    def blob(self, name):
+        return StoredBlob(self.name, name, self.store)
+
+
+class Derived(test_write.FakeClient):
+    """test_write's bucket, with the exists() that the done rule asks for."""
+
+    def bucket(self, name):
+        return StoredBucket(name, self.store)
+
+
+def crash_in_grading(monkeypatch, run):
+    # Not an Exception: backfill.run catches those per day and the run goes on.
+    monkeypatch.setattr(cli, "grade_day", lambda *args, **kwargs: raise_(KeyboardInterrupt()))
+
+
+def crash_in_the_fetch(monkeypatch, run):
+    monkeypatch.setattr(aggregate, "fetch_arrivals", lambda *args: raise_(ConnectionError("fetch")))
+
+
+def crash_in_the_labels(monkeypatch, run):
+    # build_site is real here, so the crash lands after the days are loaded
+    # and before anything is uploaded.
+    monkeypatch.setattr(aggregate, "load", lambda con, directory: ("2026-11-01", "2026-11-07", 7))
+    monkeypatch.setattr(cli.gtfs, "prepare", lambda client, day, cache: {})
+    monkeypatch.setattr(labels, "load", lambda con, directories: raise_(OSError("labels")))
+
+
+def raise_(error):
+    raise error
+
+
+@pytest.mark.parametrize(
+    ("crash", "error"),
+    [
+        (crash_in_grading, KeyboardInterrupt),
+        (crash_in_the_fetch, ConnectionError),
+        (crash_in_the_labels, OSError),
+    ],
+    ids=["grading", "fetch", "labels"],
+)
+def test_a_crash_before_the_upload_leaves_the_published_run_alone(
+    monkeypatch, tmp_path, crash, error
+):
+    # Issue #98: the site must keep serving the last complete run, and the
+    # alarm must still go off, wherever the job dies before it uploads.
+    client = Derived([])
+    aggregate.upload(client, test_write.site(tmp_path / "seed"), run="20261106T130000Z")
+
+    def site_objects():
+        return {key: data for key, data in client.store.items() if key[1].startswith("site/")}
+
+    before = site_objects()
+    assert (DERIVED_BUCKET, "site/current.json") in before
+
+    run = Run(monkeypatch, tmp_path, real=("build",))
+    monkeypatch.setattr(cli, "Bucket", lambda: lambda: client)
+    crash(monkeypatch, run)
+    with pytest.raises(error):
+        run()
+    assert run.pings == [False]
+    assert site_objects() == before
 
 
 class Opened:
