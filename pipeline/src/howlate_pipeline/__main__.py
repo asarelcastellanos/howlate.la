@@ -134,9 +134,6 @@ def grade_day(
     """Grade one service day, write it, and upload it unless told not to."""
     started = time.monotonic()
 
-    print(f"timetables in force on {service_date}:")
-    directories = timetables or gtfs.prepare(bucket(), service_date, cache / "gtfs")
-
     print("raw archive:")
     if raw_dir:
         files = arrivals.local_files(raw_dir, service_date)
@@ -148,6 +145,14 @@ def grade_day(
 
     con = arrivals.connect()
     arrivals.load_observations(con, files, service_date)
+
+    # After the observations, because the timetable is chosen by how many of the
+    # reported trip_ids it holds. Before any download, so a day with no raw files
+    # costs no timetable.
+    print(f"timetables for {service_date}:")
+    directories = timetables or gtfs.prepare(
+        bucket(), service_date, cache / "gtfs", arrivals.observed_trip_ids(con)
+    )
     arrivals.load_schedule(con, directories, service_date)
     arrivals.match(con, service_date)
     arrivals.trips(con)

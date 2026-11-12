@@ -158,6 +158,21 @@ def load_observations(con: duckdb.DuckDBPyConnection, files: list[str], service_
     )
 
 
+def observed_trip_ids(con: duckdb.DuckDBPyConnection) -> dict[str, set[str]]:
+    """The distinct trip_ids the vehicles reported, by agency.
+
+    What `gtfs.prepare` measures each timetable copy against, so it reads the
+    same table the grading does and a trip counts here exactly when it would
+    produce an observation there.
+    """
+    found: dict[str, set[str]] = {}
+    for agency, trip_id in con.execute(
+        "SELECT DISTINCT agency, trip_id FROM observations"
+    ).fetchall():
+        found.setdefault(agency, set()).add(trip_id)
+    return found
+
+
 def load_schedule(
     con: duckdb.DuckDBPyConnection, directories: dict[str, Path], service_date: str
 ) -> None:
