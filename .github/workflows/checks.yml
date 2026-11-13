@@ -31,9 +31,11 @@ on:
 
 # One run per PR at a time. A newer run cancels the older one, and a cancelled
 # run ends with a failed all-checks, so a stale run cannot finish last and pass.
+# Pushes to main are never cancelled: each commit there needs its own result,
+# because the deploy workflow waits for all-checks on exactly that commit.
 concurrency:
-  group: checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: checks-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -85,6 +87,9 @@ jobs:
       - name: Collector tests
         run: python collector/tests/test_record.py
 
+      - name: Raw bucket lifecycle rule
+        run: python collector/tests/test_lifecycle.py
+
   pipeline:
     name: pipeline (python ${{ matrix.python }})
     runs-on: ubuntu-latest
@@ -118,10 +123,33 @@ jobs:
       - name: Pipeline tests
         run: python -m pytest pipeline/tests -q
 
+  # Builds the Dockerfile and runs the suite inside the image, against the
+  # installed code rather than the checkout, as the unprivileged user the image
+  # runs as. A broken image fails here. The deploy builds its own image, so
+  # this does not prove what is deployed; pinning that build is part of #17.
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the pipeline image
+        run: docker build -f pipeline/Dockerfile -t howlate-pipeline .
+
+      - name: The entry point answers
+        run: docker run --rm howlate-pipeline --help
+
+      - name: Pipeline tests inside the image
+        run: >-
+          docker run --rm -v "$PWD/pipeline/tests:/tests:ro"
+          --entrypoint sh howlate-pipeline -c
+          "pip install --quiet --user pytest==9.2.0 &&
+          python -m pytest /tests -q -p no:cacheprovider --basetemp /work/pytest"
+
   # One stable name for branch protection to require, whatever the jobs above
   # become later.
   all-checks:
-    needs: [lint, collector, pipeline]
+    needs: [lint, collector, pipeline, container]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -129,4 +157,5 @@ jobs:
         run: >-
           test "${{ needs.lint.result }}" = success &&
           test "${{ needs.collector.result }}" = success &&
-          test "${{ needs.pipeline.result }}" = success
+          test "${{ needs.pipeline.result }}" = success &&
+          test "${{ needs.container.result }}" = success

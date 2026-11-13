@@ -7,7 +7,7 @@
 
 [project]
 name = "howlate-pipeline"
-version = "0.2.0"
+version = "0.3.0"
 description = "Turns the raw archive into how late each LA Metro vehicle actually was"
 requires-python = ">=3.11"
 

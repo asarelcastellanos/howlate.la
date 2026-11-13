@@ -5,14 +5,16 @@ Nothing here touches the network.
 """
 
 import io
+import json
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from fixture_day import SERVICE_DATE, build_timetable
+from fixture_day import SERVICE_DATE, build_raw, build_timetable, write_csv
 
+from howlate_pipeline import __main__ as cli
 from howlate_pipeline import arrivals, gtfs
 
 
@@ -155,6 +157,269 @@ def test_running_out_of_copies_with_service_stops_the_run(tmp_path, monkeypatch)
     monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
     with pytest.raises(SystemExit):
         gtfs.prepare(client, SERVICE_DATE, tmp_path / "cache")
+
+
+def holding(directory: Path, trips: list[str]) -> bytes:
+    """A zipped timetable running exactly these trips every day of 2026."""
+    directory.mkdir(parents=True)
+    write_csv(
+        directory / "calendar.txt",
+        ["service_id", *DAYS, "start_date", "end_date"],
+        [["WK", *["1"] * 7, "20260101", "20261231"]],
+    )
+    write_csv(directory / "calendar_dates.txt", ["service_id", "date", "exception_type"], [])
+    write_csv(
+        directory / "trips.txt",
+        ["route_id", "service_id", "trip_id"],
+        [["720-13201", "WK", trip] for trip in trips],
+    )
+    return zipped(directory)
+
+
+DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+BEFORE = "gtfs/gtfs_bus-2026-08-16-bbbb.zip"
+DURING = "gtfs/gtfs_bus-2026-08-18-dddd.zip"
+BOTH_FEEDS = {"gtfs_bus": "LACMTA", "gtfs_rail": "LACMTA_Rail"}
+
+
+def reported(count: int) -> list[str]:
+    return [f"R{n}" for n in range(count)]
+
+
+def test_the_copy_holding_the_reported_trips_is_used_over_the_one_in_force(tmp_path, monkeypatch):
+    # The 18th starts 07:00 UTC. BEFORE was in force then and holds none of the
+    # trips the vehicles reported; DURING, fetched at 12:00 UTC, holds all.
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "before", ["OLD1", "OLD2"])),
+        FakeBlob(DURING, utc(8, 18, 12), holding(tmp_path / "during", reported(10))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert chosen["LACMTA"].name == Path(DURING).stem
+
+
+def test_the_log_names_the_copy_its_match_rate_and_the_one_in_force(tmp_path, monkeypatch, capsys):
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "before", reported(1))),
+        FakeBlob(DURING, utc(8, 18, 12), holding(tmp_path / "during", reported(10))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert capsys.readouterr().out.splitlines() == [
+        "  gtfs_bus: gtfs_bus-2026-08-18-dddd.zip, 1 services active on 20260818, "
+        "100.0% of observed trips match (the copy in force at midnight: 10.0%)"
+    ]
+
+
+@pytest.mark.parametrize(
+    "in_force_holds, later_holds, switches",
+    [
+        (200, 200, False),  # equal: the day already graded correctly
+        (150, 150, False),
+        (150, 151, False),  # one trip in 200 is exactly 0.5 points, which is not more
+        (150, 152, True),  # 1.0 points
+        (150, 100, False),  # a worse copy fetched later never wins
+    ],
+)
+def test_a_later_copy_must_match_clearly_better_to_replace_the_one_in_force(
+    tmp_path, monkeypatch, in_force_holds, later_holds, switches
+):
+    # Even the best copy misses a few reported trips (26 of 1,348 on 2026-10-14),
+    # so a margin of half a point keeps a day that graded correctly from
+    # flipping on a trip or two.
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "a", reported(in_force_holds))),
+        FakeBlob(DURING, utc(8, 18, 12), holding(tmp_path / "b", reported(later_holds))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(200))})
+    assert chosen["LACMTA"].name == Path(DURING if switches else BEFORE).stem
+
+
+def test_among_later_copies_that_qualify_the_best_match_wins_and_ties_go_to_the_newest(
+    tmp_path, monkeypatch
+):
+    noon = "gtfs/gtfs_bus-2026-08-18-1200.zip"
+    best = "gtfs/gtfs_bus-2026-08-18-1500.zip"
+    newest = "gtfs/gtfs_bus-2026-08-18-1800.zip"
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "a", reported(10))),
+        FakeBlob(noon, utc(8, 18, 12), holding(tmp_path / "b", reported(80))),
+        FakeBlob(best, utc(8, 18, 15), holding(tmp_path / "c", reported(100))),
+        FakeBlob(newest, utc(8, 18, 18), holding(tmp_path / "d", reported(100))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(100))})
+    assert chosen["LACMTA"].name == Path(newest).stem
+
+
+def test_a_feed_with_no_reported_trips_keeps_the_copy_in_force(tmp_path, monkeypatch):
+    # Only the bus reported anything. The rail copy fetched during the day holds
+    # trips, but nothing says it describes the day better, so it is not used.
+    rail_before = "gtfs/gtfs_rail-2026-08-16-bbbb.zip"
+    rail_during = "gtfs/gtfs_rail-2026-08-18-dddd.zip"
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "a", ["OLD"])),
+        FakeBlob(DURING, utc(8, 18, 12), holding(tmp_path / "b", reported(10))),
+        FakeBlob(rail_before, utc(8, 16, 12), holding(tmp_path / "c", ["OLD"])),
+        FakeBlob(rail_during, utc(8, 18, 12), holding(tmp_path / "d", reported(10))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", BOTH_FEEDS)
+
+    chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert chosen["LACMTA"].name == Path(DURING).stem
+    assert chosen["LACMTA_Rail"].name == Path(rail_before).stem
+
+
+def test_without_reported_trips_every_feed_keeps_the_copy_in_force(tmp_path, monkeypatch, capsys):
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "a", ["OLD"])),
+        FakeBlob(DURING, utc(8, 18, 12), holding(tmp_path / "b", reported(10))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    for observed in (None, {}):
+        chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", observed)
+        assert chosen["LACMTA"].name == Path(BEFORE).stem
+    assert "match" not in capsys.readouterr().out
+
+
+def test_the_log_names_the_earliest_copy_when_none_was_in_force_with_service(
+    tmp_path, monkeypatch, capsys
+):
+    # Both copies were fetched during the 18th and nothing earlier exists, so the
+    # baseline is the earliest of them, not a copy in force at midnight.
+    first = "gtfs/gtfs_bus-2026-08-18-1200.zip"
+    second = "gtfs/gtfs_bus-2026-08-18-1500.zip"
+    client = FakeClient([
+        FakeBlob(first, utc(8, 18, 12), holding(tmp_path / "a", reported(1))),
+        FakeBlob(second, utc(8, 18, 15), holding(tmp_path / "b", reported(10))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert capsys.readouterr().out.splitlines() == [
+        "  gtfs_bus: gtfs_bus-2026-08-18-1500.zip, 1 services active on 20260818, "
+        "100.0% of observed trips match (the earliest copy with service: 10.0%)"
+    ]
+
+
+def test_a_copy_fetched_during_the_day_that_cannot_be_read_is_skipped(
+    tmp_path, monkeypatch, capsys
+):
+    # DURING arrives without trips.txt. The copy in force is complete, so the day
+    # is graded against it and the log says what was skipped.
+    broken = tmp_path / "broken"
+    holding(broken, reported(10))
+    (broken / "trips.txt").unlink()
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "before", reported(10))),
+        FakeBlob(DURING, utc(8, 18, 12), zipped(broken)),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert chosen["LACMTA"].name == Path(BEFORE).stem
+    assert capsys.readouterr().out.splitlines() == [
+        "  gtfs_bus: gtfs_bus-2026-08-18-dddd.zip could not be read (FileNotFoundError), skipped",
+        "  gtfs_bus: gtfs_bus-2026-08-16-bbbb.zip, 1 services active on 20260818, "
+        "100.0% of observed trips match (the copy in force at midnight: 100.0%)",
+    ]
+
+
+def test_an_older_copy_in_force_is_not_chosen_over_the_newest_one(tmp_path, monkeypatch):
+    # AUG_10 matches all ten reported trips and BEFORE, the newest copy in force,
+    # matches two. Only copies fetched during the day may replace the baseline,
+    # so the better-matching older copy is never considered.
+    client = FakeClient([
+        FakeBlob(AUG_10, utc(8, 10, 12), holding(tmp_path / "a", reported(10))),
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "b", reported(2))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    chosen = gtfs.prepare(client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert chosen["LACMTA"].name == Path(BEFORE).stem
+
+
+def test_a_copy_fetched_between_local_midnight_and_the_day_base_is_in_force():
+    # On 1 November, local midnight is 07:00 UTC (PDT) and day_base is 08:00 UTC,
+    # because the service day counts from noon minus twelve hours. A copy fetched
+    # at 07:30 UTC is in force, not the day's own.
+    early = "gtfs/gtfs_bus-2026-11-01-aaaa.zip"
+    during = "gtfs/gtfs_bus-2026-11-01-bbbb.zip"
+    client = FakeClient([
+        FakeBlob(early, datetime(2026, 11, 1, 7, 30, tzinfo=UTC)),
+        FakeBlob(during, datetime(2026, 11, 1, 8, 30, tzinfo=UTC)),
+    ])  # fmt: skip
+    order = gtfs.candidates(client, "gtfs_bus", "20261101")
+    assert [blob.name for blob in order] == [early, during]
+    assert [blob.name for blob in gtfs.fetched_during(order, "20261101")] == [during]
+
+
+def test_on_the_day_clocks_go_back_a_copy_fetched_after_midnight_is_the_days_own(
+    tmp_path, monkeypatch
+):
+    # The service day runs 24 elapsed hours from day_base: 08:00 UTC on the 1st
+    # to 08:00 UTC on the 2nd. A copy fetched at 12:00 UTC on the 1st (04:00 PST)
+    # is the day's own. One fetched at 08:30 UTC on the 2nd is 00:30 on the next
+    # service day, so it must not be used for the 1st even though it matches all
+    # ten reported trips. The end bound is the next day's day_base, not a fixed
+    # offset from this one's start.
+    before = "gtfs/gtfs_bus-2026-10-31-aaaa.zip"
+    during = "gtfs/gtfs_bus-2026-11-01-bbbb.zip"
+    after = "gtfs/gtfs_bus-2026-11-02-cccc.zip"
+    client = FakeClient([
+        FakeBlob(before, datetime(2026, 10, 31, 12, tzinfo=UTC), holding(tmp_path / "a", ["OLD"])),
+        FakeBlob(during, datetime(2026, 11, 1, 12, tzinfo=UTC), holding(tmp_path / "b", reported(8))),
+        FakeBlob(after, datetime(2026, 11, 2, 8, 30, tzinfo=UTC), holding(tmp_path / "c", reported(10))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    chosen = gtfs.prepare(client, "20261101", tmp_path / "cache", {"LACMTA": set(reported(10))})
+    assert chosen["LACMTA"].name == Path(during).stem
+
+
+def test_a_day_with_no_raw_files_downloads_no_timetable(tmp_path, monkeypatch):
+    def refused(*args, **kwargs):
+        pytest.fail("looked for a timetable on a day with no raw files")
+
+    monkeypatch.setattr(gtfs, "prepare", refused)
+    monkeypatch.setattr(gtfs, "candidates", refused)
+    with pytest.raises(SystemExit, match="no raw files found for 20260818"):
+        cli.grade_day(
+            lambda: pytest.fail("made a client"),
+            "20260818",
+            cache=tmp_path / "cache",
+            out=tmp_path / "out",
+            raw_dir=tmp_path / "empty",
+            upload=False,
+        )
+
+
+def test_grading_a_day_picks_the_timetable_the_vehicles_trips_match(tmp_path, monkeypatch):
+    # End to end through grade_day: the raw reports name T1 and T2, only the copy
+    # fetched during the day has them, and the day's 8 scheduled stops come from it.
+    raw = build_raw(tmp_path / "raw")
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "old", ["OLD1", "OLD2"])),
+        FakeBlob(DURING, utc(8, 18, 12), zipped(build_timetable(tmp_path / "new"))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    cli.grade_day(
+        lambda: client,
+        SERVICE_DATE,
+        cache=tmp_path / "cache",
+        out=tmp_path / "out",
+        raw_dir=raw,
+        upload=False,
+    )
+    saved = json.loads((tmp_path / "out" / cli.report_path(SERVICE_DATE)).read_text())
+    assert saved["stats"]["scheduled_stops"] == 8
 
 
 @pytest.mark.parametrize(

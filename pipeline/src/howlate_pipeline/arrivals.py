@@ -25,6 +25,7 @@ change in the feed's behaviour shows up as a surprise rather than as data.
 """
 
 import glob as globlib
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -64,6 +65,13 @@ def connect() -> duckdb.DuckDBPyConnection:
     trip to the wrong end of the day.
     """
     con = duckdb.connect()
+    # On Cloud Run the disk is memory, shared with the raw cache, so DuckDB's
+    # own share and where it spills are set from the job, not left at 80% of
+    # the whole limit.
+    if limit := os.environ.get("HOWLATE_DUCKDB_MEMORY_LIMIT"):
+        con.execute(f"SET memory_limit = '{limit}'")
+    if spill := os.environ.get("HOWLATE_DUCKDB_TEMP_DIRECTORY"):
+        con.execute(f"SET temp_directory = '{spill}'")
     con.execute("""
         CREATE OR REPLACE MACRO epoch_offset(t) AS
             CAST(split_part(t, ':', 1) AS BIGINT) * 3600
@@ -148,6 +156,21 @@ def load_observations(con: duckdb.DuckDBPyConnection, files: list[str], service_
     """,
         [files, service_date],
     )
+
+
+def observed_trip_ids(con: duckdb.DuckDBPyConnection) -> dict[str, set[str]]:
+    """The distinct trip_ids the vehicles reported, by agency.
+
+    What `gtfs.prepare` measures each timetable copy against, so it reads the
+    same table the grading does and a trip counts here exactly when it would
+    produce an observation there.
+    """
+    found: dict[str, set[str]] = {}
+    for agency, trip_id in con.execute(
+        "SELECT DISTINCT agency, trip_id FROM observations"
+    ).fetchall():
+        found.setdefault(agency, set()).add(trip_id)
+    return found
 
 
 def load_schedule(
@@ -441,8 +464,18 @@ def upload(client: storage.Client, written: dict[str, Path], service_date: str) 
     Anything already under the date's prefix is deleted first. Without that, a
     rerun that produced a different number of files would leave the old extras
     behind and every later read would silently double-count the overlap.
+
+    Tables go up in the order given, and the report last. Before anything is
+    deleted, the day's old report is removed, so with one writer per day a
+    report in the bucket always sits beside complete tables: a regrade that
+    dies partway leaves no report, and the next run grades the day again. Two
+    processes grading the same day at once could still interleave, so the
+    daily job and a backfill must not cover the same day at the same time.
     """
     bucket = client.bucket(DERIVED_BUCKET)
+    if "reports" in written:
+        for old in client.list_blobs(DERIVED_BUCKET, prefix=partition("reports", service_date)):
+            old.delete()
     uploaded = []
     for table, path in written.items():
         prefix = partition(table, service_date)
@@ -450,6 +483,7 @@ def upload(client: storage.Client, written: dict[str, Path], service_date: str) 
             stale.delete()
 
         blob = bucket.blob(prefix + path.name)
-        blob.upload_from_filename(path, content_type="application/vnd.apache.parquet")
+        kind = "application/json" if path.suffix == ".json" else "application/vnd.apache.parquet"
+        blob.upload_from_filename(path, content_type=kind)
         uploaded.append(f"gs://{DERIVED_BUCKET}/{blob.name}")
     return uploaded

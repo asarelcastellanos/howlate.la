@@ -22,12 +22,17 @@ arrival and mixing the two would quietly bias every number toward "early".
 
 import gzip
 import json
+import secrets
+import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
+from google.api_core.exceptions import NotFound, PreconditionFailed
 from google.cloud import storage
 
 from howlate_pipeline import DERIVED_BUCKET, ZONE
+from howlate_pipeline.arrivals import VERSION
 
 # Six parts of the day, three kinds of day. Coarse enough that cells hold real
 # numbers, fine enough to still answer "when".
@@ -146,6 +151,40 @@ def headlines(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
     }
 
 
+def fetch_arrivals(client: storage.Client, dest: Path) -> int:
+    """Download every finished day of this layout version into `dest`.
+
+    A day counts only once its report is in the bucket. The upload puts the
+    report last, so a day whose upload died partway has tables and no report,
+    and summarising it would publish half a day.
+
+    Empties `dest` first, so it must be a directory only this function writes.
+    It replaces what is there because a day regraded in the bucket must not be
+    summarised from an old local copy. On Cloud Run every execution starts
+    empty anyway, so this is how the summary sees days graded by other runs.
+    """
+    if dest.exists():
+        shutil.rmtree(dest)
+    finished = {
+        blob.name.split("/")[2]
+        for blob in client.list_blobs(DERIVED_BUCKET, prefix=f"reports/{VERSION}/")
+        if blob.name.endswith("/report.json")
+    }
+    prefix = f"arrivals/{VERSION}/"
+    count = 0
+    for blob in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
+        if not blob.name.endswith(".parquet"):
+            continue
+        if blob.name.removeprefix(prefix).split("/")[0] not in finished:
+            continue
+        target = dest / blob.name.removeprefix(prefix)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        blob.download_to_filename(target)
+        count += 1
+    print(f"  fetched {count} file(s) of {len(finished)} finished day(s) from {prefix}")
+    return count
+
+
 def write_json(path: Path, payload: dict) -> int:
     """Write one file, deterministically.
 
@@ -259,29 +298,106 @@ def build(
     return written
 
 
-def upload(client: storage.Client, out: Path) -> tuple[int, str]:
-    """Put the whole site directory in the derived bucket, replacing what was there.
+# How many published runs stay in the bucket: the current one and the two
+# that were current before it. Anything that read the pointer just before it
+# moved then has two more daily runs' time to finish copying the run it chose.
+KEEP_RUNS = 3
+
+POINTER = "site/current.json"
+
+
+def upload(client: storage.Client, out: Path, run: str | None = None) -> tuple[int, str]:
+    """Publish the whole site directory to the derived bucket as one new run.
 
     Stored here, not served from here. Cloud Storage egress is $0.12/GB with no
     useful free allowance, and it is the one line item in this project that could
-    turn a good day of traffic into a real bill. Publishing means copying this
-    directory into a CDN, which is a separate step.
+    turn a good day of traffic into a real bill. Publishing means copying the
+    current run into a CDN, which is a separate step.
 
-    Files that no longer exist locally are deleted, so a line Metro drops stops
-    being served rather than lingering with numbers that never move again.
+    Each run goes under site/runs/<run>/, and only once every file is there does
+    site/current.json name it. Writing one object is the only atomic step Cloud
+    Storage offers, so a run that dies partway leaves current.json naming the
+    last complete run, never a mix of old and new files.
     """
+    # The time sorts runs by age; the suffix keeps two runs started in the
+    # same second out of each other's files.
+    run = run or f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(3)}"
+    prefix = f"site/runs/{run}/"
     bucket = client.bucket(DERIVED_BUCKET)
     local = {path.relative_to(out).as_posix(): path for path in out.rglob("*.json")}
 
-    for stale in client.list_blobs(DERIVED_BUCKET, prefix="site/"):
-        if stale.name.removeprefix("site/") not in local:
-            stale.delete()
-
     for name, path in sorted(local.items()):
-        blob = bucket.blob(f"site/{name}")
-        # An hour: long enough that a burst of readers costs nothing, short
-        # enough that a corrected day is visible the same morning.
-        blob.cache_control = "public, max-age=3600"
+        blob = bucket.blob(prefix + name)
+        # Run files never change once written, so a long cache is safe.
+        blob.cache_control = "public, max-age=31536000, immutable"
         blob.upload_from_filename(path, content_type="application/json")
 
-    return len(local), f"gs://{DERIVED_BUCKET}/site/"
+    keep = point_at(bucket, run, prefix, len(local))
+    if keep:
+        try:
+            prune(client, run, keep)
+        except Exception as error:
+            # Listing failed. The site is published; the next run prunes.
+            print(f"  could not prune old runs: {error!r}")
+    return len(local), f"gs://{DERIVED_BUCKET}/{prefix}"
+
+
+def point_at(bucket: storage.Bucket, run: str, prefix: str, files: int) -> set[str] | None:
+    """Make site/current.json name this run, unless it already names a newer one.
+
+    Returns the runs to keep: this one and those current before it, which the
+    pointer lists. Only runs that were once current are ever listed, so a run
+    that died partway or lost a race never takes the place of one a reader may
+    still be copying. Returns None when a newer run is already published.
+
+    Two publishers can overlap, such as the daily job and a manual aggregate.
+    Without the check the slower one would move the pointer back to an older
+    run. The write is conditional on the pointer not having changed since it
+    was read, and a lost race is read again rather than overwritten.
+    """
+    for _ in range(5):
+        try:
+            current = bucket.get_blob(POINTER)
+            generation, previous = 0, []  # 0 means "only if it does not exist yet"
+            if current is not None:
+                generation = current.generation
+                named = json.loads(current.download_as_text(if_generation_match=generation))
+                if named["run"] > run:
+                    print(f"  {POINTER} already names {named['run']}; leaving it")
+                    return None
+                if named["run"] == run:  # a retried write that had landed
+                    return {run, *named.get("previous", [])}
+                previous = [named["run"], *named.get("previous", [])][: KEEP_RUNS - 1]
+            pointer = bucket.blob(POINTER)
+            # Short, because this one file is what moves when a run is published.
+            pointer.cache_control = "public, max-age=60"
+            record = {"run": run, "prefix": prefix, "files": files, "previous": previous}
+            pointer.upload_from_string(
+                json.dumps(record), content_type="application/json", if_generation_match=generation
+            )
+            return {run, *previous}
+        except (PreconditionFailed, NotFound):
+            # Another run moved the pointer after it was read. NotFound is the
+            # same race: the generation that was read no longer exists.
+            continue
+    raise RuntimeError(f"{POINTER} kept changing; gave up publishing {run}")
+
+
+def prune(client: storage.Client, current: str, keep: set[str]) -> None:
+    """Delete every run not in `keep`, and anything else under site/.
+
+    Runs named after the current one are left alone, because another process
+    may still be uploading them. "Anything else" is the flat layout from before
+    runs existed. A failed delete is printed and left for the next run, because
+    the site is already published.
+    """
+    for blob in client.list_blobs(DERIVED_BUCKET, prefix="site/"):
+        if blob.name == POINTER:
+            continue
+        parts = blob.name.split("/")
+        if len(parts) > 3 and parts[1] == "runs" and (parts[2] in keep or parts[2] > current):
+            continue
+        try:
+            blob.delete()
+        except Exception as error:
+            print(f"  could not delete gs://{DERIVED_BUCKET}/{blob.name}: {error!r}")

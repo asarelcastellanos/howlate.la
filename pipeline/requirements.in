@@ -1,0 +1,18 @@
+# Inputs to requirements.lock, beside pyproject.toml's dependencies.
+#
+# requirements.lock pins every third-party package installed into the pipeline
+# image, with hashes. pip comes from the base image, pinned by its digest, and
+# the pipeline itself is built from this directory. The image installs the lock
+# with --require-hashes and --only-binary, so a rebuild gets exactly the
+# reviewed wheels: a new release, or a file swapped on PyPI under the same
+# version, fails the build instead of reaching the daily job. The image build
+# also fails if the lock is missing anything pyproject.toml declares.
+#
+# The lock is for the image: Linux x86_64, Python 3.14. After changing a
+# dependency here or in pyproject.toml, regenerate it with the command at the
+# top of requirements.lock and review the diff.
+
+# setuptools builds the pipeline package itself. The image installs it with
+# --no-build-isolation, so the build backend comes from the lock, hashed,
+# rather than being fetched unpinned into an isolated build environment.
+setuptools>=68
