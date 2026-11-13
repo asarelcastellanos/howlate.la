@@ -42,6 +42,30 @@ grows, and two alarms described as catching more than the code detects. Check
 every number and every "all", "every", "always" and "never" against the code or
 the buckets.
 
+A figure measured on a sample of the raw files must say that it is a sample.
+Never write it as a count for the whole day. Three figures in the 0.3.0
+timetable change were wrong at full-day scale for this reason, so a reviewer
+re-reads the full day before accepting a count.
+
+## Tests
+
+A test that reads a file outside `pipeline/tests` must work in the `container`
+CI job, which mounts only that folder at `/tests`.
+
+- Skip only when the whole directory is absent.
+- Never compute a parent path that may not exist.
+- Fail when a file in a present directory is missing.
+
+## Review agents
+
+A finder or verifier agent never runs a command that writes to a bucket. Every
+`gcloud storage cp` or `gsutil cp` names a local destination, and the agent
+lists the bucket afterwards to confirm nothing new appeared.
+
+The raw bucket rule in "What failure looks like here" applies to agents as
+much as to code. A hook for this is tracked in
+https://github.com/asarelcastellanos/claude-workbench/issues/26.
+
 ## Findings
 
 - Every finding names a file and line and gives a concrete failure scenario:
