@@ -4,7 +4,7 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
-## 0.3.0 - unreleased
+## 0.3.0 - 2026-11-12
 
 Every collected day is graded, and every new day is graded without anyone
 running anything. The raw bucket now moves old files to cheaper storage.
@@ -61,15 +61,27 @@ running anything. The raw bucket now moves old files to cheaper storage.
   be a fault. The report lists the exempt lines separately as
   `silent_event_lines`, and a silent line that is not exempt still fails the
   check.
+  Reports of days with no silent shuttle line have no `silent_event_lines`
+  field, and a missing field means none.
 
 ### Checked
 
+- The 05:00 Pacific runs on 2026-11-10, 2026-11-11 and 2026-11-12 each started
+  from the scheduler, exited with code 0 and published 117 site files, with no
+  manual step.
 - The backfill ran on a Spot VM in us-west1 on 2026-11-09 and graded 82 days,
-  2026-08-18 to 2026-11-07, at about 1 minute 45 seconds each. 56 passed every
-  check, 26 had failed checks, and none errored. The notes on those failed
-  checks are on #16.
-- The 05:00 run on 2026-11-10 finished with exit code 0 and published 117 site
-  files in 39 seconds.
+  2026-08-18 to 2026-11-07, at about 1 minute 45 seconds each. After the
+  timetable and shuttle fixes, 25 days were graded again on 2026-11-12, Pacific
+  time: 2026-09-10, 2026-10-14 and 2026-11-07, then the 22 days on which only
+  lines 9 and 22 were silent. All 85 reports, 2026-08-18 to 2026-11-10, now
+  exist. 81 pass every check. The 4 that fail are 2026-08-21 (the 16-hour dead
+  socket the collector now detects), 2026-09-04 and 2026-09-22 (one STOPPED_AT
+  record on a trip's final stop each), and 2026-11-07 (join rate 99.80%, cause
+  not established, carried to 0.4.0). The notes are on #16.
+- The cold storage rule moved raw files older than 30 days to Coldline on
+  2026-11-11, and files from 2026-10-14 on stayed Standard. At list prices the
+  raw bucket costs about $1.00 a month, against about $2.15 if everything had
+  stayed Standard.
 
 ### Removed
 
