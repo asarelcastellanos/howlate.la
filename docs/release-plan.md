@@ -249,16 +249,26 @@ and reads real data.
 Decisions in this version: the web stack, the chart library, and how data
 reaches the site.
 
-- Choose the stack, scaffold `web/`, and set up a Cloudflare Pages preview
-  deploy for every PR. (Medium)
-- Build the design system: type, color tokens for light and dark, Metro line
-  bullets and colors, spacing, and a layout grid for phone and desktop. (Low)
+Decided: SvelteKit with `adapter-static`, Tailwind CSS v4 with shadcn-svelte for
+components, and Observable Plot for charts. Data reaches the site through
+Cloudflare R2. The daily job copies each published run there, and the browser
+fetches the JSON at runtime, so a new day of data needs no rebuild.
+`gs://howlate-derived` never serves the site, because Cloud Storage egress
+costs $0.12/GB.
+
+- Scaffold `web/` with SvelteKit, Tailwind, and shadcn-svelte, write the stack
+  decision in `web/README.md`, and set up a Cloudflare Pages preview deploy for
+  every PR. (Medium)
+- Build the design system: type, color tokens for light and dark as Tailwind
+  `@theme` variables that the charts also read, Metro line bullets and colors,
+  spacing, and a layout grid for phone and desktop. (Low)
 - Write a JSON Schema for every file `aggregate` produces, generate TypeScript
   types from it, and add a CI test that fails when pipeline output stops
   matching. (Medium)
-- Trigger a Pages rebuild after the daily `aggregate` run. (Medium)
-- Build the chart pieces: heatmap, line chart, and distribution strip, each
-  checked at 375 px wide and in dark mode. (Medium)
+- Copy each run to R2 after the daily `aggregate` run, with `current.json`
+  written last, so the site reads the new day without a rebuild. (Medium)
+- Build the chart pieces with Observable Plot: heatmap, line chart, and
+  distribution strip, each checked at 375 px wide and in dark mode. (Medium)
 
 ### Tests
 
