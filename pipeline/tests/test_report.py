@@ -4,6 +4,7 @@ Mostly a guard on the library: report.py is where the pipeline pulls single
 rows out of DuckDB, which is the first thing a DuckDB upgrade broke.
 """
 
+import ast
 import json
 from pathlib import Path
 
@@ -82,6 +83,97 @@ def test_silent_lines_come_out_in_the_same_order_every_time():
     assert report.silent_lines(con) == [
         ("LACMTA", "2", 2), ("LACMTA", "33", 1), ("LACMTA", "4", 1), ("LACMTA_Rail", "801", 1),
     ]  # fmt: skip
+
+
+def arrivals_of(*rows: tuple[str, str]):
+    """A bare arrivals table holding only what the silent-line checks read."""
+    con = duckdb.connect()
+    values = ", ".join(f"('LACMTA', '{line}', '{source}')" for line, source in rows)
+    con.execute(f"CREATE TABLE arrivals AS SELECT * FROM (VALUES {values}) t(agency, line, source)")
+    return con
+
+
+def silent_check(con, stats):
+    return next(c for c in report.checks(con, stats) if c["name"] == "silent_lines")
+
+
+@pytest.mark.parametrize("line", ["9", "22"])
+def test_a_silent_event_only_line_passes_the_check_and_is_listed_apart(con, line):
+    shuttles = arrivals_of((line, "none"), (line, "none"), ("720", "stopped_at"))
+    check = silent_check(shuttles, report.summarise(con))
+    assert (check["value"], check["ok"]) == (0, True)
+    assert report.silent_lines(shuttles) == []
+    assert report.silent_event_lines(shuttles) == [("LACMTA", line, 2)]
+
+
+def test_a_silent_line_that_is_not_event_only_still_fails_the_check(con):
+    # Line 9 beside it stays out of the count, so the failure is line 33's alone.
+    mixed = arrivals_of(("9", "none"), ("33", "none"), ("720", "stopped_at"))
+    check = silent_check(mixed, report.summarise(con))
+    assert (check["value"], check["ok"]) == (1, False)
+    assert report.silent_lines(mixed) == [("LACMTA", "33", 1)]
+    assert report.silent_event_lines(mixed) == [("LACMTA", "9", 1)]
+
+
+def test_a_scheduled_line_697_that_nothing_was_seen_on_fails_the_check(con):
+    # Line 697 reported on all 6 days it was scheduled, so silence there is an
+    # outage. It is a stadium shuttle but is not exempt.
+    outage = arrivals_of(("697", "none"), ("697", "none"), ("720", "stopped_at"))
+    check = silent_check(outage, report.summarise(con))
+    assert (check["value"], check["ok"]) == (1, False)
+    assert report.silent_lines(outage) == [("LACMTA", "697", 2)]
+    assert report.silent_event_lines(outage) == []
+
+
+@pytest.mark.parametrize("line", ["9", "22"])
+def test_an_event_only_line_that_was_seen_is_not_listed_as_silent(line):
+    seen = arrivals_of((line, "approach"), (line, "none"), ("720", "stopped_at"))
+    assert report.silent_lines(seen) == []
+    assert report.silent_event_lines(seen) == []
+
+
+def test_the_saved_report_lists_silent_event_lines_apart_from_silent_lines(tmp_path):
+    # The fixture's one line, renamed to a shuttle and never seen.
+    con = run_day(tmp_path)
+    con.execute(
+        "UPDATE arrivals SET line = '9', source = 'none', actual_time = NULL, delay_seconds = NULL"
+    )
+    saved = report.document(con, SERVICE_DATE)
+    assert saved["silent_event_lines"] == [{"agency": "LACMTA", "line": "9", "scheduled_stops": 8}]
+    assert saved["silent_lines"] == []
+    silent = next(check for check in saved["checks"] if check["name"] == "silent_lines")
+    assert silent["ok"] is True
+
+
+def test_the_printed_report_labels_silent_event_lines_as_informational(tmp_path, capsys):
+    con = run_day(tmp_path)
+    con.execute(
+        "UPDATE arrivals SET line = '9', source = 'none', actual_time = NULL, delay_seconds = NULL"
+    )
+    report.show(con, SERVICE_DATE)
+    out = capsys.readouterr().out
+    assert "info LACMTA 9: event-only line, 8 scheduled stops, nothing observed, not checked" in out
+
+
+def test_the_exempt_lines_are_event_only_lines_in_the_collector():
+    # The packages install separately and neither may import the other, so the
+    # collector's file is parsed as text rather than imported.
+    here = Path(__file__).resolve()
+    root = here.parents[2] if len(here.parents) > 2 else None
+    if root is None or not (root / "collector").is_dir():
+        # The container job mounts only pipeline/tests, at /tests. The checkout
+        # job has the whole repo and runs this.
+        pytest.skip("collector source is not beside the tests, as in the container job")
+    # No exists() guard: if routes.py moves, this raises and fails the test.
+    routes = root / "collector/src/howlate_collector/routes.py"
+    assigned = [
+        node.value
+        for node in ast.parse(routes.read_text()).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "EVENT_ONLY" for t in node.targets)
+    ]
+    assert len(assigned) == 1, "EVENT_ONLY is no longer one top-level assignment in routes.py"
+    assert report.EVENT_ONLY <= frozenset(ast.literal_eval(assigned[0]))
 
 
 def test_a_save_killed_mid_write_leaves_no_report(tmp_path, monkeypatch):

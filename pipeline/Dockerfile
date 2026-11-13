@@ -27,7 +27,10 @@ RUN pip install --no-index --no-build-isolation /src/pipeline && rm -rf /src
 
 # Runs as an unprivileged user in a directory it owns. On Cloud Run /work is
 # memory, and it holds the raw cache (three UTC partitions, about 3 GB), the
-# unpacked timetables (about 0.3 GB, more when an older copy is tried), DuckDB's
+# unpacked timetables (about 0.3 GB, more when an older copy is tried, and a bus
+# copy fetched during a service day is also unpacked, to count its trips, at
+# about 0.3 GB each: a bus copy's needed files unpack to 312 MB, of which
+# stop_times.txt is 307 MB, and a day contains at most a few copies), DuckDB's
 # working memory (by default 80% of the limit, which does not count the files),
 # and DuckDB's spill directory (.tmp under the working directory). A job's
 # memory limit, and DuckDB's own, have to be set with all of them in mind.

@@ -34,6 +34,34 @@ running anything. The raw bucket now moves old files to cheaper storage.
   applied on 2026-11-10, after the backfill, so grading does not pay retrieval
   fees on those days.
 
+### Fixed
+
+- Each day is now graded against the timetable copy that matches the trips the
+  vehicles reported. The collector keeps a copy only when its content changes,
+  so many days have no copy of their own. Of the 64 rail copies in the archive,
+  63 were fetched between 04:10 and 05:30 local, after the day began, and one,
+  from 2026-08-18, was fetched at 21:28 on the evening of 2026-08-17. Over the
+  82 days from 2026-08-18 to 2026-11-07, the copy in force at midnight was dated
+  one calendar day earlier on 60 days, two days earlier on 11, and three days
+  earlier on 11. On 2026-09-10 that copy matched 1,002 of the 1,413 distinct
+  rail trip_ids the vehicles reported (70.9%), and the copy fetched at 05:28
+  that morning matches all 1,413. On 2026-10-14 it matched 26 of 1,348 (1.9%),
+  and the copy fetched at 05:24 matches 1,322 (98.1%). The 26 it misses are in
+  its trips.txt, under services that do not run that day. The figures were read
+  from each day's full raw files. A copy fetched during the day replaces the one
+  in force at midnight only when it matches more than 0.5 percentage points more
+  of the reported trips, so a day that already graded correctly keeps its copy.
+  A same-day copy that cannot be read is skipped and logged. The log shows the
+  match rate of both.
+- Lines 9 and 22 no longer fail the silent-lines check. The timetable schedules
+  them on 24 days and the vehicle feed never reported a stop on either. Of those
+  24 days, 23 now pass. 2026-08-21 still fails, because lines 128 and 202 were
+  also silent that day. Lines 694 to 697 stay under the check. Line 697 was
+  scheduled on 6 days and reported on every one of them, so a silent 697 would
+  be a fault. The report lists the exempt lines separately as
+  `silent_event_lines`, and a silent line that is not exempt still fails the
+  check.
+
 ### Checked
 
 - The backfill ran on a Spot VM in us-west1 on 2026-11-09 and graded 82 days,
