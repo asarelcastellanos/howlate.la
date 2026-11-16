@@ -4,6 +4,53 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## Unreleased
+
+The daily join-rate check no longer fails on days when Metro's rail vehicles
+report trips that the timetable schedules for a later date. Those trips stay
+ungraded and the report says how many there are.
+
+### Fixed
+
+- The join-rate check failed on days when rail vehicles reported trip_ids that
+  are in `trips.txt` under a service whose `start_date` is after that day.
+  `active_services` correctly skips those services, so the trips never reach the
+  scheduled table and every observation on them counted as unmatched. Read from
+  each day's full raw files and timetable copies:
+  - 2026-11-14: 5,370 observations on 338 trips, all route 801, under six
+    services starting between 15 and 22 November. The raw join rate was 99.02%.
+  - 2026-11-13: 3,882 observations on 244 trips, all route 801, under three
+    services. The raw join rate was 99.39%.
+  - 2026-11-07: 1,083 observations on 214 trips, all route 803, under six
+    services. The raw join rate was 99.80%. This is the failure 0.3.0 listed as
+    "cause not established".
+  - 2026-11-12 and 2026-10-31: every reported trip matched, and nothing changes.
+- On 2026-11-14 the timetable copy in force at midnight and the copy fetched
+  that day both matched 998 of the 1,336 reported rail trips, so the copy in
+  force stayed. Only the later copy lists 142 of the 338 future trips, so the
+  explanation reads every copy that was compared, not only the chosen one.
+
+### Changed
+
+- The check formerly named `join_rate` is now `matched_rate`. It counts an
+  observation as matched when it joins to a scheduled stop or its trip is listed
+  under a service that is not running that day, in any copy compared. Its range,
+  99.9 to 100.0, is the same. An observation on a trip that no copy lists, or on a
+  stop the timetable lacks for a trip that does run that day, still fails it.
+  Reports saved before this change hold a check named `join_rate`.
+- A new check, `explained_pct`, fails when more than 5% of a day's observations
+  are explained. It exists so that a calendar or service-selection bug that
+  marked most of a day's services inactive cannot pass `matched_rate` as
+  explained. The measured shares are 0.98% on 2026-11-14 (5,370 of 550,650),
+  0.61% on 2026-11-13 (3,882 of 636,571) and 0.20% on 2026-11-07 (1,083 of
+  534,060), and 0 on 2026-11-12 and 2026-10-31.
+- `stats.join_rate` in the report is unchanged, so it still counts every
+  observation that failed to join. The report adds `stats.explained`,
+  `stats.explained_trips`, `stats.matched_rate`, `explained_unmatched` (per feed)
+  and `notes`. The printed report gets a line with the explained counts.
+- Explained trips are not graded. They have no scheduled stops, so they add no
+  rows to `arrivals` or `trips`, and rail coverage on those days stays lower.
+
 ## 0.3.0 - 2026-11-12
 
 Every collected day is graded, and every new day is graded without anyone

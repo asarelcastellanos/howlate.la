@@ -21,7 +21,28 @@ from howlate_pipeline import __version__
 # Measured on 2026-08-18 across all 120 lines. Ranges, not points, because real
 # days differ: weekends run less service and holidays run almost none.
 EXPECTED = {
-    "join_rate": (99.9, 100.0, "observations matching a scheduled stop"),
+    # Counts an observation on a trip the timetable lists under a service that is
+    # not running as matched, so only a trip in no timetable can fail it. The raw
+    # join_rate stays in the stats. On 2026-11-14, 5,370 of the day's rail
+    # observations (338 trips, all route 801) were on trips listed under six
+    # services that start later, and 2026-11-07 had 214 on route 803. Every
+    # trip the vehicles reported on 2026-10-31 and 2026-11-12 matched.
+    "matched_rate": (
+        99.9,
+        100.0,
+        "observations matching a scheduled stop, or a trip listed under a service not running",
+    ),
+    # The cap on matched_rate's exemption. If a calendar or service-selection bug
+    # marked most of a day's services inactive, nearly every observation would
+    # count as explained and matched_rate would pass. Measured: 5,370 of 550,650
+    # observations on 2026-11-14 (0.98%), 3,882 of 636,571 on 2026-11-13 (0.61%),
+    # 1,083 of 534,060 on 2026-11-07 (0.20%), and 0 on every other day checked.
+    # 5% leaves headroom and still fails a day where most of the network is hidden.
+    "explained_pct": (
+        0.0,
+        5.0,
+        "observations on trips listed under a service not running",
+    ),
     "stop_id_match": (99.9, 100.0, "reported stop_id agreeing with the timetable"),
     "coverage": (55.0, 90.0, "scheduled stops with a timed arrival"),
     "stopped_pct": (35.0, 75.0, "of those, timed from a STOPPED_AT record"),
@@ -113,8 +134,20 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     """).fetchone()
     stats |= dict(zip(["observations", "joined", "stop_match", "ambiguous"], obs, strict=True))
 
+    explained = explained_unmatched(con)
+    stats["explained"] = sum(observations for _, observations, _ in explained)
+    stats["explained_trips"] = sum(trips for _, _, trips in explained)
+
     stats["join_rate"] = (
         100 * stats["joined"] / stats["observations"] if stats["observations"] else 0
+    )
+    stats["matched_rate"] = (
+        100 * (stats["joined"] + stats["explained"]) / stats["observations"]
+        if stats["observations"]
+        else 0
+    )
+    stats["explained_pct"] = (
+        100 * stats["explained"] / stats["observations"] if stats["observations"] else 0
     )
     stats["stop_id_match"] = 100 * stats["stop_match"] / stats["joined"] if stats["joined"] else 0
     stats["coverage"] = (
@@ -145,6 +178,39 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     stats["trips_seen"] = 100 * trips_seen / trips_total if trips_total else 0
     stats["early_pct"] = 100 * stats["early"] / stats["with_delay"] if stats["with_delay"] else 0
     return stats
+
+
+EXPLAINED_NOTE = (
+    "These trips are in a timetable copy under a service that is not running on this date, "
+    "such as one that starts later, so they have no scheduled stops to grade against "
+    "and stay ungraded."
+)
+
+
+def explained_unmatched(con: duckdb.DuckDBPyConnection) -> list[tuple]:
+    """Observations with no scheduled stop whose trip a timetable copy does list.
+
+    Per feed: observations, and distinct trips. The trip is in trips.txt under
+    a service that is not running today, so it has no row in `scheduled` and
+    the observation cannot join. A trip in no copy read is not counted here,
+    and neither is a stop the timetable lacks on a trip that does run today.
+    """
+    return con.sql("""
+        SELECT o.agency, count(*) AS observations, count(DISTINCT o.trip_id) AS trips
+        FROM observed o
+        JOIN (
+            -- A trip any copy lists under a running service is a real join
+            -- failure, so it is left out however another copy lists it.
+            SELECT agency, trip_id FROM listed_trips
+            GROUP BY agency, trip_id HAVING NOT bool_or(service_active)
+        ) l ON l.agency = o.agency AND l.trip_id = o.trip_id
+        GROUP BY o.agency ORDER BY o.agency
+    """).fetchall()
+
+
+def notes(stats: dict) -> list[str]:
+    """One plain sentence for each thing on this day that explains a number."""
+    return [EXPLAINED_NOTE] if stats["explained"] else []
 
 
 def by_agency(con: duckdb.DuckDBPyConnection) -> list[tuple]:
@@ -230,6 +296,18 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             f"  {agency:<12} {lines:>4} lines  {stops:>8,} scheduled  "
             f"{measured:>8,} measured ({pct(measured, stops):.1f}%)"
         )
+
+    if s["explained"]:
+        print()
+        print(
+            "  explained: "
+            + ", ".join(
+                f"{agency} {observations:,} observations on {trips:,} trips"
+                for agency, observations, trips in explained_unmatched(con)
+            )
+        )
+        for note in notes(s):
+            print(f"  {note}")
 
     print()
     ok = True
@@ -341,6 +419,11 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
             {"agency": agency, "line": line, "scheduled_stops": stops}
             for agency, line, stops in silent_event_lines(con)
         ],
+        "explained_unmatched": [
+            {"agency": agency, "observations": observations, "trips": trips}
+            for agency, observations, trips in explained_unmatched(con)
+        ],
+        "notes": notes(s),
         "checks": found,
         "ok": all(check["ok"] for check in found),
     }

@@ -143,6 +143,16 @@ STOPPED_AT rows only. The comparison below has the current figures.
 | p75 / p95 / p99 | +4.3 / +11.7 / +20.6 min |
 | Absurd values (>60 min) | 0.00% |
 
+The daily report checks the join rate as `matched_rate`. Rail vehicles
+sometimes report trips that Metro's timetable lists under a service starting on
+a later date. Those trips have no scheduled stops, so they stay ungraded and
+lower the raw `stats.join_rate`, which was 99.02% on 2026-11-14 with 5,370
+observations on 338 trips. `matched_rate` counts them as matched and reports
+their number as `stats.explained`. A trip that no timetable copy lists still
+fails it. A second check, `explained_pct`, caps the explained share at 5% of
+observations (0.98% on 2026-11-14), so a bug that marked most services inactive
+cannot pass as explained.
+
 The six bus lines that never appeared were exactly the six in `EVENT_ONLY` in
 `collector/src/howlate_collector/routes.py`. Nothing else was missing.
 

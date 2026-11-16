@@ -173,10 +173,39 @@ def observed_trip_ids(con: duckdb.DuckDBPyConnection) -> dict[str, set[str]]:
     return found
 
 
-def load_schedule(
-    con: duckdb.DuckDBPyConnection, directories: dict[str, Path], service_date: str
+def list_trips(
+    con: duckdb.DuckDBPyConnection, agency: str, directory: Path, service_date: str
 ) -> None:
-    """Every stop every running trip was scheduled to make, from both feeds."""
+    """Record every trip_id one timetable copy lists, and whether its service runs today.
+
+    Reads trips.txt only, never stop_times.txt, so a feed that lists thousands of
+    future trips costs one small scan.
+    """
+    services = sorted(gtfs.active_services(directory, service_date))
+    con.execute(
+        """
+        INSERT INTO listed_trips
+        SELECT ?, trip_id, bool_or(list_contains(?::VARCHAR[], service_id))
+        FROM read_csv(?, all_varchar = true) GROUP BY trip_id
+    """,
+        [agency, services, str(directory / "trips.txt")],
+    )
+
+
+def load_schedule(
+    con: duckdb.DuckDBPyConnection,
+    directories: dict[str, Path],
+    service_date: str,
+    also_read: dict[str, list[Path]] | None = None,
+) -> None:
+    """Every stop every running trip was scheduled to make, from both feeds.
+
+    Also records every trip_id each timetable lists, under any service, in
+    `listed_trips`, for the chosen copy and for the other copies in `also_read`.
+    A trip under a service that is not running today gets no scheduled stops, so
+    without that record an observation on it is indistinguishable from one on a
+    trip no timetable has ever heard of. Only the chosen copy is graded against.
+    """
     base = gtfs.day_base(service_date)
 
     con.execute(
@@ -185,12 +214,19 @@ def load_schedule(
         "stop_sequence INTEGER, scheduled_arrival BIGINT, scheduled_departure BIGINT, "
         "is_origin BOOLEAN, is_terminus BOOLEAN)"
     )
+    con.execute(
+        "CREATE OR REPLACE TABLE listed_trips "
+        "(agency VARCHAR, trip_id VARCHAR, service_active BOOLEAN)"
+    )
 
     for agency, directory in directories.items():
         services = sorted(gtfs.active_services(directory, service_date))
         con.execute(
             "CREATE OR REPLACE TEMP TABLE active AS SELECT unnest(?) AS service_id", [services]
         )
+
+        for copy in dict.fromkeys([directory, *(also_read or {}).get(agency, [])]):
+            list_trips(con, agency, copy, service_date)
 
         # GTFS times run past 24:00:00 for trips that cross midnight, so they are
         # read as an offset from the day's base instant and never as a clock.

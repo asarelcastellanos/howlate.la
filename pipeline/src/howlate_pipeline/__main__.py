@@ -150,10 +150,11 @@ def grade_day(
     # reported trip_ids it holds. Before any download, so a day with no raw files
     # costs no timetable.
     print(f"timetables for {service_date}:")
+    read: dict[str, list[Path]] = {}
     directories = timetables or gtfs.prepare(
-        bucket(), service_date, cache / "gtfs", arrivals.observed_trip_ids(con)
+        bucket(), service_date, cache / "gtfs", arrivals.observed_trip_ids(con), read
     )
-    arrivals.load_schedule(con, directories, service_date)
+    arrivals.load_schedule(con, directories, service_date, read)
     arrivals.match(con, service_date)
     arrivals.trips(con)
 

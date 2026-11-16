@@ -271,3 +271,18 @@ def test_a_trip_whose_first_report_has_no_id_names_no_vehicle(tmp_path):
     ).fetchall()[0]
     assert first_seen == at(local(18, 7, 45))
     assert vehicle is None
+
+
+def test_every_trip_in_trips_txt_is_listed_with_whether_its_service_runs(tmp_path):
+    con = arrivals.connect()
+    timetable = build_timetable(tmp_path / "gtfs_bus", later_service=True)
+    arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE)
+    listed = con.sql(
+        "SELECT agency, trip_id, service_active FROM listed_trips ORDER BY trip_id"
+    ).fetchall()
+    assert listed == [
+        ("LACMTA", "T1", True), ("LACMTA", "T2", True), ("LACMTA", "T3", True),
+        ("LACMTA", "T9", False),
+    ]  # fmt: skip
+    # Listing a trip never schedules it.
+    assert con.sql("SELECT count(*) FROM scheduled WHERE trip_id = 'T9'").fetchone() == (0,)
