@@ -165,13 +165,19 @@ jobs:
 
       - run: npm ci
 
+      # A schema change without regenerated types leaves a diff here.
+      - name: Types match the pipeline schemas
+        run: |
+          npm run types
+          git diff --exit-code -- src/lib/data/types.ts
+
       - name: Type check
         run: npm run check
 
       - name: Build
         run: npm run build
 
-      - name: Contrast test
+      - name: Tests
         run: npm test
 
   # One stable name for branch protection to require, whatever the jobs above
