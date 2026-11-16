@@ -124,28 +124,32 @@ def write_csv(path: Path, header: list[str], rows: list[list]) -> None:
         writer.writerows(rows)
 
 
-def build_timetable(directory: Path, *, services: bool = True) -> Path:
+def build_timetable(directory: Path, *, services: bool = True, later_service: bool = False) -> Path:
     """A bus timetable holding T1, T2 and T3.
 
     With services=False the calendar lists nothing running on the service day,
-    which is what a copy fetched the morning after looks like.
+    which is what a copy fetched the morning after looks like. With
+    later_service=True, trip T9 is listed under a service that starts on 1
+    September, as Metro's rail timetable lists trips for dates not yet reached.
+    T9 has no stop_times, so it can never become a scheduled stop.
     """
     directory.mkdir(parents=True, exist_ok=True)
     days = ["1"] * 7 if services else ["0"] * 7
-    write_csv(
-        directory / "calendar.txt",
-        ["service_id", *_DOW, "start_date", "end_date"],
-        [["WK", *days, "20260101", "20261231"]],
-    )
+    calendar = [["WK", *days, "20260101", "20261231"]]
+    trips = [
+        ["720-13201", "WK", "T1", "0"],
+        ["720-13201", "WK", "T2", "0"],
+        ["720-13201", "WK", "T3", "1"],
+    ]
+    if later_service:
+        calendar.append(["LATER", *["1"] * 7, "20260901", "20261231"])
+        trips.append(["720-13201", "LATER", "T9", "0"])
+    write_csv(directory / "calendar.txt", ["service_id", *_DOW, "start_date", "end_date"], calendar)
     write_csv(directory / "calendar_dates.txt", ["service_id", "date", "exception_type"], [])
     write_csv(
         directory / "trips.txt",
         ["route_id", "service_id", "trip_id", "direction_id"],
-        [
-            ["720-13201", "WK", "T1", "0"],
-            ["720-13201", "WK", "T2", "0"],
-            ["720-13201", "WK", "T3", "1"],
-        ],
+        trips,
     )
     write_csv(
         directory / "stop_times.txt",
@@ -191,10 +195,10 @@ def record(
     }
 
 
-def build_raw(directory: Path) -> Path:
+def build_raw(directory: Path, reports: list[tuple] = REPORTS) -> Path:
     """The archive layout: one file per UTC hour, under dt= and hh= partitions."""
     by_file: dict[Path, list[dict]] = {}
-    for trip, start, seq, stop, status, moment, vehicle in REPORTS:
+    for trip, start, seq, stop, status, moment, vehicle in reports:
         moment_utc = moment.astimezone(UTC)
         folder = (
             directory / "vehicle_positions" / f"dt={moment_utc:%Y-%m-%d}" / f"hh={moment_utc:%H}"
@@ -210,19 +214,31 @@ def build_raw(directory: Path) -> Path:
     return directory
 
 
-def run_day(root: Path):
+def run_day(
+    root: Path,
+    *,
+    extra_reports: list[tuple] = (),
+    later_service: bool = False,
+    other_copy_lists_later: bool = False,
+):
     """Build the fixture day under `root` and run the real steps on it.
 
-    Returns the DuckDB connection holding the arrivals and trips tables.
+    `extra_reports` are added to REPORTS, and `later_service` adds trip T9 to
+    the timetable, see build_timetable. With `other_copy_lists_later`, T9 is
+    instead only in a second copy that grading does not use. Returns the DuckDB
+    connection holding the arrivals and trips tables.
     """
     from howlate_pipeline import arrivals
 
-    raw = build_raw(root / "raw")
-    timetable = build_timetable(root / "gtfs_bus")
+    raw = build_raw(root / "raw", [*REPORTS, *extra_reports])
+    timetable = build_timetable(root / "gtfs_bus", later_service=later_service)
     con = arrivals.connect()
     files = arrivals.local_files(raw, SERVICE_DATE)
     arrivals.load_observations(con, files, SERVICE_DATE)
-    arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE)
+    other = {}
+    if other_copy_lists_later:
+        other = {"LACMTA": [build_timetable(root / "gtfs_bus_other", later_service=True)]}
+    arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE, other)
     arrivals.match(con, SERVICE_DATE)
     arrivals.trips(con)
     return con
