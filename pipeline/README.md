@@ -95,6 +95,35 @@ about half of all scheduled stops can be observed and a cell resting on three
 sightings must not look like one resting on three hundred. Largest line file is
 **19 KB gzipped**.
 
+## The data contract
+
+The site reads the files `aggregate` writes and nothing else. Each kind of file
+has a JSON Schema (draft 2020-12) in `pipeline/schemas/`:
+
+```
+index.schema.json     site/index.json
+status.schema.json    site/status.json
+line.schema.json      site/lines/<line>.json
+current.schema.json   site/current.json, the pointer to the latest run
+```
+
+The `description` on each field says what it means, in plain words, for the
+people building the site. Every object sets `additionalProperties: false` and
+lists every key as required. A number or string is `null` only where the code
+can emit null, which today is a stop's `lat` and `lon`.
+
+`pipeline/tests/test_contract.py` builds the site from the hand-made fixture day
+and checks that every file validates. It renames each key in turn, and adds an
+unknown key to each object, and checks that validation fails. It also fails when
+`aggregate` writes a kind of file with no schema, or a schema has no file. A
+change to an output field needs its schema in the same PR.
+
+The schemas are not part of the runtime. The image copies `pipeline/src` only,
+and `jsonschema` is in the `test` extra, not in `requirements.lock`. The test
+skips only when it is not in a checkout, as in the container job, which mounts
+`pipeline/tests` alone. TypeScript types for the site come from these schemas in
+a later change.
+
 ## Measured
 
 The whole network, both feeds, service day 2026-08-18. Not a sample and not an

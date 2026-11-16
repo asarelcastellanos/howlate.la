@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://howlate.la/schemas/current.schema.json",
+  "title": "Current run pointer",
+  "description": "site/current.json. The one file that moves when a run is published. A reader fetches it first, then reads every other file from the run it names, so it never sees a mix of two runs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run", "prefix", "files", "previous"],
+  "properties": {
+    "run": {"type": "string", "pattern": "^\\d{8}T\\d{6}Z(-[0-9a-f]{6})?$", "description": "The run's name, which is its UTC start time followed by a random suffix. Names sort by age."},
+    "prefix": {"type": "string", "pattern": "^site/runs/[^/]+/$", "description": "Where the run's files are, relative to the bucket root and ending in a slash. Append index.json, status.json or lines/<line>.json."},
+    "files": {"type": "integer", "minimum": 1, "description": "How many files the run holds."},
+    "previous": {"type": "array", "maxItems": 2, "items": {"type": "string", "pattern": "^\\d{8}T\\d{6}Z(-[0-9a-f]{6})?$"}, "description": "The runs that were current before this one, newest first. They stay in the bucket so a reader that fetched an older pointer can finish."}
+  }
+}

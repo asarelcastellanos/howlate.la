@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://howlate.la/schemas/index.schema.json",
+  "title": "Line index",
+  "description": "index.json. One entry per line with headline numbers, so the homepage and line search need no other file. Lines with no measured arrival are left out.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["first_day", "last_day", "days", "lines"],
+  "properties": {
+    "first_day": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "The earliest service day in the data, as YYYY-MM-DD."},
+    "last_day": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "The latest service day in the data, as YYYY-MM-DD."},
+    "days": {"type": "integer", "minimum": 1, "description": "How many service days have data."},
+    "lines": {"type": "array", "items": {"$ref": "#/$defs/entry"}, "description": "Every line, with bus lines before rail lines, and shorter line numbers before longer ones."}
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "agency", "label", "via", "mode", "n", "sched", "med", "p90", "pct5", "to"],
+      "properties": {
+        "line": {"type": "string", "minLength": 1, "description": "The line id, as in Metro's timetable. It names the line's file, lines/<line>.json."},
+        "agency": {"enum": ["LACMTA", "LACMTA_Rail"], "description": "Which Metro feed the line is in. LACMTA is bus and LACMTA_Rail is rail. The same line id could appear in both."},
+        "label": {"type": "string", "description": "The name riders use. The route number for a bus, such as 720, and the line name for rail, such as Metro A Line."},
+        "via": {"type": "string", "description": "The corridor the line runs along, in title case. Empty for rail."},
+        "mode": {"enum": ["bus", "rail"], "description": "Bus or rail."},
+        "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay, over all days."},
+        "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops over all days, measured or not. Divide n by this for coverage."},
+        "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
+        "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
+        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."},
+        "to": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "string"}, "description": "Where each measured direction is signed for, in direction order. An empty string means the timetable names no destination."}
+      }
+    }
+  }
+}
