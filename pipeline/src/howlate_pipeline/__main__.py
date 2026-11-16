@@ -4,6 +4,7 @@
     python -m howlate_pipeline aggregate --from-bucket
     python -m howlate_pipeline backfill --from 2026-08-18 --to 2026-11-07
     python -m howlate_pipeline daily
+    python -m howlate_pipeline publish-r2 [--run RUN]
 
 `arrivals` reads the raw archive and the timetable in force and writes one
 Parquet partition per table, arrivals and trips, then the day's report. It
@@ -21,6 +22,10 @@ backfill over the last few days, then `aggregate` over everything graded.
 `arrivals` with --raw-dir, --gtfs-dir and --no-upload, and `aggregate` with
 --gtfs-dir and --no-upload, touch no Cloud Storage, so both run on local files
 without credentials. `backfill` and `daily` always read the buckets.
+
+`daily` ends by copying the run it published to Cloudflare R2, and `publish-r2`
+does that copy for an existing run on demand; see r2.py. Neither runs `arrivals`
+or `aggregate`, and without R2 settings in the environment `daily` skips the copy.
 """
 
 import argparse
@@ -40,6 +45,7 @@ from howlate_pipeline import (
     backfill,
     gtfs,
     labels,
+    r2,
     report,
 )
 
@@ -253,6 +259,11 @@ def run_daily(args: argparse.Namespace) -> int:
     site, because only days with a report are summarised. A failure while
     uploading the site leaves the last complete one published; see
     aggregate.upload.
+
+    The run the site published is then copied to R2. By then the graded days and
+    the site in Cloud Storage are saved, so a failed copy changes nothing
+    already written. It still fails the run and sends /fail, because the public
+    site reads R2 and would otherwise go stale with nothing to say so.
     """
     # Set in the image, so each run's log shows which code it ran.
     print(f"howlate-pipeline at commit {os.environ.get('HOWLATE_COMMIT', 'unknown')}")
@@ -276,12 +287,38 @@ def run_daily(args: argparse.Namespace) -> int:
             heartbeat(False, f"no finished day to publish: {summary}")
             return code or 1
         build_site(bucket, graded, cache=args.cache, out=args.out / "site")
+        r2_problem = copy_to_r2(bucket)
     except BaseException as error:
         heartbeat(False, f"daily run crashed: {error!r}")
         raise
 
+    if r2_problem:
+        heartbeat(False, f"{r2_problem}; the site is published to Cloud Storage only. {summary}")
+        return code or 1
     heartbeat(code == 0, summary)
     return code
+
+
+def copy_to_r2(bucket: Bucket) -> str | None:
+    """Copy the published run to R2. Returns what went wrong, or None.
+
+    Only the error's code and the call are kept, because botocore's messages
+    hold the endpoint URL and the heartbeat is sent to a third party.
+    """
+    try:
+        r2.copy_if_configured(bucket())
+    except Exception as error:
+        problem = f"R2 copy failed: {r2.describe(error)}"
+        print(f"  {problem}")
+        return problem
+    return None
+
+
+def run_publish_r2(args: argparse.Namespace) -> int:
+    """Copy one run from the derived bucket to R2. Reads Cloud Storage only."""
+    if not r2.copy_if_configured(Bucket()(), args.site_run):
+        sys.exit("nothing copied: set R2_ENDPOINT, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY")
+    return 0
 
 
 def run_aggregate(args: argparse.Namespace) -> int:
@@ -398,6 +435,18 @@ def main() -> None:
     )
     daily.add_argument("--out", type=Path, default=Path("out"), help="where working files go")
     daily.set_defaults(run=run_daily)
+
+    publish = jobs.add_parser(
+        "publish-r2",
+        help="copy a published run from the derived bucket to R2",
+    )
+    publish.add_argument(
+        "--run",
+        dest="site_run",
+        metavar="RUN",
+        help=f"the run to copy. Defaults to the run named by {aggregate.POINTER}.",
+    )
+    publish.set_defaults(run=run_publish_r2)
 
     many = jobs.add_parser(
         "backfill", parents=[shared], help="grade every day in a range not already done"

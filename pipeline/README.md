@@ -124,6 +124,40 @@ skips only when it is not in a checkout, as in the container job, which mounts
 `pipeline/tests` alone. TypeScript types for the site come from these schemas in
 a later change.
 
+## Copying the site to R2
+
+The public site reads its JSON from Cloudflare R2, which charges nothing for
+egress. After `daily` publishes a run to `gs://howlate-derived`, it copies that
+run to the R2 bucket `howlate`. It uploads every file under `site/runs/<run>/`,
+then writes `site/current.json` last, and only if the derived bucket still names
+that run. A copy that fails partway leaves R2 on the previous complete run. A
+successful copy deletes R2 runs the pointer does not list. A failed copy leaves
+the graded days and the Cloud Storage site saved, but `daily` exits non-zero and
+pings failure.
+
+With none of these settings in the environment, the copy is skipped, as in local
+runs and tests. With only some, it fails and names the missing ones.
+
+```
+R2_ENDPOINT            https://<account>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID       an R2 API token's key id, with write access to the bucket
+R2_SECRET_ACCESS_KEY   its secret
+R2_BUCKET              optional, defaults to howlate
+```
+
+`deploy/daily.sh` sets these on the Cloud Run job. To fill a bucket by hand, copy
+a run, by default the one the derived pointer names.
+
+```
+python -m howlate_pipeline publish-r2 [--run 20261115T130000Z-a1b2c3]
+```
+
+The files are public and read-only, so `deploy/r2-cors.json` lets any origin GET
+and HEAD them. Paste it in the dashboard under the bucket's Settings, CORS
+Policy. Wrangler takes the same rules in its own shape:
+`npx wrangler r2 bucket cors set howlate --file pipeline/deploy/r2-cors.wrangler.json`.
+At 20 MB a day, about 0.6 GB a month leaves Google Cloud, cents at $0.12/GB.
+
 ## Measured
 
 The whole network, both feeds, service day 2026-08-18. Not a sample and not an

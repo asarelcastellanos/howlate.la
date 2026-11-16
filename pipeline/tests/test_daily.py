@@ -9,8 +9,9 @@ import argparse
 
 import pytest
 import test_write
+from botocore.exceptions import ClientError
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, labels
+from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, labels, r2
 from howlate_pipeline import __main__ as cli
 
 
@@ -47,13 +48,33 @@ class Run:
         site=None,
         fetched=1,
         real=(),
+        r2_error=None,
     ):
-        # `real` names what is left unfaked: "grade" or "build".
+        # `real` names what is left unfaked: "grade" or "build". The R2 copy is
+        # replaced by a recorder, raising `r2_error` when one is given; with
+        # `real` holding "r2" it runs for real, with no R2 settings.
         self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
+        self.copied, self.summaries = [], []
+        for name in r2.REQUIRED:
+            monkeypatch.delenv(name, raising=False)
         done = {f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in done}
         monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
         monkeypatch.setattr(cli, "Bucket", lambda: lambda: FakeClient(done))
-        monkeypatch.setattr(cli, "heartbeat", lambda ok, summary: self.pings.append(ok))
+
+        def ping(ok, summary):
+            self.pings.append(ok)
+            self.summaries.append(summary)
+
+        monkeypatch.setattr(cli, "heartbeat", ping)
+
+        def copy(client, run=None):
+            self.copied.append(run)
+            if r2_error:
+                raise r2_error
+            return True
+
+        if "r2" not in real:
+            monkeypatch.setattr(cli.r2, "copy_if_configured", copy)
 
         def fetch(client, dest):
             self.fetched.append(dest)
@@ -111,6 +132,49 @@ def test_a_clean_run_summarises_every_graded_day_and_publishes(monkeypatch, tmp_
     run()
     assert run.fetched == run.built
     assert run.published == [True]
+
+
+def test_the_site_is_copied_to_r2_after_it_is_published_and_the_run_reports_ok(
+    monkeypatch, tmp_path
+):
+    run = Run(monkeypatch, tmp_path)
+    assert run() == 0
+    assert run.copied == [None]  # the run the published pointer names
+    assert run.pings == [True]
+
+
+def test_a_failed_r2_copy_exits_nonzero_and_pings_failure_without_the_endpoint(
+    monkeypatch, tmp_path
+):
+    # The graded days and the GCS site are saved by then. A stale public site
+    # must still not go unnoticed.
+    error = ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
+    run = Run(monkeypatch, tmp_path, r2_error=error)
+    assert run() == 1
+    assert len(run.built) == 1
+    assert run.pings == [False]
+    assert "R2 copy failed: AccessDenied during PutObject" in run.summaries[0]
+
+
+def test_a_failed_r2_copy_does_not_hide_a_failed_check(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path, codes={"20261107": 2}, r2_error=RuntimeError("no"))
+    assert run() == 2
+    assert run.pings == [False]
+    assert "R2 copy failed" in run.summaries[0]
+
+
+def test_a_site_that_fails_to_publish_is_not_copied_to_r2(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path, site=RuntimeError("bucket unreachable"))
+    with pytest.raises(RuntimeError):
+        run()
+    assert run.copied == []
+
+
+def test_with_no_r2_settings_the_daily_run_is_as_it_was(monkeypatch, tmp_path, capsys):
+    run = Run(monkeypatch, tmp_path, real=("r2",))
+    assert run() == 0
+    assert run.pings == [True]
+    assert "R2 copy skipped" in capsys.readouterr().out
 
 
 def test_a_day_that_errors_still_rebuilds_the_site_and_raises_the_alarm(monkeypatch, tmp_path):
