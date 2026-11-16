@@ -171,6 +171,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Contrast test
+        run: npm test
+
   # One stable name for branch protection to require, whatever the jobs above
   # become later.
   all-checks:

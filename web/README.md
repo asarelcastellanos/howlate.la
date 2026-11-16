@@ -1,18 +1,22 @@
 # Web
 
 The public site for howlate.la. It builds to static files. Right now it is one
-placeholder page. The design system, the chart pieces, and the data loading come
-in later 0.4.0 issues.
+placeholder page and a design specimen. The chart pieces and the data loading
+come in later 0.4.0 issues.
+
+The design system exists. `DESIGN.md` documents it, and the `/design` page
+shows every piece in the theme your device is using.
 
 ## Run it
 
-Use Node 22 or newer. Run every command in `web/`.
+Use Node 22.18 or newer. Run every command in `web/`.
 
 ```bash
 npm ci               # install the exact versions in package-lock.json
 npm run dev          # dev server with hot reload
 npm run check        # svelte-check, the type check CI runs
 npm run lint         # prettier and eslint
+npm test             # contrast test, checks every color pair against WCAG AA
 npm run build        # writes the static site to build/
 npm run preview      # serves build/ on http://localhost:4173
 ```
@@ -35,12 +39,12 @@ first preview whether Cloudflare Pages needs a different fallback name.
 ### Tailwind CSS v4 with shadcn-svelte
 
 Tailwind v4 loads through its Vite plugin in `vite.config.ts`, with no
-`tailwind.config.js`. The design system issue (#22) puts the color tokens in a
-Tailwind `@theme` block that the charts read as CSS variables.
+`tailwind.config.js`. The color tokens are in `src/routes/layout.css`, exposed
+through a Tailwind `@theme` block. The charts read them as CSS variables.
 
 shadcn-svelte is initialised, with `components.json`, the `cn` helper in
 `src/lib/utils.ts`, and its base CSS variables in `src/routes/layout.css`. No
-component is installed. Issue #22 adds one only when a page needs it.
+component is installed. Add one only when a page needs it.
 
 HeroUI is a React library, so it does not fit a Svelte site.
 
@@ -91,7 +95,7 @@ The first build should pass once this PR is in.
 
 ## Not done yet
 
-- Data loading, the design system, and charts.
+- Data loading and charts.
 
 ## Reasons still to record
 
