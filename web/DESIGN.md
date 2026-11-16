@@ -37,14 +37,36 @@ are 16 px on a phone. For 12 columns, use `grid md:grid-cols-12` inside a
 
 `Masthead` (takes a `dateline` prop, because a build date would go stale),
 `Kicker`, `Headline` (with an optional `dek`), `Figure` (children, `caption` and
-`source` snippets), `Rule`, `LineBullet` and `LineChip`.
+`source` snippets), `Rule`, `LineBullet`, `LineChip` and `StatusStrip` (the
+network totals from `status.json`).
 
 ## Charts
 
-Charts read CSS variables, so the theme applies without a rebuild. In Observable
-Plot, pass `"var(--chart-ink)"` as a color. Use `--chart-grid` for grid lines,
-`--chart-axis` for tick labels, `--chart-annotation` for direct labels, and
-`var(--line-a)` for a line's marks. Do not copy hex values into chart code.
+Charts are Observable Plot, in `src/lib/charts/`. They read CSS variables, so
+the theme applies without a rebuild or any JavaScript. Every color is a string
+from `charts/theme.ts`, such as `var(--chart-ink)`. The delay ramp goes to Plot
+as a threshold color scale whose range is `var(--delay-1)` to `var(--delay-5)`.
+`--chart-grid` draws grid lines, `--chart-axis` draws tick labels,
+`--chart-annotation` draws direct labels, and `--paper` draws the halo behind
+a label. Never copy a hex value into chart code. `tests/charts.test.ts` fails
+on one.
+
+There is no legend box. Labels sit on the data, and the heatmap has a short key
+built from the same ramp. A chart states its finding in its `aria-label`, and
+the heatmap also has a hidden table.
+
+To add a chart:
+
+1. Write a pure function in `charts/<name>.ts` that takes data and
+   `{ width, document }` and returns the Plot element. Pass `document` to
+   `Plot.plot`, so a test can draw it without a browser.
+2. Wrap it in a small `.svelte` file with `ChartFigure`, which sizes the chart to
+   its container, shows the empty message, and adds the caption and source.
+3. Load its data with `Remote`, which shows the loading and error states.
+4. Add a test that draws it from `charts/fixtures.ts` and checks its marks.
+
+Hours or cells with fewer than `MIN_ARRIVALS` arrivals are left blank or drawn
+hollow, and are never labelled as the worst. The reason is in `theme.ts`.
 
 ## Lines
 

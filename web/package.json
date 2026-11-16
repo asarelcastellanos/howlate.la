@@ -15,7 +15,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "prettier --check . && eslint .",
 		"types": "node scripts/generate-types.mjs",
-		"test": "node --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts"
+		"test": "node --import ./tests/register.mjs --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts tests/charts.test.ts"
 	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
@@ -32,6 +32,7 @@
 		"eslint-plugin-svelte": "3.24.1",
 		"globals": "17.14.0",
 		"json-schema-to-typescript": "16.0.0",
+		"linkedom": "0.18.15",
 		"prettier": "3.10.1",
 		"prettier-plugin-svelte": "4.1.1",
 		"shadcn-svelte": "1.8.1",
@@ -46,5 +47,8 @@
 	},
 	"engines": {
 		"node": ">=22.18"
+	},
+	"dependencies": {
+		"@observablehq/plot": "0.6.19"
 	}
 }

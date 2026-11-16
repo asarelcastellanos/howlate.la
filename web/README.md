@@ -1,8 +1,8 @@
 # Web
 
 The public site for howlate.la. It builds to static files. Right now it is one
-placeholder page and a design specimen. The chart pieces come in later 0.4.0
-issues.
+placeholder page with a live status strip, and a design specimen with the
+chart components.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
 shows every piece in the theme your device is using.
@@ -17,7 +17,7 @@ npm run dev          # dev server with hot reload
 npm run check        # svelte-check, the type check CI runs
 npm run lint         # prettier and eslint
 npm run types        # regenerate src/lib/data/types.ts from pipeline/schemas
-npm test             # contrast, generated types and data loader tests
+npm test             # contrast, generated types, data loader and chart tests
 npm run build        # writes the static site to build/
 npm run preview      # serves build/ on http://localhost:4173
 ```
@@ -53,8 +53,13 @@ HeroUI is a React library, so it does not fit a Svelte site.
 
 The release plan names Observable Plot for the heatmap, the line chart, and the
 distribution strip. The charts must read the same CSS variables as the rest of
-the site, so they follow the light and dark themes. Plot is not installed yet,
-because issue #25 adds it with the first chart.
+the site, so they follow the light and dark themes. Plot is installed, and
+`src/lib/charts/` holds the three charts. `DESIGN.md` says how they read the
+tokens. Only the specimen route imports Plot, so the home page does not load it.
+
+Tests draw the charts without a browser. Plot takes a `document` option, and
+`linkedom` supplies one. `tests/register.mjs` compiles `.svelte` files for
+`node:test`, so a test can render a component to a string.
 
 Recharts is a React library, so it does not fit a Svelte site.
 
@@ -82,9 +87,12 @@ test covers the shape.
 
 `PUBLIC_DATA_BASE` sets `base` and is inlined at build time. SvelteKit 3 reads
 it from `src/env.ts` and exposes it through `$app/env/public`, which
-`src/lib/data/base.ts` re-exports as `DATA_BASE`. It defaults to `/data`, which
-serves `web/static/data/`. Put a copy of the bucket's `site/` folder there for
-local work.
+`src/lib/data/base.ts` re-exports as `DATA_BASE`. It defaults to
+`DEFAULT_DATA_BASE` in `src/env.ts`, the public development address of the R2
+bucket, so local development and every preview read the real published data.
+The bucket allows any origin through CORS. Replace the default with the custom
+data domain when there is one. For offline work, set `PUBLIC_DATA_BASE=/data`
+and put a copy of the bucket's `site/` folder in `web/static/data/`.
 
 ## Versions
 
@@ -118,7 +126,10 @@ The first build should pass once this PR is in.
 
 ## Not done yet
 
-- Charts, and showing the loader's error state.
+- A line page that uses the charts. The charts draw on `/design` only.
+- Screenshot comparison. The release plan asks for it, but a baseline image
+  from macOS differs from one made on the Linux CI runner, so no baseline is
+  committed and CI has no screenshot gate.
 
 ## Reasons still to record
 
