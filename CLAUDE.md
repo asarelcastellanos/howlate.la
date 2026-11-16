@@ -11,7 +11,8 @@ collector/   Runs on the VM. Holds Metro's two live feeds open and writes
              loses data for good.
 pipeline/    Runs elsewhere. Reads the raw archive, writes graded arrivals and
              the site's JSON to gs://howlate-derived.
-web/         The public site. Not built yet.
+web/         The public site. Stack decisions and commands are in
+             web/README.md.
 docs/        The release plan.
 ```
 
