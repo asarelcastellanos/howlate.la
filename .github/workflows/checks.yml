@@ -146,10 +146,35 @@ jobs:
           "pip install --quiet --user pytest==9.2.0 &&
           python -m pytest /tests -q -p no:cacheprovider --basetemp /work/pytest"
 
+  # The site installs from its own lockfile, so `npm ci` fails when
+  # package.json and package-lock.json disagree. Node 22 is the oldest version
+  # package.json allows.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
   # One stable name for branch protection to require, whatever the jobs above
   # become later.
   all-checks:
-    needs: [lint, collector, pipeline, container]
+    needs: [lint, collector, pipeline, container, web]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -158,4 +183,5 @@ jobs:
           test "${{ needs.lint.result }}" = success &&
           test "${{ needs.collector.result }}" = success &&
           test "${{ needs.pipeline.result }}" = success &&
-          test "${{ needs.container.result }}" = success
+          test "${{ needs.container.result }}" = success &&
+          test "${{ needs.web.result }}" = success
