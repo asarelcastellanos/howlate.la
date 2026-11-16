@@ -1,8 +1,8 @@
 # Web
 
 The public site for howlate.la. It builds to static files. Right now it is one
-placeholder page and a design specimen. The chart pieces and the data loading
-come in later 0.4.0 issues.
+placeholder page and a design specimen. The chart pieces come in later 0.4.0
+issues.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
 shows every piece in the theme your device is using.
@@ -16,7 +16,8 @@ npm ci               # install the exact versions in package-lock.json
 npm run dev          # dev server with hot reload
 npm run check        # svelte-check, the type check CI runs
 npm run lint         # prettier and eslint
-npm test             # contrast test, checks every color pair against WCAG AA
+npm run types        # regenerate src/lib/data/types.ts from pipeline/schemas
+npm test             # contrast, generated types and data loader tests
 npm run build        # writes the static site to build/
 npm run preview      # serves build/ on http://localhost:4173
 ```
@@ -63,6 +64,28 @@ The daily job copies each published run to R2, and `current.json` is written
 last. The browser fetches the JSON at runtime. `gs://howlate-derived` never
 serves the site, because Cloud Storage egress costs $0.12/GB.
 
+## Data
+
+The types in `src/lib/data/types.ts` are generated from the JSON Schemas in
+`pipeline/schemas/`, never written by hand. Run `npm run types` after a schema
+change and commit the result in the same PR. CI runs it and fails on any diff,
+and `tests/types.test.ts` fails when the committed file is stale. A renamed
+field then breaks `npm run check` where the site reads it.
+
+`src/lib/data/load.ts` loads the files. `openRun(base)` fetches
+`<base>/site/current.json`, then returns readers for `index.json`,
+`status.json` and `lines/<line>.json` from the run's `prefix`, so a page never
+mixes two runs. A failed request, a status other than 200, or a body that is not
+JSON comes back as `{ ok: false, error }`, never a throw, so a page can show an
+error state. The loader does not validate the body. The pipeline's contract
+test covers the shape.
+
+`PUBLIC_DATA_BASE` sets `base` and is inlined at build time. SvelteKit 3 reads
+it from `src/env.ts` and exposes it through `$app/env/public`, which
+`src/lib/data/base.ts` re-exports as `DATA_BASE`. It defaults to `/data`, which
+serves `web/static/data/`. Put a copy of the bucket's `site/` folder there for
+local work.
+
 ## Versions
 
 Every version in `package.json` is exact, with no `^` or `~`, and
@@ -95,7 +118,7 @@ The first build should pass once this PR is in.
 
 ## Not done yet
 
-- Data loading and charts.
+- Charts, and showing the loader's error state.
 
 ## Reasons still to record
 

@@ -14,7 +14,8 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "prettier --check . && eslint .",
-		"test": "node --test tests/contrast.test.ts"
+		"types": "node scripts/generate-types.mjs",
+		"test": "node --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts"
 	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
@@ -30,6 +31,7 @@
 		"eslint-config-prettier": "10.1.8",
 		"eslint-plugin-svelte": "3.24.1",
 		"globals": "17.14.0",
+		"json-schema-to-typescript": "16.0.0",
 		"prettier": "3.10.1",
 		"prettier-plugin-svelte": "4.1.1",
 		"shadcn-svelte": "1.8.1",
