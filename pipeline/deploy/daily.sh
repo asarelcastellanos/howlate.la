@@ -9,6 +9,15 @@
 # and stores it in Secret Manager. The URL never appears on a command line, in
 # shell history, or in the repo, and nothing here reads it back.
 #
+# The job also copies each run of the site to Cloudflare R2, which the public
+# site reads. That needs an R2 access key id and secret, stored in two more
+# secrets the same way, and the R2 endpoint, which is not secret and is set on
+# the job as a plain variable. The script asks for all three once, and Enter at
+# the endpoint prompt skips R2. A rerun reads the endpoint back from the job, so
+# it asks again for nothing. Without R2 settings the job deploys as it did
+# before and `daily` skips the copy. `R2_ENDPOINT=https://... bash daily.sh`
+# sets the endpoint without a prompt.
+#
 # The job grades the last seven days, and two processes grading the same day at
 # once can interleave their uploads, so the daily job and a backfill must never
 # overlap. This script refuses to deploy while the backfill VM is running,
@@ -19,7 +28,9 @@
 #
 # Rerunning it is safe. Creates are skipped when the thing exists, an image
 # already built for this commit is reused, deploys replace the job's settings,
-# and IAM bindings are additive.
+# and IAM bindings are additive. Deploys replace the whole set of variables and
+# secrets, so everything the job needs is listed below, and anything added to the
+# job by hand is dropped.
 
 set -euo pipefail
 
@@ -27,6 +38,9 @@ PROJECT=howlate-la
 REGION=us-west1
 JOB=howlate-daily
 SECRET=howlate-daily-heartbeat
+R2_ID_SECRET=howlate-r2-access-key-id
+R2_KEY_SECRET=howlate-r2-secret-access-key
+R2_BUCKET_NAME=howlate
 IMAGE="$REGION-docker.pkg.dev/$PROJECT/howlate/pipeline"
 PIPELINE="howlate-pipeline@$PROJECT.iam.gserviceaccount.com"
 INVOKER="howlate-scheduler@$PROJECT.iam.gserviceaccount.com"
@@ -104,6 +118,95 @@ fi
 gcloud secrets add-iam-policy-binding "$SECRET" --project "$PROJECT" \
   --member "serviceAccount:$PIPELINE" --role roles/secretmanager.secretAccessor >/dev/null
 
+echo "==> R2 settings"
+# Read at the top level, not inside an `if`, so that a failed listing stops the
+# script instead of reading as "no secret" and asking for a key that would
+# replace a working one.
+R2_ID_VERSIONS=$(lookup gcloud secrets versions list "$R2_ID_SECRET" --project "$PROJECT" \
+  --filter state=ENABLED --limit 1 --format 'value(name)')
+R2_KEY_VERSIONS=$(lookup gcloud secrets versions list "$R2_KEY_SECRET" --project "$PROJECT" \
+  --filter state=ENABLED --limit 1 --format 'value(name)')
+# The endpoint is read back from the job because the deploy below replaces every
+# variable on it, and a rerun would otherwise drop it. The walk finds the
+# variable wherever gcloud nests the container. A job that does not exist yet,
+# or a failed describe, reads as "no endpoint", which is safe: if the R2 secrets
+# exist, the check further down refuses to deploy without an endpoint.
+R2_ENDPOINT=${R2_ENDPOINT:-}
+if [ -z "$R2_ENDPOINT" ]; then
+  JOB_JSON=$(gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" \
+    --format json 2>/dev/null || true)
+  R2_ENDPOINT=$(printf '%s' "$JOB_JSON" | python3 -c '
+import json, sys
+text = sys.stdin.read()
+
+def find(node):
+    if isinstance(node, dict):
+        if node.get("name") == "R2_ENDPOINT" and "value" in node:
+            yield node["value"]
+        node = list(node.values())
+    if isinstance(node, list):
+        for child in node:
+            yield from find(child)
+
+if text.strip():
+    print(next(find(json.loads(text)), ""))
+')
+fi
+if [ -z "$R2_ENDPOINT" ] && [ -t 0 ]; then
+  read -rp "    R2 endpoint, https://<account>.r2.cloudflarestorage.com (Enter to skip R2): " \
+    R2_ENDPOINT
+fi
+
+# Stores one R2 secret from a hidden prompt, as for the heartbeat URL. printf is
+# a shell builtin, so the value is in no process's arguments.
+store_r2_secret() {
+  local name=$1 label=$2 value
+  if [ ! -t 0 ]; then
+    echo "    $name is empty; run this from a terminal to enter it" >&2
+    exit 1
+  fi
+  if ! gcloud secrets describe "$name" --project "$PROJECT" >/dev/null 2>&1; then
+    gcloud secrets create "$name" --project "$PROJECT" --replication-policy automatic
+  fi
+  read -rsp "    $label (hidden): " value
+  echo
+  if [ -z "$value" ]; then
+    echo "    empty value" >&2
+    exit 1
+  fi
+  printf '%s' "$value" | gcloud secrets versions add "$name" --project "$PROJECT" \
+    --data-file=- >/dev/null
+}
+
+R2=
+if [ -n "$R2_ENDPOINT" ]; then
+  case "$R2_ENDPOINT" in
+    https://*) ;;
+    *) echo "    R2 endpoint must start with https://" >&2; exit 1 ;;
+  esac
+  case "$R2_ENDPOINT" in
+    *,*|*" "*) echo "    R2 endpoint must have no comma or space" >&2; exit 1 ;;
+  esac
+  if [ -z "$R2_ID_VERSIONS" ]; then
+    store_r2_secret "$R2_ID_SECRET" "R2 access key id"
+  fi
+  if [ -z "$R2_KEY_VERSIONS" ]; then
+    store_r2_secret "$R2_KEY_SECRET" "R2 secret access key"
+  fi
+  for name in "$R2_ID_SECRET" "$R2_KEY_SECRET"; do
+    gcloud secrets add-iam-policy-binding "$name" --project "$PROJECT" \
+      --member "serviceAccount:$PIPELINE" --role roles/secretmanager.secretAccessor >/dev/null
+  done
+  R2=1
+elif [ -n "$R2_ID_VERSIONS$R2_KEY_VERSIONS" ]; then
+  # Deploying now would drop the copy and leave the public site stale.
+  echo "    R2 secrets exist but the job has no R2 endpoint; rerun from a terminal" >&2
+  echo "    or with R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com" >&2
+  exit 1
+else
+  echo "    no R2 settings; the job will not copy to R2"
+fi
+
 echo "==> Image repository"
 if ! gcloud artifacts repositories describe howlate --project "$PROJECT" \
     --location "$REGION" >/dev/null 2>&1; then
@@ -148,14 +251,20 @@ echo "==> Cloud Run job $JOB at $DIGEST"
 # --max-retries 0: when a run saves yesterday's report but fails its checks or
 # a later step, a retry would find yesterday done, rebuild the site and ping
 # success, clearing the /fail the first run sent.
+ENV_VARS="HOWLATE_DUCKDB_MEMORY_LIMIT=8GB,HOWLATE_DUCKDB_TEMP_DIRECTORY=/work/.spill"
+SECRETS="HOWLATE_HEARTBEAT_URL=$SECRET:latest"
+if [ -n "$R2" ]; then
+  ENV_VARS="$ENV_VARS,R2_ENDPOINT=$R2_ENDPOINT,R2_BUCKET=$R2_BUCKET_NAME"
+  SECRETS="$SECRETS,R2_ACCESS_KEY_ID=$R2_ID_SECRET:latest,R2_SECRET_ACCESS_KEY=$R2_KEY_SECRET:latest"
+fi
 gcloud run jobs deploy "$JOB" --project "$PROJECT" --region "$REGION" \
   --image "$IMAGE@$DIGEST" \
   --service-account "$PIPELINE" \
   --cpu 4 --memory 16Gi \
   --tasks 1 --max-retries 0 --task-timeout 3h \
   --args daily \
-  --set-env-vars "HOWLATE_DUCKDB_MEMORY_LIMIT=8GB,HOWLATE_DUCKDB_TEMP_DIRECTORY=/work/.spill" \
-  --set-secrets "HOWLATE_HEARTBEAT_URL=$SECRET:latest" \
+  --set-env-vars "$ENV_VARS" \
+  --set-secrets "$SECRETS" \
   --labels "commit=$TAG"
 
 echo "==> Scheduler identity $INVOKER"

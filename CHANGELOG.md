@@ -10,6 +10,22 @@ The daily join-rate check no longer fails on days when Metro's rail vehicles
 report trips that the timetable schedules for a later date. Those trips stay
 ungraded and the report says how many there are.
 
+### Added
+
+- The daily job copies each run of the site to a Cloudflare R2 bucket named
+  `howlate`, so the public site can read its JSON from R2, which charges no
+  egress. It uploads every file of the run, then writes `site/current.json`
+  last, and only when `gs://howlate-derived` still names that run. A run that
+  fails partway leaves R2 pointing at the previous complete run. When the copy
+  fails, the job exits non-zero and sends the failure ping, and the graded days
+  and the Cloud Storage site stay saved. Without `R2_ENDPOINT`,
+  `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, the copy is skipped.
+- `python -m howlate_pipeline publish-r2 [--run RUN]` copies a run on demand. It
+  reads `gs://howlate-derived` and writes only R2.
+- `pipeline/deploy/daily.sh` stores the two R2 secrets and the R2 endpoint on the
+  job, and `pipeline/deploy/r2-cors.json` holds the bucket's CORS rules. The
+  pipeline image gains boto3 and four packages it needs.
+
 ### Fixed
 
 - The join-rate check failed on days when rail vehicles reported trip_ids that

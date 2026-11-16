@@ -1,0 +1,7 @@
+[
+  {
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["GET", "HEAD"],
+    "MaxAgeSeconds": 3600
+  }
+]
