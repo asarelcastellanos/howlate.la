@@ -1,4 +1,9 @@
 <script lang="ts">
+	import LineCharts from '#lib/charts/LineCharts.svelte';
+	import Remote from '#lib/charts/Remote.svelte';
+	import { fixtureProfile, fixtureStops } from '#lib/charts/fixtures.ts';
+	import { DATA_BASE } from '#lib/data/base.ts';
+	import { readLine } from '#lib/data/read.ts';
 	import { pairs, parseTokens } from '#lib/design/contrast.ts';
 	import Figure from '#lib/design/Figure.svelte';
 	import Headline from '#lib/design/Headline.svelte';
@@ -94,6 +99,41 @@
 				{/each}
 			</tbody>
 		</table>
+	</section>
+
+	<Rule />
+	<section class="wide my-8">
+		<Kicker>Charts</Kicker>
+		<p class="caption text-ink-muted mt-1">
+			Built-in sample data. The hot hour at Friday 5 pm is made up, and so is every number here.
+		</p>
+		<LineCharts
+			name="Sample line"
+			to="Example Station 36"
+			profile={fixtureProfile()}
+			stops={fixtureStops()}
+			source="Source: made-up sample data, not Metro's."
+		/>
+	</section>
+
+	<Rule />
+	<section class="wide my-8">
+		<Kicker>Live data</Kicker>
+		<p class="caption text-ink-muted mt-1">
+			The A Line, loaded now from {DATA_BASE}. An unreachable address shows the error state.
+		</p>
+		<Remote load={() => readLine(DATA_BASE, '801')}>
+			{#snippet children(line)}
+				{@const direction = line.directions[0]}
+				<LineCharts
+					name={line.label}
+					to={direction.to}
+					profile={direction.profile}
+					stops={direction.stops}
+					source="Source: Metro's real-time feeds and timetable, graded by HowLate. {line.days} days, through {line.last_day}."
+				/>
+			{/snippet}
+		</Remote>
 	</section>
 
 	<Rule />
