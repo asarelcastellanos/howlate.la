@@ -289,7 +289,7 @@ def build(
             "days": days,
             "scheduled_stops": totals[0],
             "measured_arrivals": totals[1],
-            "coverage_pct": round(100 * totals[1] / totals[0], 1),
+            "coverage": round(100 * totals[1] / totals[0], 1),
             "lines": totals[2],
             "trips": totals[3],
         },
