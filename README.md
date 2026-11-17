@@ -18,11 +18,13 @@ Collection started on 18 August 2026. It has missed one stretch since, 16 hours
 on 21 August, when Metro served a socket that stayed open and sent nothing. It records
 everything Metro runs to a schedule: all 114 bus routes and all six rail lines.
 
-The pipeline that grades each day against the timetable is built and checked
-against two full days. The site is not built yet. Nothing is published.
+The pipeline grades each day against the timetable every morning without anyone
+running it. The site is built and live at [howlate.la](https://howlate.la). You
+can search for a bus or train line and see how late it usually runs, by day and
+hour, and see which lines are the most and least reliable.
 
-The road from here to howlate.la is in the [release plan](docs/release-plan.md),
-and progress is tracked in the
+What is planned next is in the [release plan](docs/release-plan.md), and
+progress is tracked in the
 [milestones](https://github.com/asarelcastellanos/howlate.la/milestones).
 
 ## What it collects
@@ -69,7 +71,7 @@ vehicle was seen there (about half the time), when it did and the difference.
 | **~400** | updates arriving every second at the busy hours |
 | **~25 million** | records written down a day |
 | **~1 GB** | added to the archive a day, squeezed from 15 GB of raw text |
-| **about $2** | a month to run as of November 2026, almost all of it archive storage. It grows about 75 cents a month until old files move to cold storage in 0.3.0 |
+| **about $5** | a month to run, an estimate as of November 2026, almost all of it archive storage |
 
 
 ## What's in this repo
@@ -79,10 +81,10 @@ collector/    Listens to Metro and writes everything down.
               The only part that runs on the always-on machine.
 
 pipeline/     Turns the raw archive into how late each vehicle was,
-              and builds the files the site reads. Runs by hand for now.
+              and builds the files the site reads. Runs every morning.
 
 web/          The public site. Reads what the pipeline produced.
-              Not built yet.
+              Live at howlate.la.
 
 docs/         The release plan.
 ```

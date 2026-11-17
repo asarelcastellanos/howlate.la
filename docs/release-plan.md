@@ -136,7 +136,8 @@ never appear.
 
 - Add pipeline tests on a small hand-built day before changing anything. Cover
   the three-partition service day, origin departures, the approach fallback,
-  and the never-observed last stop. (Medium)
+  and the last stop of a trip, which is timed from its last approach report
+  because vehicles stop reporting before they finish. (Medium)
 - Add `vehicle_id` and `departure_time` (the last `STOPPED_AT`) to each arrival
   row. Bunching, dwell time and early departures all need them. (Medium)
 - Add a trips table with one row per scheduled trip: first seen, last seen,
@@ -362,6 +363,11 @@ Done when every test above passes.
 
 Goal: the site and its data have their own addresses, so nothing depends on a
 pages.dev or r2.dev address.
+
+Still to do after the 0.5.0 merge, because deploys take their code from `main`
+and the live job keeps its old settings. Run `pipeline/deploy/daily.sh` so the
+job's public address becomes `https://data.howlate.la`. Then turn the `r2.dev`
+address off once the new site is confirmed live.
 
 - Serve the site at https://howlate.la, with www.howlate.la redirecting to it
   by a Cloudflare redirect rule. The Pages `_redirects` file does not change.
