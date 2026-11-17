@@ -8,13 +8,14 @@ import argparse
 import io
 import json
 import urllib.error
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 import test_write
 from botocore.exceptions import ClientError
 
+import howlate_pipeline
 from howlate_pipeline import DERIVED_BUCKET, r2
 from howlate_pipeline import __main__ as cli
 
@@ -503,21 +504,20 @@ def test_a_stale_public_site_fails_the_copy(tmp_path):
 
 
 def test_the_copy_judges_the_public_site_by_today_in_los_angeles(tmp_path, monkeypatch):
-    # The default `today` is the Pacific calendar date, not the machine's.
-    derived, web = publish_runs(tmp_path, NEW), Web(last_day="2026-11-07")
-    clock = []
+    # The clock reads 2026-11-10 07:30 UTC, which is 2026-11-09 23:30 Pacific. A
+    # last_day of 2026-11-05 is 4 days behind the Pacific date and 5 behind the
+    # UTC one, so only the Pacific date passes.
+    derived, web = publish_runs(tmp_path, NEW), Web(last_day="2026-11-05")
 
-    class Clock(r2.datetime):
+    class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
-            clock.append(tz)
-            return cls(2026, 11, 9, 23, 30, tzinfo=tz)
+            return cls(2026, 11, 10, 7, 30, tzinfo=UTC).astimezone(tz)
 
-    monkeypatch.setattr(r2, "datetime", Clock)
+    monkeypatch.setattr(howlate_pipeline, "datetime", Clock)
     assert r2.copy_if_configured(
         derived, env=WEB_ENV, s3=FakeS3(), site_dir=local_site(tmp_path), fetch=web
     )
-    assert [str(tz) for tz in clock] == ["America/Los_Angeles"]
 
 
 def test_the_probe_does_not_depend_on_the_local_site_file(tmp_path):

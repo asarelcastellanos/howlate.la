@@ -449,7 +449,9 @@ def upload(
     last complete run, never a mix of old and new files.
     """
     # The time sorts runs by age; the suffix keeps two runs started in the
-    # same second out of each other's files.
+    # same second out of each other's files. It is UTC on purpose and names no
+    # calendar day, so it stays out of pacific_today, and UTC never repeats an
+    # hour when daylight saving ends.
     run = run or f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(3)}"
     prefix = f"site/runs/{run}/"
     bucket = client.bucket(DERIVED_BUCKET)

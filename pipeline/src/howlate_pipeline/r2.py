@@ -24,17 +24,16 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
-from zoneinfo import ZoneInfo
 
 import boto3
 from botocore.config import Config as ClientConfig
 from botocore.exceptions import ClientError
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, ZONE
+from howlate_pipeline import DERIVED_BUCKET, pacific_today
 from howlate_pipeline.aggregate import POINTER
 
 REQUIRED = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
@@ -473,6 +472,6 @@ def copy_if_configured(
     if base is None:
         print("  R2 freshness check skipped: R2_PUBLIC_URL not set")
         return True
-    probe(base, run, today or datetime.now(ZoneInfo(ZONE)).date(), fetch)
+    probe(base, run, today or pacific_today(), fetch)
     print("  R2 freshness check passed")
     return True
