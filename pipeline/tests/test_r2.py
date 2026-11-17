@@ -12,7 +12,7 @@ import pytest
 import test_write
 from botocore.exceptions import ClientError
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, r2
+from howlate_pipeline import DERIVED_BUCKET, r2
 
 POINTER = "site/current.json"
 OLD, NEW = "20261106T130000Z-aaaaaa", "20261107T130000Z-bbbbbb"
@@ -51,7 +51,7 @@ class Derived(test_write.FakeClient):
 def publish_runs(tmp_path, *runs) -> Derived:
     client = Derived()
     for days, run in enumerate(runs, start=1):
-        aggregate.upload(client, test_write.site(tmp_path / run, days=days), run=run)
+        test_write.publish(client, test_write.site(tmp_path / run, days=days), run=run)
     return client
 
 
@@ -181,7 +181,7 @@ def test_a_newer_run_published_during_the_copy_keeps_its_pointer(tmp_path):
 
     def newer_run_lands(puts):
         if puts == 2:
-            aggregate.upload(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
+            test_write.publish(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
 
     s3 = FakeS3(after_put=newer_run_lands)
     assert r2.publish(derived, s3, "howlate") == (4, False)

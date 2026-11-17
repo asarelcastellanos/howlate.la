@@ -371,7 +371,7 @@ def build_site(
         f"{len(catalogue['stops']):,} stops named"
     )
 
-    written = aggregate.build(con, catalogue, out, first, last, days)
+    written, names = aggregate.build(con, catalogue, out, first, last, days)
     biggest = max(written, key=lambda row: row[2])
     total = sum(row[1] for row in written)
 
@@ -381,7 +381,7 @@ def build_site(
         f"{biggest[1] / 1e3:.0f} KB ({biggest[2] / 1e3:.0f} KB gzipped)"
     )
     if upload:
-        count, where = aggregate.upload(bucket(), out)
+        count, where = aggregate.upload(bucket(), out, names)
         print(f"  uploaded {count} files to {where}")
 
     print(f"  in {time.monotonic() - started:.0f}s")

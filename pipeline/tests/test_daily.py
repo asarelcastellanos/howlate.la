@@ -278,7 +278,7 @@ def test_a_crash_before_the_upload_leaves_the_published_run_alone(
     # Issue #98: the site must keep serving the last complete run, and the
     # alarm must still go off, wherever the job dies before it uploads.
     client = Derived([])
-    aggregate.upload(client, test_write.site(tmp_path / "seed"), run="20261106T130000Z")
+    test_write.publish(client, test_write.site(tmp_path / "seed"), run="20261106T130000Z")
 
     def site_objects():
         return {key: data for key, data in client.store.items() if key[1].startswith("site/")}

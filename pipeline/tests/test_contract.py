@@ -70,8 +70,8 @@ def nameless_site(tmp_path_factory) -> Path:
 def pointer(site) -> dict:
     """site/current.json as `upload` publishes it. Two runs, so previous is not empty."""
     client = test_write.FakeClient([])
-    aggregate.upload(client, site, run="20261115T130434Z-e4dc48")
-    aggregate.upload(client, site, run=RUN)
+    test_write.publish(client, site, run="20261115T130434Z-e4dc48")
+    test_write.publish(client, site, run=RUN)
     return json.loads(client.store[(DERIVED_BUCKET, aggregate.POINTER)])
 
 
