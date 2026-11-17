@@ -10,7 +10,7 @@ export const NAV: readonly NavItem[] = [
 	{ label: 'Find a line', path: '/', hash: '#search', ready: true },
 	{ label: 'Ranking', path: '/ranking', ready: true },
 	{ label: 'Methods', path: '/methods', ready: true },
-	{ label: 'Behind the scenes', path: '/behind-the-scenes', ready: false }
+	{ label: 'Behind the scenes', path: '/behind-the-scenes', ready: true }
 ];
 
 /**

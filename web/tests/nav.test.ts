@@ -62,6 +62,19 @@ test('the default list renders the ready entries in order, with the base in each
 	);
 });
 
+test('Behind the scenes is drawn and marked on its own page', () => {
+	const { anchors } = links('/behind-the-scenes');
+	assert.deepEqual(
+		anchors.map((a) => a.text),
+		['Find a line', 'Ranking', 'Methods', 'Behind the scenes']
+	);
+	const current = anchors.filter((a) => a.current === 'page');
+	assert.deepEqual(
+		current.map((a) => [a.text, a.href]),
+		[['Behind the scenes', '/la/behind-the-scenes']]
+	);
+});
+
 test('an entry that is not ready is not rendered', () => {
 	const items: NavItem[] = [
 		{ label: 'One', path: '/', hash: '#search', ready: true },
