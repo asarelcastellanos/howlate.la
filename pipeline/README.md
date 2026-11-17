@@ -116,9 +116,10 @@ and the pages read `med` from them.
 `last_day` and `days` from the run, `recent`, and `checks`. `recent` has one
 entry for each of the newest 14 service days that have a saved report, newest
 first, with `ok`, the names of the checks that `failed`, `coverage_pct`,
-`explained_trips`, `explained_pct` and `observations`. `checks` is the newest
-day's checks with the report's own labels, either a range (`value`, `low`,
-`high`) or a count (`value`, `expected`). The file is public, so
+`explained_trips`, `explained_pct` and `observations`. `checks` is the checks of the
+report for `last_day`, with the report's own labels, either a range (`value`,
+`low`, `high`) or a count (`value`, `expected`). It is empty when `last_day` has
+no readable report, even if `recent` lists older days. The file is public, so
 `pipeline/src/howlate_pipeline/health.py` copies only those fields and no other
 part of a report. A report saved before 0.4.0 names the join check `join_rate`
 and has no explained fields, which read as 0. A day with no report is missing
@@ -240,7 +241,9 @@ reads `20261107 failed its checks`, and one that only failed its cleanup reads
 `20261107 cleanup failed`. Each line is cut to 160 characters. When the days do
 not all fit, the ping ends with `and N more days`. URLs, `gs://` and `s3://`
 paths and email addresses in an error are replaced with placeholders, in any
-letter case. A bare hostname is not.
+letter case. A URL is replaced up to the next space, so a quote or bracket inside
+it does not end the match and leave the rest of a signed URL in the ping. A bare
+hostname is not replaced.
 
 Known behaviour. When a newer run appears during the copy, R2's pointer is left
 alone and the job still pings success. R2 keeps serving the previous complete
@@ -248,9 +251,12 @@ run, the check is skipped because that is no fault of this copy, and the next
 daily copy moves the pointer.
 
 `deploy/daily.sh` sets these on the Cloud Run job. It accepts only
-`https://<hostname>` for `R2_ENDPOINT` and `R2_PUBLIC_URL`, with no port, path,
-trailing slash, query, fragment or user, so a value that `daily` would reject
-never deploys. To fill a bucket by hand, copy
+`https://` and a dotted domain name for `R2_ENDPOINT` and `R2_PUBLIC_URL`, such
+as `https://data.howlate.la`. The name has at least two labels, each made of
+letters, digits and inner hyphens, with single dots between them and none at the
+end. The last label may not be all digits, which rules out an IPv4 address, and
+`localhost` has no dot. There is no port, path, trailing slash, query, fragment
+or user, so a value that `daily` would reject never deploys. To fill a bucket by hand, copy
 a run, by default the one the derived pointer names.
 
 ```

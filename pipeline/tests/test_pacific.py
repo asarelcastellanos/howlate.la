@@ -58,3 +58,24 @@ def test_with_no_clock_given_the_helper_reads_the_utc_clock(monkeypatch):
 
     monkeypatch.setattr(howlate_pipeline, "datetime", Clock)
     assert pacific_today() == date(2026, 11, 16)
+
+
+@pytest.fixture
+def pacific_day_is_nov_9(monkeypatch):
+    """The real yesterday() on 2026-11-09 Pacific, so the latest complete day is 2026-11-07."""
+    monkeypatch.setattr(cli, "pacific_today", lambda now=None: date(2026, 11, 9))
+    assert cli.yesterday() == "20261107"
+
+
+@pytest.mark.parametrize("text", ["2026-11-07", "20261107", "2026-11-06"])
+def test_the_latest_complete_day_and_earlier_days_are_accepted(pacific_day_is_nov_9, text):
+    # The latest day is the one the default grades, so it must be allowed.
+    assert cli.require_complete(text) == text.replace("-", "")
+
+
+@pytest.mark.parametrize("text", ["2026-11-08", "20261109", "2026-11-10"])
+def test_a_day_after_the_latest_complete_one_is_refused_with_that_day_named(
+    pacific_day_is_nov_9, text
+):
+    with pytest.raises(SystemExit, match="is not complete yet; the latest is 2026-11-07"):
+        cli.require_complete(text)

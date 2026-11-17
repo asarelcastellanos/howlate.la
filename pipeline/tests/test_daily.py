@@ -404,6 +404,26 @@ def test_redaction_covers_uppercase_schemes_and_s3_paths(text):
     assert "://" not in out
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Forbidden('GET https://x.com/a(b)?X-Goog-Signature=SECRET')", "Forbidden('GET <url>"),
+        ("see https://x.com/a]b?sig=SECRET", "see <url>"),
+        ("https://x.com/a'b?sig=SECRET end", "<url> end"),
+        ('https://x.com/a"b?sig=SECRET end', "<url> end"),
+        ("https://x.com/a>b?sig=SECRET end", "<url> end"),
+        ("HTTPS://X.COM/a(b)?sig=SECRET end", "<url> end"),
+        ("Https://x.com/a)b?sig=SECRET end", "<url> end"),
+        ("HTTP://x.com/a]b?sig=SECRET", "<url>"),
+        ("first https://x.com/a(b)?sig=SECRET then gs://bucket/key", "first <url> then <gs-path>"),
+    ],
+)
+def test_a_url_is_redacted_to_the_next_whitespace_whatever_punctuation_it_holds(text, expected):
+    out = cli.redact(text)
+    assert "SECRET" not in out
+    assert out == expected
+
+
 def test_redaction_uses_the_same_placeholders_for_every_case():
     assert cli.redact("HTTPS://Example.com/a") == "<url>"
     assert cli.redact("GS://bucket/key") == "<gs-path>"
@@ -418,6 +438,7 @@ def test_redaction_uses_the_same_placeholders_for_every_case():
         "no raw files found for 20261103",
         "connection to example.com refused",
         "the s3 bucket is gs-like and http is a protocol",
+        "Forbidden('GET denied') [x] (y) > z \"q\"",
         "",
     ],
 )

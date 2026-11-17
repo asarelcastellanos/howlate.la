@@ -17,8 +17,9 @@
 # The script asks for all four once, and Enter at the endpoint prompt skips R2.
 # The public URL prompt has no skip, because R2 without it is refused. A rerun
 # reads both values back from the job, so it asks again for nothing. Both
-# addresses must be exactly https://<hostname>, with no port, path, query,
-# fragment, user, comma or space, the same rule as `is_https_address` in r2.py;
+# addresses must be https:// and a dotted domain name such as data.howlate.la,
+# with no port, path, query, fragment, user, comma or space, and not localhost
+# or an IP address. This is the same rule as `is_https_address` in r2.py;
 # anything else would deploy and then fail every daily run after the copy.
 # `R2_ENDPOINT=https://... R2_PUBLIC_URL=https://... bash daily.sh` sets them
 # without a prompt.
@@ -97,13 +98,18 @@ no_backfill() {
 }
 no_backfill
 
-# True for https://<hostname> and nothing else. The hostname may hold only
-# letters, digits, dots and hyphens. This is r2.is_https_address as one
-# pattern, and a test runs both on the same values. LC_ALL=C keeps the letter
-# ranges to ASCII, which some locales do not.
+# True for https:// and a dotted domain name, and nothing else. The name is two
+# or more labels with single dots between them and no dot at the end. A label
+# is letters, digits and inner hyphens, and starts and ends with a letter or
+# digit. The last label may not be all digits, which rejects 1.2.3.4. A bare
+# name such as localhost has no dot and is refused, because both addresses are
+# public ones. This is r2.is_https_address, and a test runs both on the same
+# values. LC_ALL=C keeps the letter ranges to ASCII, which some locales do not.
 is_https_address() {
   local LC_ALL=C
-  [[ $1 =~ ^https://[A-Za-z0-9.-]+$ ]]
+  local label='[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?'
+  local all_digits_last='\.[0-9]+$'
+  [[ $1 =~ ^https://(${label}\.)+${label}$ ]] && ! [[ $1 =~ $all_digits_last ]]
 }
 
 echo "==> APIs"
@@ -213,8 +219,8 @@ store_r2_secret() {
 R2=
 if [ -n "$R2_ENDPOINT" ]; then
   if ! is_https_address "$R2_ENDPOINT"; then
-    echo "    R2 endpoint must be https://<hostname>, with no port, path, query," >&2
-    echo "    fragment, user, comma or space" >&2
+    echo "    R2 endpoint must be https:// and a dotted domain name, with no port," >&2
+    echo "    path, query, fragment, user, comma or space, and not an IP address" >&2
     exit 1
   fi
   # Refused before any secret is stored: without it the freshness check is off.
@@ -225,8 +231,9 @@ if [ -n "$R2_ENDPOINT" ]; then
     exit 1
   fi
   if ! is_https_address "$R2_PUBLIC_URL"; then
-    echo "    public data URL must be https://<hostname>, with no port, path, trailing" >&2
-    echo "    slash, query, fragment, user, comma or space" >&2
+    echo "    public data URL must be https:// and a dotted domain name, with no port," >&2
+    echo "    path, trailing slash, query, fragment, user, comma or space, and not an IP" >&2
+    echo "    address" >&2
     exit 1
   fi
   if [ -z "$R2_ID_VERSIONS" ]; then

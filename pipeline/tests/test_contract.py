@@ -16,7 +16,7 @@ import test_write
 from fixture_day import SERVICE_DATE, run_day
 from test_health import three_days
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, labels
+from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, health, labels
 
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / "pyproject.toml").is_file():
@@ -135,6 +135,16 @@ def test_health_names_the_same_last_day_as_status_and_lists_the_reports(site):
     status = json.loads((site / "status.json").read_text())
     assert health["last_day"] == status["last_day"] == health["recent"][0]["service_date"]
     assert [day["ok"] for day in health["recent"]] == [True, False, True]
+
+
+def test_health_validates_when_the_report_for_last_day_is_unreadable(tmp_path):
+    """recent starts at an older day and checks is empty, and the schema allows both."""
+    reports = three_days(tmp_path)
+    (reports / "service_date=2026-08-18" / "report.json").write_text("{")
+    document = health.document(reports, "2026-08-18", 3)
+    assert document["checks"] == []
+    assert document["recent"][0]["service_date"] == "2026-08-17"
+    assert not list(validator("health").iter_errors(document))
 
 
 def test_a_site_with_rail_and_two_directions_validates(tmp_path):

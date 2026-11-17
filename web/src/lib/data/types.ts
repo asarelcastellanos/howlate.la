@@ -53,7 +53,7 @@ export interface HealthFile {
 	 */
 	recent: HealthDay[];
 	/**
-	 * The checks the newest day in recent went through, in the order the pipeline runs them, with the pipeline's own plain-words label for each. Empty when recent is empty. Reports from older pipeline versions use older names and labels, so list the checks from this field and do not hard-code them.
+	 * The checks that the report for `last_day` holds, in the order the pipeline runs them, with the pipeline's own plain-words label for each. An empty list when no readable report exists for `last_day`. Reports from older pipeline versions use older names and labels, so list the checks from this field and do not hard-code them.
 	 */
 	checks: (RangeCheck | CountCheck)[];
 }
