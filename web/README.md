@@ -2,8 +2,8 @@
 
 The public site for howlate.la. It builds to static files. Right now it is a
 placeholder home page with a live status strip and line search, a page for each
-line at `/lines/<line>`, a ranking at `/ranking`, a methodology page at `/methods`, and a design
-specimen with the chart components.
+line at `/lines/<line>`, a ranking at `/ranking`, a methodology page at `/methods`, a behind-the-scenes
+page at `/behind-the-scenes`, and a design specimen with the chart components.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
 shows every piece in the theme your device is using.
@@ -208,6 +208,38 @@ checks the order against a plain sort on the real index when `static/data` exist
   covers a throw while the page draws.
 - Table delays show minutes with one decimal, such as "1.3 min late". Seconds
   under two minutes and whole minutes above would not read as sorted.
+
+## Behind the scenes
+
+`/behind-the-scenes` is prerendered. The browser loads `health.json` with
+`readStatusReport` in `src/lib/behind.ts`, which hands the page the loader's
+result as data. A missing file (a 404) or an old shape shows "Status data is not
+published yet", and a failed request shows a separate "could not be loaded"
+message. Neither uses the site's error box. `Remote` still wraps the panel in
+its `<svelte:boundary>`, so a render error shows the error box.
+
+- The panel compares `last_day` with today's date in Los Angeles
+  (`pacificToday` in `src/lib/date.ts`, read in the browser). It turns to a
+  warning when the gap is more than `STALE_AFTER_DAYS` (2). The daily job
+  grades up to two days back, so a gap of 2 is normal. A future date is not a
+  warning.
+- The 14-day strip (`buildStrip`) has one cell per day ending on `last_day`.
+  A day with no report is an empty dashed cell, not a failed one. Each cell
+  has a shape, a color and hidden text.
+- The check list comes from `health.json`, with the pipeline's own labels and
+  values rounded for display. The page hard-codes no check names. A label does
+  not say its unit, so the list shows no units.
+- The diagram (`Architecture.svelte`) is one inline SVG, a single column that
+  scales to a phone, with the same flow as a numbered list under it. It names
+  no bucket, host or account.
+- The cost section gives only the owner's budget, labelled as an estimate. Add
+  the breakdown after billing is reviewed.
+- `tests/built.test.ts` counts the `<title>` in the head only, because the
+  diagram's SVG has its own `<title>`.
+
+To see it with local data, build with `PUBLIC_DATA_BASE=/data` and put the
+files in `static/data/site/<run>/` with a `current.json` that names the run.
+Only `health.json` is needed for this page.
 
 ## Not done yet
 

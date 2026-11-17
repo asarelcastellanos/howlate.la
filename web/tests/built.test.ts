@@ -9,7 +9,13 @@ import { parseHTML } from 'linkedom';
 
 const BUILD = new URL('../build', import.meta.url).pathname;
 const SITE_URL = (await import('../src/lib/config.ts')).SITE_URL;
-const REQUIRED = ['index.html', 'ranking.html', 'methods.html', 'design.html'];
+const REQUIRED = [
+	'index.html',
+	'ranking.html',
+	'methods.html',
+	'behind-the-scenes.html',
+	'design.html'
+];
 
 assert.ok(existsSync(BUILD), 'build/ is missing. Run `npm run build`, which runs this test.');
 
@@ -31,7 +37,8 @@ const pages = files.map((file) => {
 		file,
 		route,
 		document,
-		title: [...document.querySelectorAll('title')].map((el) => el.textContent),
+		// An inline SVG can carry its own <title>, so only the head's counts.
+		title: [...document.querySelectorAll('head > title')].map((el) => el.textContent),
 		description: content('meta[name="description"]'),
 		meta: content
 	};
@@ -95,7 +102,7 @@ test('the current page is marked in the nav, and the home page title is whole', 
 		pages
 			.find((page) => page.file === file)!
 			.document.querySelectorAll('nav[aria-label="Main"] a[aria-current="page"]');
-	for (const file of ['ranking.html', 'methods.html']) {
+	for (const file of ['ranking.html', 'methods.html', 'behind-the-scenes.html']) {
 		const marked = current(file);
 		assert.equal(marked.length, 1, file);
 		assert.ok(marked[0].getAttribute('href')!.endsWith(file.replace('.html', '')), file);

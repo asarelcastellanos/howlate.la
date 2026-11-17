@@ -42,6 +42,12 @@ draws the skip link and `Nav`), `Nav` (the main navigation, from `NAV` in
 `source` snippets), `Rule`, `LineBullet`, `LineChip` and `StatusStrip` (the
 network totals from `status.json`).
 
+The behind-the-scenes page's pieces sit beside its route in
+`src/routes/behind-the-scenes/`. `HealthStrip` draws one cell per day, and a
+cell differs by shape (a check, a cross, a dashed outline) as well as by color.
+`Architecture` draws the diagram with `fill-*` and `stroke-*` token utilities,
+so it follows the theme. Metro's boxes are dashed.
+
 The ranking page's pieces sit beside its route in `src/routes/ranking/`, because
 no other page uses them. Its on-time bar is plain HTML, not Plot. The fill is
 `bg-chart-ink` on a `bg-chart-grid` track, and the number always prints beside
