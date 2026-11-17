@@ -1,8 +1,8 @@
 # Web
 
 The public site for howlate.la. It builds to static files. Right now it is one
-placeholder page with a live status strip, and a design specimen with the
-chart components.
+placeholder page with a live status strip, a methodology page at `/methods`,
+and a design specimen with the chart components.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
 shows every piece in the theme your device is using.
