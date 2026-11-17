@@ -228,6 +228,26 @@ def active_services(directory: Path, service_date: str) -> set[str]:
     return active
 
 
+def later_start_services(directory: Path, service_date: str) -> set[str]:
+    """The service_ids whose calendar.txt start_date is after this date.
+
+    The one cause of an observed trip without a running service that has been
+    measured: 2026-11-07, 11-13 and 11-14 had rail trips listed only under
+    services starting later. An expired service, a wrong weekday and a
+    calendar_dates removal are not later-start. A service with no calendar.txt
+    row, such as one added only by calendar_dates, is not either, and neither is
+    a row whose start_date is not a date, so nothing here is guessed.
+    """
+    later: dict[str, bool] = {}
+    with (directory / "calendar.txt").open(encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            start = (row.get("start_date") or "").strip()
+            is_later = len(start) == 8 and start.isdigit() and start > service_date
+            # Two rows for one service count as later only when both are.
+            later[row["service_id"]] = later.get(row["service_id"], True) and is_later
+    return {service for service, is_later in later.items() if is_later}
+
+
 def line_code(route_id: str) -> str:
     """The line as riders and the realtime feed spell it.
 
