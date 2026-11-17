@@ -4,68 +4,131 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
-## Unreleased
+## 0.4.0 - 2026-11-16
 
-The daily join-rate check no longer fails on days when Metro's rail vehicles
-report trips that the timetable schedules for a later date. Those trips stay
-ungraded and the report says how many there are.
+The first version of the site. `web/` builds a static site that reads the
+pipeline's JSON from Cloudflare R2 and shows real numbers on the home page,
+with a design system and three charts. The pipeline gets a fixed data contract,
+a copy of each run to R2, and a fix for a rail check that failed on trips Metro
+lists under a later start date.
 
 ### Added
 
+- A static site in `web/`, built with SvelteKit, Tailwind v4 and shadcn-svelte.
+  Every branch gets a Cloudflare Pages preview.
+- A newspaper-style design system with Source Serif 4 and Inter, both hosted by
+  the site, 171 kB of fonts in all. Rail line colors come from Metro's own
+  `routes.txt`. Where a color fails 3:1 against the light page, the charts use a
+  darker variant and the bullet keeps Metro's color. Light and dark follow the
+  device. A `/design` page shows every piece.
+- A contrast test of 50 color pairs against WCAG AA. CI runs it.
+- Three charts, drawn with Observable Plot. The heatmap shows median delay by
+  day and hour. The line chart shows the median and the 90th percentile across
+  the week. The strip shows each stop's delay for the weekday rush. A heatmap
+  hour with fewer than 5 arrivals is hatched and an hour with no service is
+  dotted, so a two-arrival hour is never the worst hour.
+- Error, empty and loading states for every chart, with a retry button on a
+  failed load. A home page loads `status.json` from R2 and shows the days of
+  data, the stops graded and the share measured.
+- A typed data loader. A 404, a network failure or bad JSON comes back as an
+  error value the page can show.
+- Four strict JSON Schemas in `pipeline/schemas`, for `index.json`,
+  `status.json`, each line file and `current.json`. A test builds the site from
+  the fixture day and checks every file against them. Renaming a field, adding
+  one or adding a file with no schema fails it. #113 renamed `coverage_pct` and
+  CI failed in that test as intended. The PR was closed unmerged.
+- TypeScript types generated from those schemas by `npm run types`. CI
+  regenerates them and fails when the committed file is stale. A `web` CI job
+  also runs the type check, the build and the tests.
 - The daily job copies each run of the site to a Cloudflare R2 bucket named
-  `howlate`, so the public site can read its JSON from R2, which charges no
-  egress. It uploads every file of the run, then writes `site/current.json`
-  last, and only when `gs://howlate-derived` still names that run. A run that
-  fails partway leaves R2 pointing at the previous complete run. When the copy
-  fails, the job exits non-zero and sends the failure ping, and the graded days
-  and the Cloud Storage site stay saved. Without `R2_ENDPOINT`,
-  `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, the copy is skipped.
+  `howlate`, so the public site reads its JSON from R2, which charges no egress.
+  It uploads every file of the run, then writes `site/current.json` last, and
+  only when `gs://howlate-derived` still names that run, so a run that fails
+  partway leaves R2 on the previous complete run. A failed copy exits non-zero
+  and sends the failure ping, and the graded days stay saved. Without
+  `R2_ENDPOINT`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, it is skipped.
 - `python -m howlate_pipeline publish-r2 [--run RUN]` copies a run on demand. It
   reads `gs://howlate-derived` and writes only R2.
-- `pipeline/deploy/daily.sh` stores the two R2 secrets and the R2 endpoint on the
-  job, and `pipeline/deploy/r2-cors.json` holds the bucket's CORS rules. The
-  pipeline image gains boto3 and four packages it needs.
+- `pipeline/deploy/daily.sh` stores the two R2 secrets and the R2 endpoint on
+  the job, and `pipeline/deploy/r2-cors.json` holds the bucket's CORS rules. The
+  pipeline image gains boto3 and five packages it needs.
 
 ### Fixed
 
-- The join-rate check failed on days when rail vehicles reported trip_ids that
-  are in `trips.txt` under a service whose `start_date` is after that day.
+- The daily check failed on days when rail vehicles reported trips that
+  `trips.txt` lists under a service whose `start_date` is after that day.
   `active_services` correctly skips those services, so the trips never reach the
   scheduled table and every observation on them counted as unmatched. Read from
   each day's full raw files and timetable copies:
-  - 2026-11-14: 5,370 observations on 338 trips, all route 801, under six
-    services starting between 15 and 22 November. The raw join rate was 99.02%.
-  - 2026-11-13: 3,882 observations on 244 trips, all route 801, under three
-    services. The raw join rate was 99.39%.
-  - 2026-11-07: 1,083 observations on 214 trips, all route 803, under six
-    services. The raw join rate was 99.80%. This is the failure 0.3.0 listed as
-    "cause not established".
-  - 2026-11-12 and 2026-10-31: every reported trip matched, and nothing changes.
-- On 2026-11-14 the timetable copy in force at midnight and the copy fetched
-  that day both matched 998 of the 1,336 reported rail trips, so the copy in
-  force stayed. Only the later copy lists 142 of the 338 future trips, so the
-  explanation reads every copy that was compared, not only the chosen one.
+  - 2026-11-14 had 5,370 observations on 338 trips, all route 801, and a raw
+    join rate of 99.02%.
+  - 2026-11-13 had 3,882 observations on 244 trips, all route 801, and 99.39%.
+  - 2026-11-07 had 1,083 observations on 214 trips, all route 803, and 99.80%.
+    This is the failure 0.3.0 listed as "cause not established".
+  - On 2026-11-12 and 2026-10-31 every reported trip matched, and nothing
+    changes.
+- On 2026-11-14 the copy in force at midnight and the copy fetched that day both
+  matched 998 of the 1,336 reported rail trips, so the copy in force stayed.
+  Only the later copy lists 142 of the 338 future trips, so the explanation
+  reads every copy that was compared, not only the chosen one.
 
 ### Changed
 
-- The check formerly named `join_rate` is now `matched_rate`. It counts an
-  observation as matched when it joins to a scheduled stop or its trip is listed
-  under a service that is not running that day, in any copy compared. Its range,
-  99.9 to 100.0, is the same. An observation on a trip that no copy lists, or on a
-  stop the timetable lacks for a trip that does run that day, still fails it.
-  Reports saved before this change hold a check named `join_rate`.
+- The check named `join_rate` is now `matched_rate`. It counts an observation as
+  matched when it joins to a scheduled stop or its trip is listed under a
+  service that is not running that day, in any copy compared. Its range, 99.9 to
+  100.0, is the same. An observation on a trip that no copy lists, or on a stop
+  the timetable lacks for a trip that does run that day, still fails it.
 - A new check, `explained_pct`, fails when more than 5% of a day's observations
-  are explained. It exists so that a calendar or service-selection bug that
-  marked most of a day's services inactive cannot pass `matched_rate` as
-  explained. The measured shares are 0.98% on 2026-11-14 (5,370 of 550,650),
-  0.61% on 2026-11-13 (3,882 of 636,571) and 0.20% on 2026-11-07 (1,083 of
-  534,060), and 0 on 2026-11-12 and 2026-10-31.
-- `stats.join_rate` in the report is unchanged, so it still counts every
-  observation that failed to join. The report adds `stats.explained`,
-  `stats.explained_trips`, `stats.matched_rate`, `explained_unmatched` (per feed)
-  and `notes`. The printed report gets a line with the explained counts.
+  are explained, so a calendar bug that marked most services inactive cannot
+  pass as explained. The measured shares are 0.98% on 2026-11-14, 0.61% on
+  2026-11-13 and 0.20% on 2026-11-07, and 0 on 2026-11-12 and 2026-10-31.
+- `stats.join_rate` in the report is unchanged. The report adds
+  `stats.explained`, `stats.explained_trips`, `stats.matched_rate`,
+  `explained_unmatched` (per feed) and `notes`.
 - Explained trips are not graded. They have no scheduled stops, so they add no
   rows to `arrivals` or `trips`, and rail coverage on those days stays lower.
+
+### Checked
+
+- The pipeline's 192 tests, ruff lint and ruff format pass. The web type check,
+  lint, build and 25 tests pass, and `npm run types` leaves no diff.
+- Every CI job passed on #107, #108, #110, #111, #112, #114 and #115, and the
+  Cloudflare Pages preview deployed on #110 to #115.
+- The charts and home page were checked at 375 and 1280 px in light and dark,
+  against the real data on R2 and an unreachable data address. Nothing scrolled
+  sideways and the console had no errors.
+- The public R2 development address serves `site/current.json` for run
+  `20261116T130339Z-ef4438`, which names 117 files, the same run Cloud Storage
+  names.
+- Regrading 2026-11-14, 2026-11-13, 2026-11-07, 2026-11-12 and 2026-10-31
+  locally, with no upload, exits 0 and passes every check on all five.
+
+### Not done yet
+
+- The live daily job does not copy to R2 until this release is merged and
+  `pipeline/deploy/daily.sh` is run. The R2 secrets are in Secret Manager, and
+  the run on R2 now was copied by hand with `publish-r2`.
+- Reports already in `gs://howlate-derived` keep the old `join_rate` check name
+  until those days are graded again.
+
+### Known gaps
+
+- No screenshot gate compares pixels. The baselines differ between macOS and the
+  Linux runner, so the screenshots are saved for review.
+- The data address is Cloudflare's `r2.dev` development address, which is
+  rate-limited. A custom domain for the data is not set up.
+- Naming the failed day in the failure ping (#100) and skipping site files left
+  over on a reused disk (#86) moved to 0.5.0.
+- A "Workers Builds: howlate-la" check fails on every pull request. It comes
+  from a Cloudflare Workers project that was deleted and is not part of the
+  build, so it does not block merges, and it needs Cloudflare support to remove.
+  The Pages previews and every CI job pass.
+
+### Not changed
+
+- The collector. Its code did not change, so it stays at 0.1.0 and the VM is
+  not redeployed.
 
 ## 0.3.0 - 2026-11-12
 
