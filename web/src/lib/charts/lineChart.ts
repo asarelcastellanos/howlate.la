@@ -2,6 +2,7 @@ import * as Plot from '@observablehq/plot';
 import type { Hour } from '../data/types';
 import {
 	ANNOTATION,
+	AXIS,
 	DAYS,
 	DAY_NAMES,
 	GRID,
@@ -36,7 +37,13 @@ export function weekLinesLabel(profile: Hour[]): string {
 }
 
 const HEIGHT = 260;
-const MARGIN_TOP = 8;
+const MARGIN_LEFT = 52;
+/**
+ * Room above the plot for the axis label. The top tick label is centered on the
+ * plot's top edge, so it starts 17 px from the top of the chart. The 14 px axis
+ * label hangs from 2 px and ends at 16 px.
+ */
+const MARGIN_TOP = 24;
 /** Text height in pixels, and the space kept between a label and its line. */
 const LABEL = 14;
 const GAP = 4;
@@ -84,7 +91,7 @@ export function weekLines(profile: Hour[], { width, document }: DrawOptions) {
 			width,
 			height: HEIGHT,
 			marginTop: MARGIN_TOP,
-			marginLeft: 52,
+			marginLeft: MARGIN_LEFT,
 			marginRight: 8,
 			style: PLOT_STYLE,
 			x: {
@@ -95,13 +102,20 @@ export function weekLines(profile: Hour[], { width, document }: DrawOptions) {
 				label: null
 			},
 			y: {
-				label: 'Minutes late',
-				labelAnchor: 'top',
-				labelArrow: 'up',
+				label: null,
 				// The zero line is the timetable, so the axis says so.
 				tickFormat: (m: number) => (m === 0 ? 'on time' : String(m))
 			},
 			marks: [
+				// Plot's own y label sits on the top tick label whenever a tick lands on
+				// the top edge, so the label is a text mark in the margin above it.
+				Plot.text(['↑ Minutes late'], {
+					frameAnchor: 'top-left',
+					textAnchor: 'start',
+					dx: 3 - MARGIN_LEFT,
+					dy: 2 - MARGIN_TOP,
+					fill: AXIS
+				}),
 				Plot.gridY({ stroke: GRID, strokeOpacity: 1 }),
 				Plot.ruleX([24, 48, 72, 96, 120, 144], { stroke: GRID }),
 				Plot.ruleY([0], { stroke: INK }),
