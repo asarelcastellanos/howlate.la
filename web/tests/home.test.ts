@@ -35,10 +35,11 @@ test('the status and the index come from one run when the pointer moves between 
 	const { fetchFn, urls } = moving(['run-a', 'run-b']);
 	const result = await loadHome(BASE, fetchFn);
 	assert.ok(result.ok);
+	assert.ok(result.data.status.ok && result.data.index.ok);
 	assert.deepEqual(
 		{
-			status: (result.data.status as { run?: string }).run,
-			index: (result.data.index as { run?: string }).run
+			status: (result.data.status.data as { run?: string }).run,
+			index: (result.data.index.data as { run?: string }).run
 		},
 		{ status: 'run-a', index: 'run-a' }
 	);
@@ -49,8 +50,53 @@ test('the status and the index come from one run when the pointer moves between 
 	]);
 });
 
-test('a missing file in the run is an error value, not a throw', async () => {
+const STATUS_URL = `${BASE}/site/runs/run-a/status.json`;
+const INDEX_URL = `${BASE}/site/runs/run-a/index.json`;
+
+test('a missing status file leaves the index loaded and the status an error', async () => {
 	const { fetchFn } = moving(['run-a'], ['status.json']);
 	const result = await loadHome(BASE, fetchFn);
-	assert.ok(!result.ok && result.error.kind === 'status');
+	assert.ok(result.ok);
+	assert.deepEqual(result.data.status, {
+		ok: false,
+		error: { kind: 'status', url: STATUS_URL, status: 404 }
+	});
+	assert.deepEqual(result.data.index, { ok: true, data: { run: 'run-a', lines: [] } });
+});
+
+test('a missing index file leaves the status loaded and the index an error', async () => {
+	const { fetchFn } = moving(['run-a'], ['index.json']);
+	const result = await loadHome(BASE, fetchFn);
+	assert.ok(result.ok);
+	assert.deepEqual(result.data.status, {
+		ok: true,
+		data: { run: 'run-a', last_day: '2026-11-14', days: 1, measured_arrivals: 5, coverage_pct: 50 }
+	});
+	assert.deepEqual(result.data.index, {
+		ok: false,
+		error: { kind: 'status', url: INDEX_URL, status: 404 }
+	});
+});
+
+test('both files missing gives two errors, not a throw', async () => {
+	const { fetchFn } = moving(['run-a'], ['status.json', 'index.json']);
+	const result = await loadHome(BASE, fetchFn);
+	assert.ok(result.ok);
+	assert.deepEqual(result.data.status, {
+		ok: false,
+		error: { kind: 'status', url: STATUS_URL, status: 404 }
+	});
+	assert.deepEqual(result.data.index, {
+		ok: false,
+		error: { kind: 'status', url: INDEX_URL, status: 404 }
+	});
+});
+
+test('a failed pointer read fails the whole load', async () => {
+	const fetchFn = (async () => new Response('', { status: 500 })) as typeof fetch;
+	const result = await loadHome(BASE, fetchFn);
+	assert.deepEqual(result, {
+		ok: false,
+		error: { kind: 'status', url: `${BASE}/site/current.json`, status: 500 }
+	});
 });
