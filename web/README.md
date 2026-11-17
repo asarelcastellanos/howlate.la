@@ -21,6 +21,8 @@ npm run types        # regenerate src/lib/data/types.ts from pipeline/schemas
 npm test             # contrast, generated types, data loader and chart tests
 npm run build        # writes the static site to build/, then runs tests/built.test.ts on it
 npm run preview      # serves build/ on http://localhost:4173
+npm run e2e          # Playwright and axe, against a running preview
+npm run lighthouse   # Lighthouse on mobile, against a running preview
 ```
 
 To run against local data, set `PUBLIC_DATA_BASE=/data` when you build or start
@@ -53,6 +55,13 @@ The preview image is `static/og.png`, made from `scripts/og.html`.
 after `npm run build`. It reads every prerendered page and fails on a missing
 nav, a missing or shared title or description, a page without one h1, or a
 preview image of the wrong size.
+
+## Browser checks
+
+`e2e/` holds the Playwright, axe and Lighthouse checks that the `browser` job
+runs in CI. They read a small committed copy of the data in `e2e/fixture/`, not
+the live bucket. `e2e/README.md` says how to run them and how the fixture was
+made.
 
 ## Decisions
 

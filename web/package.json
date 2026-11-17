@@ -16,13 +16,19 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "prettier --check . && eslint .",
 		"types": "node scripts/generate-types.mjs",
-		"test": "node --import ./tests/register.mjs --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts tests/charts.test.ts tests/chartLabels.test.ts tests/routeChart.test.ts tests/readout.test.ts tests/methods.test.ts tests/behind.test.ts tests/search.test.ts tests/linePage.test.ts tests/service.test.ts tests/ranking.test.ts tests/rankingShape.test.ts tests/nav.test.ts tests/pageHead.test.ts tests/config.test.ts && node --conditions=browser --import ./tests/client.mjs --test tests/boundary.test.ts"
+		"test": "node --import ./tests/register.mjs --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts tests/charts.test.ts tests/chartLabels.test.ts tests/routeChart.test.ts tests/readout.test.ts tests/methods.test.ts tests/behind.test.ts tests/search.test.ts tests/linePage.test.ts tests/service.test.ts tests/ranking.test.ts tests/rankingShape.test.ts tests/nav.test.ts tests/pageHead.test.ts tests/config.test.ts && node --conditions=browser --import ./tests/client.mjs --test tests/boundary.test.ts",
+		"e2e": "playwright test --config e2e/playwright.config.ts",
+		"e2e:stage": "node e2e/stage.mjs",
+		"lighthouse": "cd e2e && lhci autorun --config lighthouserc.cjs"
 	},
 	"devDependencies": {
+		"@axe-core/playwright": "4.14.0",
 		"@eslint/js": "10.0.1",
 		"@fontsource-variable/inter": "5.3.0",
 		"@fontsource-variable/source-serif-4": "5.3.1",
+		"@lhci/cli": "0.16.1",
 		"@lucide/svelte": "1.73.0",
+		"@playwright/test": "1.64.1",
 		"@sveltejs/adapter-static": "4.0.1",
 		"@sveltejs/kit": "3.2.0",
 		"@sveltejs/vite-plugin-svelte": "7.3.1",
