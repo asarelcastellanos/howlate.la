@@ -2,7 +2,7 @@
 
 The public site for howlate.la. It builds to static files. Right now it is a
 placeholder home page with a live status strip and line search, a page for each
-line at `/lines/<line>`, a methodology page at `/methods`, and a design
+line at `/lines/<line>`, a ranking at `/ranking`, a methodology page at `/methods`, and a design
 specimen with the chart components.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
@@ -152,6 +152,37 @@ a `.html` target to the clean URL, which changes the address and breaks the
 route. Without it, Cloudflare Pages serves the prerendered home
 page for a path it did not build. A rail line page hides the on-time share while
 `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+
+## Ranking
+
+`/ranking` is prerendered, and the browser loads `index.json` with
+`readRankingIndex`. The page ranks bus lines by the share of measured arrivals
+from 1 minute early to 5 minutes late, counted at every stop. It is not Metro's
+published figure, and the page says so. Two panels list the top and bottom five.
+The table below has every ranked line, and its three metric headers are buttons
+that sort it. Headers sort best first (the highest on-time share, the lowest
+median delay or 90th percentile) and a second click reverses. Lines with equal
+values share a rank and keep line-id order in both directions. A line that ties
+with the fifth line of a panel is shown too, so a panel can hold six.
+
+`rankLines` in `src/lib/ranking.ts` holds the logic, and `tests/ranking.test.ts`
+checks the order against a plain sort on the real index when `static/data` exists.
+
+- `MIN_RANKED_ARRIVALS` is 500. A line under it is listed under "Not ranked"
+  with its arrival count. In the 2026-11-16 run (90 days) one of 109 bus lines
+  was under it, line 697 at 202 arrivals, and the next smallest was 18,078. Below
+  500 arrivals, five arrivals changing move a share by more than a point. The
+  comment on the constant has the arithmetic.
+- Rail is never ranked. A small rail table shows median and 90th percentile
+  only, and `rankLines` also drops rail from an on-time ranking while
+  `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+- Until the daily run after a release, the live bucket's `index.json` has no
+  `n`, `med`, `p90`, `pct5` or `ontime`. `checkRankingIndex` turns that into a
+  `shape` error, and the page shows "This page needs newer data than the site has
+  yet. Try again in a few minutes." with a retry button. `ResultView`'s boundary
+  covers a throw while the page draws.
+- Table delays show minutes with one decimal, such as "1.3 min late". Seconds
+  under two minutes and whole minutes above would not read as sorted.
 
 ## Not done yet
 

@@ -41,6 +41,11 @@ are 16 px on a phone. For 12 columns, use `grid md:grid-cols-12` inside a
 `source` snippets), `Rule`, `LineBullet`, `LineChip` and `StatusStrip` (the
 network totals from `status.json`).
 
+The ranking page's pieces sit beside its route in `src/routes/ranking/`, because
+no other page uses them. Its on-time bar is plain HTML, not Plot. The fill is
+`bg-chart-ink` on a `bg-chart-grid` track, and the number always prints beside
+it.
+
 ## Charts
 
 Charts are Observable Plot, in `src/lib/charts/`. They read CSS variables, so

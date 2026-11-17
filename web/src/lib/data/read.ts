@@ -1,3 +1,4 @@
+import { checkRankingIndex } from '../ranking.ts';
 import { openRun, type Result } from './load.ts';
 import type { LineFile, NetworkFile, SiteIndex, SiteStatus } from './types';
 
@@ -21,4 +22,19 @@ export async function readLine(base: string, line: string): Promise<Result<LineF
 export async function readNetwork(base: string): Promise<Result<NetworkFile>> {
 	const run = await openRun(base);
 	return run.ok ? run.data.network() : run;
+}
+
+// The ranking page reads five numbers from every entry. Until the daily run
+// after a release, the bucket's index has none of them, so this checks the body
+// and returns a `shape` error the page can show.
+export async function readRankingIndex(
+	base: string,
+	fetchFn: typeof fetch = fetch
+): Promise<Result<SiteIndex>> {
+	const run = await openRun(base, fetchFn);
+	if (!run.ok) return run;
+	const index = await run.data.index();
+	if (!index.ok) return index;
+	const url = `${base.replace(/\/+$/, '')}/${run.data.pointer.prefix}index.json`;
+	return checkRankingIndex(index.data, url);
 }
