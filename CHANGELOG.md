@@ -4,6 +4,50 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## 0.4.1 - 2026-11-16
+
+The daily job now alarms when the public site data goes stale. It fails when the
+R2 settings are missing, and after each copy it checks the public address from
+outside. The site and the collector do not change.
+
+### Added
+
+- `R2_REQUIRED` makes a job with no R2 settings fail with the failure ping. It
+  no longer skips the copy and pings success.
+- After each R2 copy that moved the pointer, the job fetches the public
+  `status.json` through the pointer. The URL carries a changing query, so the 60
+  second cache cannot answer. The run fails with the failure ping if the fetch
+  fails, if the public pointer is older than the copied run, or if `last_day` is
+  more than 2 days behind the newest graded day.
+
+### Changed
+
+- The failure ping names each failed day and the first line of its error.
+- Before anything goes to healthchecks.io, the job replaces URLs, `gs://` paths
+  and email addresses with placeholders. This covers the crash ping too.
+- `pipeline/deploy/daily.sh` sets `R2_REQUIRED=1` and `R2_PUBLIC_URL` when R2 is
+  configured. It refuses to deploy without a public URL.
+
+### Checked
+
+- The pipeline's 249 tests pass, up from 205 in 0.4.0. The collector's 5 tests
+  pass, and so do ruff lint and ruff format.
+- The probe passed against the live public R2 address before the release,
+  reading the real pointer and status file.
+
+### Not done yet
+
+- After the merge, run
+  `R2_PUBLIC_URL=https://<public address> bash pipeline/deploy/daily.sh` once.
+  Until then the live job has no outside check and no `R2_REQUIRED` guard.
+- A copy that leaves R2's pointer alone because a newer run appeared still pings
+  success and is not probed. This is intended.
+
+### Not changed
+
+- The collector stays at 0.1.0, and the VM is not redeployed.
+- The site stays at 0.4.0, and the schemas do not change.
+
 ## 0.4.0 - 2026-11-16
 
 The first version of the site. `web/` builds a static site that reads the
