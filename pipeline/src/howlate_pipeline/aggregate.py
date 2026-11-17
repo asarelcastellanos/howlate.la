@@ -200,14 +200,18 @@ def write_json(path: Path, payload: dict) -> int:
 
 def build(
     con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path, first: str, last: str, days: int
-) -> list[tuple[str, int, int]]:
-    """Write index.json, status.json and one file per line."""
+) -> tuple[list[tuple[str, int, int]], list[str]]:
+    """Write index.json, status.json and one file per line.
+
+    Returns the size of each line file and the names of every file written,
+    relative to `out`. `upload` publishes those names and nothing else.
+    """
     profile = profiles(con)
     cells = stop_cells(con)
     heads = headlines(con)
 
     known = {(agency, line) for agency, line, _ in profile}
-    index, written = [], []
+    index, written, names = [], [], []
 
     for agency, line in sorted(known, key=lambda k: (k[0], len(k[1]), k[1])):
         meta = catalogue["lines"].get((agency, line), {"label": line, "via": "", "mode": "bus"})
@@ -258,6 +262,7 @@ def build(
             )
 
         size = write_json(out / "lines" / f"{line}.json", payload)
+        names.append(f"lines/{line}.json")
         raw = (out / "lines" / f"{line}.json").read_bytes()
         written.append((line, size, len(gzip.compress(raw))))
 
@@ -275,6 +280,7 @@ def build(
     write_json(
         out / "index.json", {"first_day": first, "last_day": last, "days": days, "lines": index}
     )
+    names.append("index.json")
 
     totals = con.sql("""
         SELECT count(*), count(*) FILTER (WHERE delay_seconds IS NOT NULL),
@@ -294,8 +300,9 @@ def build(
             "trips": totals[3],
         },
     )
+    names.append("status.json")
 
-    return written
+    return written, sorted(names)
 
 
 # How many published runs stay in the bucket: the current one and the two
@@ -306,8 +313,16 @@ KEEP_RUNS = 3
 POINTER = "site/current.json"
 
 
-def upload(client: storage.Client, out: Path, run: str | None = None) -> tuple[int, str]:
-    """Publish the whole site directory to the derived bucket as one new run.
+def upload(
+    client: storage.Client, out: Path, names: list[str], run: str | None = None
+) -> tuple[int, str]:
+    """Publish these files of the site directory to the derived bucket as one new run.
+
+    `names` is what `build` just wrote. The directory is not listed, because on
+    a disk reused between runs it still holds the files of earlier builds, and a
+    line Metro dropped would be published again with frozen numbers. Clearing
+    the directory in `build` would fix the same case, but only for as long as
+    every writer remembers to clear it. A list of names has no such condition.
 
     Stored here, not served from here. Cloud Storage egress is $0.12/GB with no
     useful free allowance, and it is the one line item in this project that could
@@ -324,22 +339,21 @@ def upload(client: storage.Client, out: Path, run: str | None = None) -> tuple[i
     run = run or f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(3)}"
     prefix = f"site/runs/{run}/"
     bucket = client.bucket(DERIVED_BUCKET)
-    local = {path.relative_to(out).as_posix(): path for path in out.rglob("*.json")}
 
-    for name, path in sorted(local.items()):
+    for name in sorted(names):
         blob = bucket.blob(prefix + name)
         # Run files never change once written, so a long cache is safe.
         blob.cache_control = "public, max-age=31536000, immutable"
-        blob.upload_from_filename(path, content_type="application/json")
+        blob.upload_from_filename(out / name, content_type="application/json")
 
-    keep = point_at(bucket, run, prefix, len(local))
+    keep = point_at(bucket, run, prefix, len(names))
     if keep:
         try:
             prune(client, run, keep)
         except Exception as error:
             # Listing failed. The site is published; the next run prunes.
             print(f"  could not prune old runs: {error!r}")
-    return len(local), f"gs://{DERIVED_BUCKET}/{prefix}"
+    return len(names), f"gs://{DERIVED_BUCKET}/{prefix}"
 
 
 def point_at(bucket: storage.Bucket, run: str, prefix: str, files: int) -> set[str] | None:
