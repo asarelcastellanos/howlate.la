@@ -211,7 +211,7 @@ R2_ACCESS_KEY_ID       an R2 API token's key id, with write access to the bucket
 R2_SECRET_ACCESS_KEY   its secret
 R2_BUCKET              optional, defaults to howlate
 R2_REQUIRED            anything but 0, false, no, off, none or empty: missing R2 settings fail the run
-R2_PUBLIC_URL          https://<domain>, where the public reads the data, no path
+R2_PUBLIC_URL          https://data.howlate.la, where the public reads the data, no path
 ```
 
 `R2_REQUIRED` stops a redeploy that loses the settings from skipping the copy
@@ -258,7 +258,9 @@ python -m howlate_pipeline publish-r2 [--run 20261115T130000Z-a1b2c3]
 ```
 
 The files are public and read-only, so `deploy/r2-cors.json` lets any origin GET
-and HEAD them. Paste it in the dashboard under the bucket's Settings, CORS
+and HEAD them. The origin stays `*` because the data is public, and because
+preview deployments on pages.dev subdomains need to read it. The site reads the
+bucket through the custom domain `https://data.howlate.la`. Paste it in the dashboard under the bucket's Settings, CORS
 Policy. Wrangler takes the same rules in its own shape:
 `npx wrangler r2 bucket cors set howlate --file pipeline/deploy/r2-cors.wrangler.json`.
 At 20 MB a day, about 0.6 GB a month leaves Google Cloud, cents at $0.12/GB.

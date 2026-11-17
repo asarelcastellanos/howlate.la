@@ -46,7 +46,9 @@ Twitter tags. Only the home page keeps its whole title. Any other title gets
 one head leave the browser to pick one.
 
 `SITE_URL` in `src/lib/config.ts` builds the canonical and preview addresses. It
-is the pages.dev address until the custom domain arrives in 0.5.1 (issue #32).
+is `https://howlate.la`, with no trailing slash. The custom domain replaced the
+pages.dev address in 0.5.1 (issue #32). Cloudflare redirects www.howlate.la to
+it with a redirect rule in the dashboard, so no code handles `www`.
 
 The preview image is `static/og.png`, made from `scripts/og.html`.
 `scripts/README-og.md` has the steps to remake it. `tests/built.test.ts` runs
@@ -134,11 +136,15 @@ yet" with a retry button. `ResultView` also wraps the data views in a
 `PUBLIC_DATA_BASE` sets `base` and is inlined at build time. SvelteKit 3 reads
 it from `src/env.ts` and exposes it through `$app/env/public`, which
 `src/lib/data/base.ts` re-exports as `DATA_BASE`. It defaults to
-`DEFAULT_DATA_BASE` in `src/env.ts`, the public development address of the R2
-bucket, so local development and every preview read the real published data.
-The bucket allows any origin through CORS. Replace the default with the custom
-data domain when there is one. For offline work, set `PUBLIC_DATA_BASE=/data`
+`DEFAULT_DATA_BASE` in `src/env.ts`, which is `https://data.howlate.la`, the
+custom domain on the R2 bucket, so local development and every preview read the
+real published data. The r2.dev address of the bucket is rate limited and not for
+production, so nothing uses it. For offline work, set `PUBLIC_DATA_BASE=/data`
 and put a copy of the bucket's `site/` folder in `web/static/data/`.
+
+CORS on the data domain stays `*`. The data is public and read-only, and preview
+deployments on pages.dev subdomains, which change with every branch, must be
+able to read it.
 
 ## Versions
 

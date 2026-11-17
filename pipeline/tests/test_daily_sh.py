@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 GOOD = [
     "https://data.howlate.la",
     "https://Data.HowLate.la",
-    "https://pub-4b142eaaa0dc461aa668b007c9f14299.r2.dev",
+    "https://pub-0123456789abcdef.r2.dev",
     "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
     "https://x.r2.cloudflarestorage.com",
     "https://localhost",
