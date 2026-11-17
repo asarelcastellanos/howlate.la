@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { DATA_BASE } from '#lib/data/base.ts';
 	import { readStatus } from '#lib/data/read.ts';
 	import Remote from '#lib/charts/Remote.svelte';
@@ -26,4 +27,5 @@
 			{#snippet children(status)}<StatusStrip {status} />{/snippet}
 		</Remote>
 	</div>
+	<p class="mt-6"><a href={resolve('/methods')}>How HowLate measures delay</a></p>
 </main>

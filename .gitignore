@@ -22,6 +22,7 @@ node_modules/
 web/dist/
 web/build/
 web/.svelte-kit/
+.playwright-cli/
 
 # Pipeline output. Derived from the archive and rebuilt by a command, so it is
 # never worth committing.

@@ -15,7 +15,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "prettier --check . && eslint .",
 		"types": "node scripts/generate-types.mjs",
-		"test": "node --import ./tests/register.mjs --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts tests/charts.test.ts"
+		"test": "node --import ./tests/register.mjs --test tests/contrast.test.ts tests/types.test.ts tests/load.test.ts tests/charts.test.ts tests/methods.test.ts"
 	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
