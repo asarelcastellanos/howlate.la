@@ -27,7 +27,11 @@ GOOD = [
     "https://pub-0123456789abcdef.r2.dev",
     "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com",
     "https://x.r2.cloudflarestorage.com",
-    "https://localhost",
+    "https://a-b.example.com",
+    "https://1.example.com",
+    "https://a.b.c.d.e",
+    "https://example.1a",
+    "https://a.co",
 ]
 BAD = [
     "https://data.howlate.la:443",
@@ -53,6 +57,22 @@ BAD = [
     "https://ho\nst",
     "HTTPS://host",
     "Https://data.howlate.la",
+    "https://.",
+    "https://-",
+    "https://a..b",
+    "https://a.com.",
+    "https://localhost",
+    "https://1.2.3.4",
+    "https://a.1",
+    "https://a.com.1",
+    "https://.a.com",
+    "https://-a.com",
+    "https://a-.com",
+    "https://a.-com",
+    "https://a.com-",
+    "https://a.b-",
+    "https://a",
+    "https://a.com/",
 ]
 
 
@@ -76,14 +96,12 @@ def shell_accepts(value: str, locale: str = "C") -> bool:
 
 @pytest.mark.parametrize("value", GOOD)
 def test_the_shell_accepts_what_python_accepts(value):
-    assert r2.is_https_address(value) is True
-    assert shell_accepts(value) is True
+    assert (r2.is_https_address(value), shell_accepts(value)) == (True, True)
 
 
 @pytest.mark.parametrize("value", BAD)
 def test_the_shell_refuses_what_python_refuses(value):
-    assert r2.is_https_address(value) is False
-    assert shell_accepts(value) is False
+    assert (r2.is_https_address(value), shell_accepts(value)) == (False, False)
 
 
 @pytest.mark.parametrize("value", [*GOOD, *BAD])

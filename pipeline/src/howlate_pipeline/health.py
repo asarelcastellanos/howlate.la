@@ -65,6 +65,11 @@ def document(reports: Path | None, last: str, days: int) -> dict:
     `checks` are empty and the rest comes from the run, so the file is always
     written and always valid.
 
+    `checks` are the checks of the report for `last`, never of an older day. If
+    that report is missing or unreadable, `recent` starts at an older day and
+    `checks` is empty, so the page cannot show an old result next to a newer
+    `last_day`.
+
     Reports for days after `last` are left out. The rest of the site stops at
     `last`, and this file must not name a day the other files lack.
     """
@@ -86,5 +91,5 @@ def document(reports: Path | None, last: str, days: int) -> dict:
         "last_day": last,
         "days": days,
         "recent": [row for row, _ in found],
-        "checks": found[0][1] if found else [],
+        "checks": next((checks for row, checks in found if row["service_date"] == last), []),
     }
