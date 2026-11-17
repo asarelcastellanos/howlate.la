@@ -11,7 +11,7 @@ import pytest
 import test_write
 from botocore.exceptions import ClientError
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, labels, r2
+from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, backfill, labels, r2
 from howlate_pipeline import __main__ as cli
 
 
@@ -54,8 +54,8 @@ class Run:
         # replaced by a recorder, raising `r2_error` when one is given; with
         # `real` holding "r2" it runs for real, with no R2 settings.
         self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
-        self.copied, self.summaries = [], []
-        for name in r2.REQUIRED:
+        self.copied, self.summaries, self.copy_kwargs = [], [], []
+        for name in (*r2.REQUIRED, "R2_REQUIRED", "R2_PUBLIC_URL"):
             monkeypatch.delenv(name, raising=False)
         done = {f"{d[:4]}-{d[4:6]}-{d[6:]}" for d in done}
         monkeypatch.setattr(cli, "yesterday", lambda: "20261107")
@@ -67,8 +67,9 @@ class Run:
 
         monkeypatch.setattr(cli, "heartbeat", ping)
 
-        def copy(client, run=None):
+        def copy(client, run=None, **kwargs):
             self.copied.append(run)
+            self.copy_kwargs.append(kwargs)
             if r2_error:
                 raise r2_error
             return True
@@ -170,6 +171,35 @@ def test_a_site_that_fails_to_publish_is_not_copied_to_r2(monkeypatch, tmp_path)
     assert run.copied == []
 
 
+def test_the_copy_is_given_the_site_the_run_just_built_to_check_against(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path)
+    run()
+    assert run.copy_kwargs == [{"site_dir": tmp_path / "out" / "site"}]
+
+
+def test_a_required_r2_with_no_settings_fails_the_run_and_the_ping_names_the_variable(
+    monkeypatch, tmp_path
+):
+    # The deploy workflow only updates the image, so a redeploy that loses the
+    # R2 settings must not read as a clean skip.
+    run = Run(monkeypatch, tmp_path, real=("r2",))
+    monkeypatch.setenv("R2_REQUIRED", "1")
+    assert run() == 1
+    assert run.pings == [False]
+    assert "R2_REQUIRED" in run.summaries[0]
+    assert "public site would go stale" in run.summaries[0]
+
+
+def test_a_failed_public_check_fails_the_run_with_its_own_message(monkeypatch, tmp_path):
+    error = r2.Notice("R2 public check failed: site/current.json returned 404")
+    run = Run(monkeypatch, tmp_path, r2_error=error)
+    assert run() == 1
+    assert run.pings == [False]
+    assert "R2 public check failed: site/current.json returned 404" in run.summaries[0]
+    # The copy worked, so the ping must not say the site is in Cloud Storage only.
+    assert "Cloud Storage only" not in run.summaries[0]
+
+
 def test_with_no_r2_settings_the_daily_run_is_as_it_was(monkeypatch, tmp_path, capsys):
     run = Run(monkeypatch, tmp_path, real=("r2",))
     assert run() == 0
@@ -223,6 +253,75 @@ def test_a_day_with_no_raw_files_raises_the_alarm_and_names_the_day(monkeypatch,
     log = capsys.readouterr().out
     assert "20261107 failed: SystemExit('no raw files found for 20261107')" in log
     assert "errors: 20261107" in log
+
+
+def test_the_fail_ping_names_each_failed_day_and_the_first_line_of_its_error(monkeypatch, tmp_path):
+    # Issue #100: the summary only counted days, so the person reading the
+    # healthchecks.io alert had to open the Cloud Run log to find the day.
+    raises = {
+        "20261103": SystemExit("no raw files found for 20261103"),
+        "20261105": ValueError("bad join\nTraceback-like second line"),
+    }
+    run = Run(monkeypatch, tmp_path, raises=raises)
+    assert run() == 1
+    body = run.summaries[0]
+    assert "errors 2" in body
+    assert "20261103 failed: SystemExit: no raw files found for 20261103" in body
+    assert "20261105 failed: ValueError: bad join" in body
+    assert "second line" not in body
+
+
+LEAKY = (
+    "403 GET https://storage.googleapis.com/b/howlate-raw/o?x=1: sa-job@howlate-la.iam."
+    "gserviceaccount.com does not have access to gs://howlate-raw/vehicle_positions/dt=2026-11-03/a"
+)
+SECRETS = ("https://", "storage.googleapis.com", "gs://", "howlate-raw", "gserviceaccount", "@")
+
+
+def test_the_fail_ping_replaces_urls_gs_paths_and_emails_in_an_error(monkeypatch, tmp_path):
+    # healthchecks.io is a third party, and a Google API error names the service
+    # account and the bucket path.
+    run = Run(monkeypatch, tmp_path, raises={"20261103": ValueError(LEAKY)})
+    assert run() == 1
+    body = run.summaries[0]
+    assert (
+        "20261103 failed: ValueError: 403 GET <url>: <email> does not have access to <gs-path>"
+        in body
+    )
+    assert not any(secret in body for secret in SECRETS)
+
+
+def test_the_crash_ping_redacts_the_error_too(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path, site=RuntimeError(LEAKY))
+    with pytest.raises(RuntimeError):
+        run()
+    assert "daily run crashed: RuntimeError('403 GET <url>:" in run.summaries[0]
+    assert not any(secret in run.summaries[0] for secret in SECRETS)
+
+
+def test_the_fail_ping_stays_under_1000_characters_with_many_failures(monkeypatch, tmp_path):
+    days = backfill.days_between("20260909", "20261107")
+    raises = {day: ValueError(f"{'x' * 60}\nsecond line") for day in days}
+    run = Run(monkeypatch, tmp_path, raises=raises, fetched=1)
+    run.args.catch_up = len(days)
+    assert run() == 1
+    body = run.summaries[0]
+    assert len(body) < 1000
+    assert body.endswith("...")
+    assert "errors 60" in body  # the counts come first, so truncation never drops them
+    assert f"{days[0]} failed: ValueError: xxx" in body
+
+
+def test_a_failed_day_is_named_when_the_r2_copy_fails_too(monkeypatch, tmp_path):
+    run = Run(
+        monkeypatch,
+        tmp_path,
+        raises={"20261103": SystemExit("no raw files")},
+        r2_error=RuntimeError("no"),
+    )
+    assert run() == 1
+    assert "R2 copy failed" in run.summaries[0]
+    assert "20261103 failed: SystemExit: no raw files" in run.summaries[0]
 
 
 class StoredBlob(test_write.FakeBlob):

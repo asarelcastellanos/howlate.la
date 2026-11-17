@@ -9,6 +9,9 @@ The copy reads gs://howlate-derived and writes R2. It never touches
 gs://howlate-raw. R2 holds nothing that cannot be rebuilt from the derived
 bucket, so every write here is safe to repeat.
 
+After a copy that moved R2's pointer, the daily job fetches the public address
+from outside and checks that readers would see the new run; see `probe`.
+
 R2 speaks the S3 protocol, so the client is boto3. Credentials come from the
 environment and are never printed; see `from_env`.
 """
@@ -16,8 +19,13 @@ environment and are never printed; see `from_env`.
 import json
 import os
 import re
-from collections.abc import Mapping
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import date
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import boto3
@@ -37,6 +45,24 @@ HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
 # new run reaches every browser within that minute.
 RUN_CACHE = "public, max-age=31536000, immutable"
 POINTER_CACHE = "public, max-age=60"
+
+TRUE = {"1", "true", "yes"}
+# The public status may trail the newest graded day by this many days. The job
+# grades up to two days back and the site is rebuilt from finished days only,
+# so a day or two of difference is normal and three is not.
+MAX_LAG_DAYS = 2
+FETCH_TIMEOUT = 10
+RETRY_PAUSE = 2
+RUN_PREFIX = re.compile(r"site/runs/[A-Za-z0-9._-]+/")
+
+
+class Notice(RuntimeError):
+    """A failure whose message this module wrote, so it is safe to print and ping.
+
+    `describe` keeps only the class name of any other exception, because their
+    text can hold the endpoint or a credential. A Notice never does: it names a
+    variable or a file path and never a host, key or URL.
+    """
 
 
 @dataclass(frozen=True)
@@ -73,6 +99,25 @@ def from_env(env: Mapping[str, str] = os.environ) -> Config | None:
         secret_access_key=values["R2_SECRET_ACCESS_KEY"],
         bucket=env.get("R2_BUCKET", "").strip() or DEFAULT_BUCKET,
     )
+
+
+def is_required(env: Mapping[str, str] = os.environ) -> bool:
+    """True when R2_REQUIRED is 1, true or yes. The deployed job sets it; local runs do not."""
+    return env.get("R2_REQUIRED", "").strip().lower() in TRUE
+
+
+def public_url_from_env(env: Mapping[str, str] = os.environ) -> str | None:
+    """The public data address, None when R2_PUBLIC_URL is unset.
+
+    Checked like the endpoint, and rejected without echoing it. It is not
+    secret, but the failure goes to a third party with the same wording.
+    """
+    value = env.get("R2_PUBLIC_URL", "").strip()
+    if not value:
+        return None
+    if not is_https_address(value):
+        raise Notice("R2_PUBLIC_URL is not a valid https address")
+    return value
 
 
 def is_https_address(endpoint: str) -> bool:
@@ -130,6 +175,8 @@ def describe(error: Exception) -> str:
     its class name, because the text of an exception this code did not raise is
     not under its control.
     """
+    if isinstance(error, Notice):
+        return str(error)
     if isinstance(error, ClientError):
         return f"{error.response['Error'].get('Code')} during {error.operation_name}"
     return type(error).__name__
@@ -264,18 +311,143 @@ def prune(s3, bucket: str, current: str, keep: set[str]) -> None:
                 print(f"  could not delete R2 object {key}: {describe(error)}")
 
 
+def fetch_public(url: str) -> tuple[int, bytes]:
+    """GET a public URL and return its status and body, trying twice.
+
+    An error status is returned, not raised, so the probe can name it. An attempt
+    that raises or does not return 200 waits a moment and tries once more, because
+    one dropped connection should not fail the day's run. After the second
+    attempt, an error status is returned and an exception is raised.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": "howlate-daily"})
+
+    def once() -> tuple[int, bytes]:
+        try:
+            with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, b""
+
+    try:
+        first = once()
+        if first[0] == 200:
+            return first
+    except Exception:
+        pass
+    time.sleep(RETRY_PAUSE)
+    return once()
+
+
+def probe(base: str, run: str, last_day: str, fetch: Callable[[str], tuple[int, bytes]]) -> None:
+    """Check the public data from the outside. Raises Notice naming the check that failed.
+
+    The copy writes R2 with credentials, so it cannot see a broken CORS rule, a
+    custom domain that points elsewhere, or a deleted run. This reads the same
+    files a browser would: the pointer, then the status file it names.
+
+    The pointer is requested with the time as its query. It is served with a
+    60 second cache, so a fixed address could return the previous pointer from an
+    edge cache and read as stale. A pointer that names this run or a newer one
+    passes, because a newer run may have been published while this one copied.
+    Run names sort by age. The status file must be within MAX_LAG_DAYS of
+    `last_day`, the newest day the job just built.
+
+    Messages carry file paths and run names, never the host.
+    """
+
+    def get(path: str, query: str = "") -> dict:
+        try:
+            status, body = fetch(f"{base}/{path}{query}")
+        except Exception as error:
+            raise Notice(
+                f"R2 public check failed: could not fetch {path} ({describe(error)})"
+            ) from None
+        if status != 200:
+            raise Notice(f"R2 public check failed: {path} returned {status}")
+        try:
+            data = json.loads(body)
+        except ValueError:
+            raise Notice(f"R2 public check failed: {path} is not JSON") from None
+        if not isinstance(data, dict):
+            raise Notice(f"R2 public check failed: {path} is not a JSON object")
+        return data
+
+    pointer = get("site/current.json", f"?nocache={int(time.time())}")
+    named, prefix = pointer.get("run"), pointer.get("prefix")
+    if not (
+        isinstance(named, str)
+        and isinstance(prefix, str)
+        and RUN_PREFIX.fullmatch(prefix)
+        and prefix == f"site/runs/{named}/"
+    ):
+        raise Notice("R2 public check failed: site/current.json has no usable run and prefix")
+    if named < run:
+        raise Notice(
+            f"R2 public check failed: site/current.json names {named}, older than the copied {run}"
+        )
+
+    newest = date.fromisoformat(last_day)
+    path = f"{prefix}status.json"
+    seen = get(path).get("last_day")
+    try:
+        behind = (newest - date.fromisoformat(seen)).days
+    except (TypeError, ValueError):
+        raise Notice(f"R2 public check failed: {path} has no valid last_day") from None
+    if behind > MAX_LAG_DAYS:
+        raise Notice(
+            f"R2 public check failed: {path} last_day {seen} is {behind} days behind {last_day}"
+        )
+
+
 def copy_if_configured(
     gcs: storage.Client,
     run: str | None = None,
     env: Mapping[str, str] = os.environ,
     s3=None,
+    site_dir: Path | None = None,
+    fetch: Callable[[str], tuple[int, bytes]] = fetch_public,
 ) -> bool:
-    """Copy a run to R2 if the environment names an R2 bucket. False when it does not."""
+    """Copy a run to R2 if the environment names an R2 bucket. False when it does not.
+
+    With R2_REQUIRED set, missing settings raise a Notice instead of skipping,
+    so a deploy that lost them cannot read as a clean run.
+
+    When the copy moves R2's pointer and `site_dir` is given, the public address
+    is then probed against the `status.json` in `site_dir`. The probe is skipped
+    when R2_PUBLIC_URL is unset, and raises when it is unset and R2_REQUIRED is
+    set. A pointer left alone because a newer run appeared is not probed: R2
+    still serves the older run, which is not a fault of this copy.
+    """
     config = from_env(env)
     if config is None:
+        if is_required(env):
+            raise Notice(
+                "R2 copy not run: R2_REQUIRED is set but the R2 settings are not, "
+                "so the public site would go stale"
+            )
         print("  R2 copy skipped: R2_ENDPOINT, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY not set")
         return False
+    # Resolved here, not inside publish, so the probe knows which run it is judging.
+    run = run or read_pointer(gcs.bucket(DERIVED_BUCKET))[1]["run"]
     count, moved = publish(gcs, s3 or make_client(config), config.bucket, run)
     where = "and moved the pointer" if moved else "but left the pointer"
     print(f"  copied {count} files to R2 bucket {config.bucket}, {where}")
+
+    if not moved:
+        print("  R2 freshness check skipped: R2's pointer was left alone")
+        return True
+    base = public_url_from_env(env)
+    if base is None:
+        if is_required(env):
+            raise Notice(
+                "R2 public check not run: R2_REQUIRED is set but R2_PUBLIC_URL is not, "
+                "so a stale public site would go unseen"
+            )
+        print("  R2 freshness check skipped: R2_PUBLIC_URL not set")
+        return True
+    if site_dir is None:
+        print("  R2 freshness check skipped: no built site to compare with")
+        return True
+    probe(base, run, json.loads((site_dir / "status.json").read_text())["last_day"], fetch)
+    print("  R2 freshness check passed")
     return True
