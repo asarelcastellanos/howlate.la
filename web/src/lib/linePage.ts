@@ -2,6 +2,7 @@ import { SHOW_RAIL_ONTIME } from './config.ts';
 import { openRun, type Result } from './data/load.ts';
 import { longDate } from './date.ts';
 import type { Direction, IndexEntry, LineFile, SiteIndex } from './data/types';
+import { DESCRIPTION_LENGTH } from './head.ts';
 import { LINES, type BusService, type LineId } from './design/lines.ts';
 import { serviceOf } from './design/service.ts';
 
@@ -69,7 +70,16 @@ export function sourceNote(line: Pick<LineFile, 'days' | 'last_day'>): string {
 }
 
 export function pageDescription(line: Pick<LineFile, 'label' | 'mode' | 'last_day'>): string {
-	return `How late ${lineName(line)} runs by hour of the week and by stop, measured against the timetable. Data through ${longDate(line.last_day)}.`;
+	const start = 'How late ';
+	const end = ` runs by hour of the week and by stop, measured against the timetable. Data through ${longDate(line.last_day)}.`;
+	// Search results cut a description past DESCRIPTION_LENGTH.max. One label is a
+	// sentence, so a long name is cut at a word to fit.
+	const room = DESCRIPTION_LENGTH.max - start.length - end.length;
+	const name = lineName(line).replace(/\s+/g, ' ');
+	if (name.length <= room) return `${start}${name}${end}`;
+	const cut = name.slice(0, room - 1);
+	const words = cut.slice(0, cut.lastIndexOf(' ')).trimEnd();
+	return `${start}${words || cut.trimEnd()}…${end}`;
 }
 
 /** Props for LineBullet. Rail and the G and J busways use Metro's letter bullet. */

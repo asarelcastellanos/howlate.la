@@ -7,7 +7,7 @@ const base = process.env.E2E_BASE_URL ?? 'http://localhost:4173';
 module.exports = {
 	ci: {
 		collect: {
-			url: [`${base}/`, `${base}/lines/720`, `${base}/ranking`],
+			url: [`${base}/`, `${base}/lines/720`, `${base}/ranking`, `${base}/behind-the-scenes`],
 			numberOfRuns: 3,
 			// The Chromium that Playwright installs, so package-lock.json pins its
 			// version and the runner image cannot change it. No preset is set, so

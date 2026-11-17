@@ -3,6 +3,7 @@
 // $app/navigation, which exist only inside SvelteKit, so small stand-ins are
 // registered first.
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import { createRawSnippet } from 'svelte';
@@ -19,6 +20,7 @@ import {
 	headline,
 	lineName,
 	lineResult,
+	pageDescription,
 	shortVia,
 	showsOntime
 } from '../src/lib/linePage.ts';
@@ -252,4 +254,44 @@ test('every state of the line page has exactly one h1', () => {
 
 	assert.equal(h1s(render(LineView, { props: { line: lineFile('bus', two) } }).body), 1);
 	assert.equal(h1s(render(LineNotFound, { props: { id: 'zzz' } }).body), 1);
+});
+
+// head.ts allows 160 characters, and search results cut a longer one. The label
+// of line 697 is a sentence, so the description has to fit around any label.
+test('a line description is 40 to 160 characters for every label in the fixture index', () => {
+	const runs = new URL('../e2e/fixture/site/runs/', import.meta.url);
+	const labels = readdirSync(runs).flatMap(
+		(run) =>
+			(
+				JSON.parse(readFileSync(new URL(`${run}/index.json`, runs), 'utf8')) as {
+					lines: { label: string; mode: 'bus' | 'rail' }[];
+				}
+			).lines
+	);
+	labels.push({ label: 'LAX / Metro Transit Center -  SoFi Stadium Express', mode: 'bus' });
+	assert.ok(labels.length >= 8);
+	for (const { label, mode } of labels) {
+		const text = pageDescription({ label, mode, last_day: '2026-09-30' });
+		assert.ok(text.length >= 40 && text.length <= 160, `${label}: ${text.length}`);
+		assert.match(text, /^How late /);
+		assert.match(text, /Data through September 30, 2026\.$/);
+	}
+});
+
+test('a short label is kept whole, and a long one is cut at a word with an ellipsis', () => {
+	const short = pageDescription({ label: '720', mode: 'bus', last_day: '2026-11-14' });
+	assert.ok(short.startsWith('How late Route 720 runs by hour of the week'));
+	const long = pageDescription({
+		label: 'LAX / Metro Transit Center -  SoFi Stadium Express',
+		mode: 'bus',
+		last_day: '2026-09-30'
+	});
+	assert.match(long, /^How late LAX \/ Metro Transit Center - SoFi Stadium… runs by hour/);
+	const huge = pageDescription({
+		label: 'word '.repeat(60).trim(),
+		mode: 'bus',
+		last_day: '2026-09-30'
+	});
+	assert.ok(huge.length <= 160);
+	assert.match(huge, /^How late word( word)*… runs by hour of the week/);
 });

@@ -1,6 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { MIN_RANKED_ARRIVALS } from '../src/lib/ranking.ts';
-import { index, readLine } from './fixture.ts';
+import { longDate } from '../src/lib/date.ts';
+import { health, index, readLine } from './fixture.ts';
 import { lineLoaded, watchConsole } from './helpers.ts';
 
 // A fixture that lost its lines would let every loop below pass without a visit.
@@ -129,4 +130,68 @@ test('a rail page shows no on-time sentence and a bus page does', async ({ page 
 		await expect(page.locator('figure').first()).toBeVisible();
 		await expect(page.locator('main')).not.toContainText(sentences);
 	}
+});
+
+// The panel compares last_day with the browser's date, so each test sets the
+// clock. Without that, the fixture would turn stale as the real date moved on.
+const AFTERNOON_UTC = 'T20:00:00Z';
+const daysAfter = (day: string, count: number) =>
+	new Date(Date.parse(`${day}T00:00:00Z`) + count * 86_400_000).toISOString().slice(0, 10);
+
+test('the behind-the-scenes page shows the newest graded day and a 14-day strip at 375 px', async ({
+	page
+}) => {
+	await page.clock.setFixedTime(new Date(`${daysAfter(health.last_day, 1)}${AFTERNOON_UTC}`));
+	const problems = watchConsole(page);
+	await page.goto('/behind-the-scenes');
+	await expect(page.locator('h1')).toHaveCount(1);
+	const cells = page.locator('[data-cell]');
+	await expect(cells).toHaveCount(14);
+	await page.waitForLoadState('networkidle');
+
+	await expect(page.getByText('Newest graded day', { exact: true })).toBeVisible();
+	await expect(page.locator('p.headline')).toHaveText(longDate(health.last_day));
+	await expect(page.locator('[data-warning]')).toHaveCount(0);
+
+	// The failed days come from the fixture file, so the test and the page agree
+	// on which day to mark.
+	const failedDays = health.recent.filter((day) => !day.ok);
+	expect(failedDays.length, 'the fixture has no failed day').toBeGreaterThan(0);
+	await expect(page.locator('[data-cell="failed"]')).toHaveCount(failedDays.length);
+	for (const day of failedDays) {
+		await expect(page.getByText(`${longDate(day.service_date)}: failed a check`)).toHaveCount(1);
+	}
+	const missing =
+		14 - health.recent.filter((day) => day.service_date > daysAfter(health.last_day, -14)).length;
+	expect(missing, 'the fixture has no missing day').toBeGreaterThan(0);
+	await expect(page.locator('[data-cell="none"]')).toHaveCount(missing);
+	await expect(page.locator('[data-check]')).toHaveCount(health.checks.length);
+
+	const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+		scrollWidth: document.documentElement.scrollWidth,
+		clientWidth: document.documentElement.clientWidth
+	}));
+	expect(scrollWidth, 'the page scrolls sideways').toBeLessThanOrEqual(clientWidth);
+	expect(problems).toEqual([]);
+});
+
+// A copy of health.json whose newest day is `lag` days before the fixed date.
+async function openWithLag(page: Page, lag: number) {
+	const today = '2026-11-16';
+	await page.clock.setFixedTime(new Date(`${today}${AFTERNOON_UTC}`));
+	await page.route('**/health.json', (route) =>
+		route.fulfill({ json: { ...health, last_day: daysAfter(today, -lag) } })
+	);
+	await page.goto('/behind-the-scenes');
+	await expect(page.locator('[data-cell]')).toHaveCount(14);
+}
+
+test('a newest day 4 days old shows the warning, and 3 days old does not', async ({ page }) => {
+	await openWithLag(page, 4);
+	const warning = page.locator('[data-warning]');
+	await expect(warning).toBeVisible();
+	await expect(warning).toContainText('4 days before today');
+	await page.unrouteAll();
+	await openWithLag(page, 3);
+	await expect(page.locator('[data-warning]')).toHaveCount(0);
 });

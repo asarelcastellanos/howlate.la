@@ -66,7 +66,7 @@ def test_the_pointer_counts_the_files_of_the_run_it_names(pointer, run_dir):
 
 
 def test_every_file_of_the_run_matches_its_schema(run_dir):
-    for name in ("status", "network"):
+    for name in ("status", "network", "health"):
         assert_valid(name, run_dir / f"{name}.json")
     index = assert_valid("index", run_dir / "index.json")
     listed = {entry["line"] for entry in index["lines"]}

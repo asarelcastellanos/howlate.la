@@ -4,11 +4,12 @@ import type { HealthDay, HealthFile } from './data/types';
 import { addDays, daysBetween } from './date.ts';
 
 /**
- * The daily job runs at 5 am Pacific and grades up to two days back, so a
- * newest day that is 2 days old is normal (CHANGELOG 0.4.1). The panel warns
- * from 3.
+ * The daily job runs at 05:00 Pacific and grades today minus 2. From 00:00 until
+ * that run finishes, about 5 hours every night, the newest graded day is 3 days
+ * old. A gap of 3 is therefore normal and the panel warns from 4. The
+ * pipeline's own alarm is `MAX_LAG_DAYS = 4` in r2.py, and this matches it.
  */
-export const STALE_AFTER_DAYS = 2;
+export const STALE_AFTER_DAYS = 3;
 
 /** The strip shows as many days as health.json lists at most. */
 export const STRIP_DAYS = 14;

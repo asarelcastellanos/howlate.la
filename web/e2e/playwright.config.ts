@@ -1,7 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
-// CI builds the site, serves it and sets E2E_BASE_URL (see .github/workflows/checks.yml),
-// so no webServer block starts a second server here.
+// The tests expect a server that is already running, so no webServer block starts one
+// here. CI serves the preview on port 4173 (see .github/workflows/checks.yml) and sets
+// no E2E_BASE_URL, because the default below matches that port. Set it to test another
+// address or port.
 export default defineConfig({
 	testDir: '.',
 	testMatch: '*.spec.ts',

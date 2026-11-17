@@ -76,8 +76,9 @@
 		<p class="mt-4">
 			<strong>Trips with no timetable.</strong> Rail vehicles reported trips that Metro lists under a
 			service starting on a later date, 338 of them on November 14, 2026. The daily check failed. Those
-			trips are now counted as explained and not graded, and a new check fails when more than 5 percent
-			of a day's reports are explained, so a calendar bug cannot hide behind it.
+			trips are now counted as explained and not graded. A check fails when more than 5 percent of a day's
+			observations are explained, so a calendar bug cannot hide behind it. A second check fails when a
+			line has at least 5 observed trips and every one is explained.
 		</p>
 		<p class="mt-4">
 			<strong>Old files published again.</strong> The upload step published every JSON file in its output

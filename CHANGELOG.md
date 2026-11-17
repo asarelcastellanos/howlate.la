@@ -9,7 +9,8 @@ Every release of HowLate, newest first. Versions follow
 The first launch. howlate.la shows a page for every line, a reliability
 ranking, a methodology page and a behind-the-scenes page with live status. The
 pipeline adds an on-time share and the files those pages read. CI now opens
-every page in a browser.
+the home page, every fixture line page, the ranking, the methodology page and the
+behind-the-scenes page in a browser.
 
 ### Added
 
@@ -48,15 +49,18 @@ every page in a browser.
   `health.json` and shows the newest graded day, whether its checks passed, its
   coverage and a 14-day strip. The strip uses a check, a cross or a dashed
   outline, not color alone. The panel turns to a warning when the newest graded
-  day is more than 2 days old in Los Angeles. Exactly 2 days is not a warning.
+  day is more than 3 days old in Los Angeles. The daily job runs at 5 am Pacific
+  and grades 2 days back, so the newest day is 3 days old for about 5 hours
+  every night, and exactly 3 days is not a warning.
   If `health.json` is missing or in the old shape, the page says the status is
   not published yet. An inline diagram with a text list shows the path from
   Metro's feeds to the site, and six problems solved come from this changelog,
   `LESSONS.md` and the git history. The cost is labelled an estimate, with the
   budget figure and no breakdown.
 - A main navigation on every page, with a skip link first in tab order. Every
-  page has its own title and description, a canonical link, and Open Graph and
-  Twitter tags. The design page is marked `noindex`. A 1200 by 630 social
+  prerendered page has its own title and description, a canonical link, and Open
+  Graph and Twitter tags in its HTML. Line pages are drawn in the browser, so
+  they set these when the page loads, and the served HTML has none. The design page is marked `noindex`. A 1200 by 630 social
   preview image is 60 KB. A build test checks every prerendered page for one
   `h1`, a unique title and description, the tags and the navigation.
 - An on-time share in the pipeline. On time means a delay from -60 to +300
@@ -90,9 +94,12 @@ every page in a browser.
   - Playwright opens every fixture line at 375 px. It fails on a console error,
     a missing or second `h1`, an error state or a sideways scroll. It also
     checks the not-found message, search, the ranking, the Friday 5 pm readout,
-    and that rail pages show no on-time sentence.
+    that rail pages show no on-time sentence, and that the behind-the-scenes
+    page shows the newest day, a 14-day strip with its failed day marked, and
+    a warning when the newest day is 4 days old.
   - axe fails on any serious or critical issue on the home page, a line page,
-    the ranking and the methodology page, in light and dark.
+    the ranking, the methodology page and the behind-the-scenes page, in light
+    and dark.
   - Lighthouse on mobile, with the median of 3 runs, must score 90 for
     performance and 95 for accessibility on the home page, a line page and the
     ranking.
@@ -166,7 +173,7 @@ every page in a browser.
 
 - The pipeline's 441 tests, the collector's 5, ruff lint and ruff format pass.
   The pipeline had 385 tests in 0.4.1.
-- The web type check, lint and build pass, and so do 191 web tests. Five more
+- The web type check, lint and build pass, and so do 207 web tests. Five more
   tests read a git-ignored local data folder and skip when it is absent. The web
   had 28 tests in 0.4.0. `npm run types` leaves no diff.
 - Three lines (801, 720 and 4) and the network match an independent DuckDB query
@@ -177,7 +184,7 @@ every page in a browser.
   no sideways scroll, against local data in the new shape. From the home page,
   tapping the search box, the 720 result and the Friday 5 pm cell shows the
   readout in three taps at 375 px.
-- Locally, 22 Playwright tests pass. Lighthouse performance is 1 on the home
+- Locally, 26 Playwright tests pass. Lighthouse performance is 1 on the home
   page, 0.92 on a line page and 1 on the ranking, and accessibility is 1 on all
   three. A deleted line file, a renamed field, a raised threshold and a wide
   element each fail the right check.
@@ -198,6 +205,9 @@ every page in a browser.
 - Lighthouse performance on a line page is 0.92 against a threshold of 0.9. A
   slow runner could dip under it.
 - Rail on-time share is hidden, as described under Changed.
+- Line pages have no title, description, canonical link or Open Graph tags in
+  the served HTML, because the browser draws them. A link preview or a crawler
+  that does not run JavaScript sees none of them for `/lines/<line>`.
 - The Artifact Registry cleanup (#124) is not done.
 
 ### Not changed

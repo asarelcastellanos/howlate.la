@@ -186,6 +186,31 @@ test('a pointer that is not JSON is an error result', async () => {
 	assert.ok(!result.ok && result.error.kind === 'json');
 });
 
+// A body of `null` is valid JSON, so it gets past the JSON check and used to
+// throw reading `prefix`. Every failure must be a value.
+test('a pointer that is not an object with a run and a prefix is a shape error', async () => {
+	const url = 'https://data.example/site/current.json';
+	const bodies: unknown[] = [
+		null,
+		[],
+		7,
+		'text',
+		{},
+		{ run: 'x' },
+		{ prefix: PREFIX },
+		{ run: 1, prefix: PREFIX },
+		{ run: 'x', prefix: 2 }
+	];
+	for (const body of bodies) {
+		const files = { ...published(), [url]: json(body) };
+		assert.deepEqual(
+			await openRun(BASE, stub(files)),
+			{ ok: false, error: { kind: 'shape', url } },
+			JSON.stringify(body)
+		);
+	}
+});
+
 test('network.json errors are values too', async () => {
 	const files = published();
 	delete files[`https://data.example/${PREFIX}network.json`];

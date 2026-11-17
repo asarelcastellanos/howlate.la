@@ -4,7 +4,7 @@
 // so this test stands in a short replacement for each one.
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { before, describe, test } from 'node:test';
+import { before, describe, mock, test } from 'node:test';
 import { render } from 'svelte/server';
 import { buildStrip, checkRow, failedLabel, freshness, newestDay } from '../src/lib/behind.ts';
 import type { Result } from '../src/lib/data/load.ts';
@@ -93,20 +93,38 @@ describe('the stale rule', () => {
 		assert.deepEqual(freshness('2026-11-16', today), { daysOld: 0, stale: false });
 		assert.deepEqual(freshness('2026-11-15', today), { daysOld: 1, stale: false });
 	});
-	test('exactly 2 days old is normal, so it is not a warning', () => {
+	test('2 and 3 days old are normal, so neither is a warning', () => {
 		assert.deepEqual(freshness('2026-11-14', today), { daysOld: 2, stale: false });
+		assert.deepEqual(freshness('2026-11-13', today), { daysOld: 3, stale: false });
 	});
-	test('3 days old is a warning', () => {
-		assert.deepEqual(freshness('2026-11-13', today), { daysOld: 3, stale: true });
+	test('4 days old is a warning', () => {
+		assert.deepEqual(freshness('2026-11-12', today), { daysOld: 4, stale: true });
 	});
 	test('a day after today is not stale', () => {
 		assert.deepEqual(freshness('2026-11-17', today), { daysOld: -1, stale: false });
 	});
 	test('the count follows Pacific dates across a month end and a clock change', () => {
-		assert.equal(freshness('2026-10-31', '2026-11-03').stale, true);
-		assert.equal(freshness('2026-10-31', '2026-11-02').stale, false);
-		assert.equal(freshness('2026-03-07', '2026-03-10').stale, true);
-		assert.equal(freshness('2026-03-08', '2026-03-10').stale, false);
+		assert.equal(freshness('2026-10-31', '2026-11-04').stale, true);
+		assert.equal(freshness('2026-10-31', '2026-11-03').stale, false);
+		assert.equal(freshness('2026-03-07', '2026-03-11').stale, true);
+		assert.equal(freshness('2026-03-08', '2026-03-11').stale, false);
+	});
+
+	// The job runs at 05:00 Pacific and grades today minus 2. Between midnight
+	// and the end of the run, the newest graded day is 3 days old, so a normal
+	// night must never warn.
+	test('a normal daily cycle never warns, and a missed run does', () => {
+		const at = (iso: string, lastDay: string) => freshness(lastDay, pacificToday(new Date(iso)));
+		// 2026-11-14 is the newest day after the run on the 16th at 05:00 Pacific.
+		for (const iso of [
+			'2026-11-16T14:00:00Z', // 06:00 on the 16th, after the run
+			'2026-11-17T07:59:00Z', // 23:59 on the 16th
+			'2026-11-17T08:00:00Z', // 00:00 on the 17th, gap 3 until the next run
+			'2026-11-17T12:30:00Z' // 04:30 on the 17th, the run has not finished
+		]) {
+			assert.equal(at(iso, '2026-11-14').stale, false, iso);
+		}
+		assert.deepEqual(at('2026-11-17T12:30:00Z', '2026-11-13'), { daysOld: 4, stale: true });
 	});
 });
 
@@ -227,6 +245,45 @@ describe('the status panel', () => {
 		assert.doesNotMatch(text, /\blive\b/i);
 	});
 
+	test('a clean day says all checks passed, and a failed one does not', () => {
+		const clean = plain(show(ok(health([day('2026-11-15')]))));
+		assert.ok(clean.includes('All checks passed.'));
+		assert.ok(!clean.includes('failed.'));
+		const two = plain(show(ok(health([day('2026-11-15', false, ['absurd_pct', 'matched_rate'])]))));
+		assert.ok(two.includes('2 checks failed.'));
+		assert.ok(!two.includes('All checks passed'));
+	});
+
+	test('with no today given, it reads the Pacific date from the clock', () => {
+		// 07:30 UTC on the 17th is 23:30 on the 16th in Los Angeles, so a panel that
+		// used the UTC date would say the 17th.
+		mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-17T07:30:00Z') });
+		try {
+			const html = render(StatusPanel, { props: { result: ok(health([day('2026-11-15')])) } }).body;
+			assert.ok(plain(html).includes('Checked November 16, 2026'));
+			assert.doesNotMatch(html, /data-warning/);
+		} finally {
+			mock.timers.reset();
+		}
+	});
+
+	test('the strip ends on last_day, not on today', () => {
+		// The file is 5 days old, and its reports sit at its own end.
+		const file = health(
+			[day('2026-11-10'), day('2026-11-09', false, ['absurd_pct'])],
+			'2026-11-10'
+		);
+		const html = show(ok(file), '2026-11-15');
+		const cells = [...html.matchAll(/data-cell="(\w+)"/g)].map((m) => m[1]);
+		assert.equal(cells.length, 14);
+		assert.deepEqual(cells.slice(-2), ['failed', 'ok']);
+		assert.equal(cells.filter((state) => state === 'none').length, 12);
+		const text = plain(html);
+		assert.ok(text.includes('Oct 28 Nov 10'));
+		assert.ok(text.includes('November 10, 2026: passed'));
+		assert.ok(!text.includes('November 15, 2026: no report'));
+	});
+
 	test('the strip has 14 cells, each with words, and the empty days are labelled', () => {
 		const html = show(ok(health([day('2026-11-15'), day('2026-11-14', false, ['absurd_pct'])])));
 		assert.equal(html.match(/data-cell="/g)?.length, 14);
@@ -244,14 +301,15 @@ describe('the status panel', () => {
 		assert.ok(!text.includes('All checks passed'));
 	});
 
-	test('2 days old shows no warning and 3 days old does', () => {
+	test('3 days old shows no warning and 4 days old does', () => {
 		const file = health([day('2026-11-15')]);
-		assert.doesNotMatch(show(ok(file), '2026-11-17'), /data-warning/);
-		const html = show(ok(file), '2026-11-18');
+		assert.doesNotMatch(show(ok(file), '2026-11-18'), /data-warning/);
+		const html = show(ok(file), '2026-11-19');
 		assert.match(html, /data-warning/);
 		const text = plain(html);
 		assert.ok(text.includes('Warning'));
-		assert.ok(text.includes('3 days before today'));
+		assert.ok(text.includes('4 days before today'));
+		assert.ok(text.includes('A gap of 3 days is normal'));
 	});
 
 	test('a run with no reports says so and has no checks to list', () => {

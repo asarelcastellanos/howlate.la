@@ -13,13 +13,18 @@ check it against a small committed copy of the data in `fixture/`. The CI job
   match the line's direction count. It also checks the not-found message, the
   home page search, the ranking links, the three-tap path from the home page to
   the Friday 5 pm readout on line 720, and that a rail page shows no on-time
-  sentence. Expected values come from the fixture files, never from numbers
-  typed into a test.
-- `axe.spec.ts` runs axe on the home page, `/lines/720`, `/ranking` and
-  `/methods`, each in light and dark. It fails on any serious or critical
+  sentence. It also opens `/behind-the-scenes` at 375 px and checks one h1, the
+  newest graded day, the 14-day strip with its failed and missing days, the
+  check list, no console error and no sideways scroll. A second test serves a
+  copy of `health.json` through `page.route` and checks that a newest day 4 days
+  old shows the warning and 3 days old does not. Both set the browser clock, so
+  the fixture does not turn stale as the real date moves on. Expected values come
+  from the fixture files, never from numbers typed into a test.
+- `axe.spec.ts` runs axe on the home page, `/lines/720`, `/ranking`, `/methods`
+  and `/behind-the-scenes`, each in light and dark. It fails on any serious or critical
   violation and prints the rule and the elements.
-- `lighthouserc.cjs` runs Lighthouse three times on the home page, `/lines/720`
-  and `/ranking` with its default mobile settings. The median run must score at
+- `lighthouserc.cjs` runs Lighthouse three times on the home page, `/lines/720`,
+  `/ranking` and `/behind-the-scenes` with its default mobile settings. The median run must score at
   least 0.9 for performance and 0.95 for accessibility. Reports stay on disk in
   `reports/lighthouse`, and nothing is uploaded.
 
@@ -48,10 +53,12 @@ loads the data the same way in both.
 
 `fixture/site/` has the layout the site's loader reads. `current.json` names the
 run folder `site/runs/<run>/`, and that folder holds `index.json`, `status.json`,
-`network.json` and `lines/<id>.json`. `fixture/.gitignore` re-includes `site/`,
+`network.json`, `health.json` and `lines/<id>.json`. The pointer's `files` is the
+number of lines plus 4. `fixture/.gitignore` re-includes `site/`,
 which the repository's `.gitignore` ignores for pipeline output.
 
-It is real data with two edits. Eight lines come from a full `aggregate` output
+It is real data with two edits, plus a `health.json` that is not copied from a
+run. Eight lines come from a full `aggregate` output
 over the 90 service days from 2026-08-18 to 2026-11-15.
 
 | Line | Why it is there                                                           |
@@ -67,14 +74,23 @@ over the 90 service days from 2026-08-18 to 2026-11-15.
 
 - **Trimmed.** Each direction keeps at most 10 stops, spread evenly along the
   route with the first and last kept, with each kept stop's cells. The profile
-  is whole. The 10-stop limit keeps the fixture at 418 KB. 14 stops came to
-  497 KB. The index and each line's totals still describe the full data, so they
+  is whole. The 10-stop limit keeps the fixture at 421 KB. 14 stops came to
+  about 500 KB. The index and each line's totals still describe the full data, so they
   do not match the stops that remain. `status.json` and `network.json` are
   copied unchanged and describe all 117 lines, while the index lists 8.
 - **One direction.** Real data has no line with one direction, because all 115
   lines in the source have two. Line 550 is a small real line with direction 0
   removed, so only direction 1 stays. Its index entry takes that direction's
   numbers.
+- **health.json.** `make_fixture.py` writes 13 saved daily reports in the shape
+  `report.py` writes and builds the file with the pipeline's own
+  `health.document`. The 14 days end on 2026-11-15, the `last_day` in
+  `status.json`. 2026-11-12 has no report, and 2026-11-10 fails its coverage
+  check. The newest day lists five checks with the pipeline's labels. Three are
+  ranges (`matched_rate`, `coverage`, `absurd_pct`) and two are counts (`feeds`,
+  which expects 2, and `silent_lines`). The numbers are made up. The tests
+  read the expected values from this file, so they stay true when the numbers
+  change.
 - **Source shape.** The source predates two removals, so each cell's `ontime`
   and each stop's `all.n` are deleted. `pipeline/tests/test_web_fixture.py`
   validates every file against the strict schemas in `pipeline/schemas`, so the
@@ -89,17 +105,11 @@ cd web && npx prettier --write e2e/fixture   # optional, the folder is not check
 .venv/bin/python -m pytest pipeline/tests/test_web_fixture.py
 ```
 
+To change only `health.json` and the pointer's file count, run
+`python3 web/e2e/make_fixture.py --health web/e2e/fixture`. It reads the existing
+`status.json` and needs no aggregate output. Both commands import the pipeline's
+`health` module from `pipeline/src`, which uses only the standard library.
+
 Edit `RUN` in `make_fixture.py` first if the run name should change. A change to
 the line list or the shapes it covers also needs the checks in `site.spec.ts`
 to stay true.
-
-## Known failures
-
-`axe.spec.ts` fails on `/lines/720` in both schemes today. The rule is
-`aria-prohibited-attr`, with serious impact, on 13 `<g>` elements inside the
-Plot charts. Plot labels each mark group, for example `aria-label="cell"` or
-`aria-label="rule"`, and a `<g>` with no role may not carry a label. Removing
-`aria-label` from every `svg g[aria-label]` on the live page cleared the
-violation. The fix belongs in `src/lib/charts/Chart.svelte` or in
-`heatmap.ts`, which finds the heatmap cells by that same label, so the label
-must be replaced by a `data-` attribute first.
