@@ -1,4 +1,4 @@
-import type { CurrentPointer, LineFile, SiteIndex, SiteStatus } from './types';
+import type { CurrentPointer, LineFile, NetworkFile, SiteIndex, SiteStatus } from './types';
 
 /** Why a file did not load. The caller shows an error state, never a blank page. */
 export type LoadError = {
@@ -15,6 +15,7 @@ export type Run = {
 	index: () => Promise<Result<SiteIndex>>;
 	status: () => Promise<Result<SiteStatus>>;
 	line: (line: string) => Promise<Result<LineFile>>;
+	network: () => Promise<Result<NetworkFile>>;
 };
 
 type Fetch = typeof fetch;
@@ -57,7 +58,8 @@ export async function openRun(base: string, fetchFn: Fetch = fetch): Promise<Res
 			pointer: pointer.data,
 			index: () => file<SiteIndex>('index.json'),
 			status: () => file<SiteStatus>('status.json'),
-			line: (line) => file<LineFile>(`lines/${encodeURIComponent(line)}.json`)
+			line: (line) => file<LineFile>(`lines/${encodeURIComponent(line)}.json`),
+			network: () => file<NetworkFile>('network.json')
 		}
 	};
 }

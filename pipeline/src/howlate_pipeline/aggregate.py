@@ -16,6 +16,10 @@ Every cell carries what was measured *and* what was scheduled. Only about half o
 all scheduled stops can be observed at all, so a cell built on three sightings
 must not be able to masquerade as one built on three hundred.
 
+Each stop and direction also carries one all-day set of numbers, so a page can
+show "how bad is this stop" without adding up dayparts that may have gaps.
+`network.json` holds the hour-of-week shape for the whole network, bus and rail.
+
 Trip origins are excluded throughout. They measure a departure rather than an
 arrival and mixing the two would quietly bias every number toward "early".
 """
@@ -76,31 +80,62 @@ def load(con: duckdb.DuckDBPyConnection, arrivals: Path) -> tuple[str, str, int]
     return str(first), str(last), days
 
 
-# Both grains want the same numbers, and only the grouping differs. Keeping the
-# expression in one place means the profile and the stop cells can never drift
-# into measuring subtly different things.
-METRICS = """
-    count(*)                                            AS scheduled,
-    count(*) FILTER (WHERE delay_seconds IS NOT NULL)    AS measured,
+# On time is 60 s early to 300 s late, both ends included. Metro's 2025 Transit
+# Service Policies and Standards (section 3.3) call a bus or train on time when
+# it is "no more than 1 minute early and no more than 5 minutes late", and use
+# the same window for rail. The standard does not say whether exactly 5 minutes
+# counts, and "no more than" reads as inclusive. Delays are whole seconds. Over
+# all 51.6 million measured arrivals of the 90 service days from 2026-08-18 to
+# 2026-11-15, 0.11% sit at exactly -60 s and 0.04% at exactly +300 s, so the
+# reading of the edges moves the share by about 0.15 points.
+#
+# Metro measures bus at timepoints and rail at the end terminal. HowLate scores
+# the arrival at every scheduled stop, so the result is not Metro's published
+# on-time performance and the schemas say so.
+ONTIME_FROM, ONTIME_TO = -60, 300
+
+# Every grain wants the same numbers, and only the grouping differs. Keeping the
+# expression in one place means the profile, the stop cells and the headlines
+# can never drift into measuring subtly different things. The names are the
+# keys of the files, so a row from the query is the entry as written.
+SPREAD = """
+    count(*) FILTER (WHERE delay_seconds IS NOT NULL)    AS n,
     CAST(round(median(delay_seconds)) AS INTEGER)        AS med,
     CAST(round(quantile_cont(delay_seconds, 0.9)) AS INTEGER) AS p90,
     round(100.0 * count(*) FILTER (WHERE delay_seconds > 300)
           / nullif(count(*) FILTER (WHERE delay_seconds IS NOT NULL), 0), 1) AS pct5
 """
+ONTIME = f"""
+    round(100.0 * count(*) FILTER (WHERE delay_seconds BETWEEN {ONTIME_FROM} AND {ONTIME_TO})
+          / nullif(count(*) FILTER (WHERE delay_seconds IS NOT NULL), 0), 1) AS ontime
+"""
+DELAYS = f"{SPREAD}, {ONTIME}"
+METRICS = f"count(*) AS sched, {DELAYS}"
+# A daypart cell has no ontime. Of line 92's 70 KB gzipped, its 4,167 cells were
+# 54 KB, and an ontime on each added 9.6 KB. The pages read med per daypart.
+CELL_METRICS = f"count(*) AS sched, {SPREAD}"
+
+
+def rows(con: duckdb.DuckDBPyConnection, sql: str) -> list[dict]:
+    """Run a query and return each row as a dict keyed by its column names."""
+    relation = con.sql(sql)
+    return [dict(zip(relation.columns, row, strict=True)) for row in relation.fetchall()]
 
 
 def profiles(con: duckdb.DuckDBPyConnection) -> dict[tuple, list]:
     """Hour-of-week shape for each line and direction, pooled over all its stops."""
     out = {}
-    for agency, line, direction, how, sched, n, med, p90, pct5 in con.sql(f"""
-        SELECT agency, line, direction_id, how, {METRICS}
+    for row in rows(
+        con,
+        f"""
+        SELECT agency, line, direction_id, how AS h, {METRICS}
         FROM a GROUP BY 1, 2, 3, 4
         HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
         ORDER BY 1, 2, 3, 4
-    """).fetchall():
-        out.setdefault((agency, line, direction), []).append(
-            {"h": how, "n": n, "sched": sched, "med": med, "p90": p90, "pct5": pct5}
-        )
+    """,
+    ):
+        key = (row.pop("agency"), row.pop("line"), row.pop("direction_id"))
+        out.setdefault(key, []).append(row)
     return out
 
 
@@ -111,44 +146,112 @@ def stop_cells(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
     with something in them. Deriving the totals by summing the cells instead
     would lose the ~62,000 scheduled stops whose daypart saw nothing at all, and
     the file would then claim better coverage than the data supports.
+
+    `all` pools every day and daypart at the stop. The cells leave out a
+    daypart with nothing measured, so a stop's cells can have gaps that `all`
+    does not. It has no `n`, because the stop's own `n` is the same count. A stop
+    with nothing measured has an `n` of 0 and nulls in `all`.
     """
     out = {}
-    for agency, line, direction, stop, seq, sched, n in con.sql("""
+    for row in rows(
+        con,
+        f"""
         SELECT agency, line, direction_id, stop_id,
                CAST(round(median(stop_sequence)) AS INTEGER) AS seq,
-               count(*) AS scheduled,
-               count(*) FILTER (WHERE delay_seconds IS NOT NULL) AS measured
+               count(*) AS sched, {DELAYS}
         FROM a GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 5, 4
-    """).fetchall():
-        out.setdefault((agency, line, direction), {})[stop] = {
-            "seq": seq,
-            "n": n,
-            "sched": sched,
+    """,
+    ):
+        key = (row.pop("agency"), row.pop("line"), row.pop("direction_id"))
+        stop = row.pop("stop_id")
+        out.setdefault(key, {})[stop] = {
+            "seq": row.pop("seq"),
+            "n": row.pop("n"),
+            "sched": row.pop("sched"),
+            "all": row,
             "cells": [],
         }
 
-    for agency, line, direction, stop, bucket, sched, n, med, p90, pct5 in con.sql(f"""
-        SELECT agency, line, direction_id, stop_id, bucket, {METRICS}
+    for row in rows(
+        con,
+        f"""
+        SELECT agency, line, direction_id, stop_id, bucket AS d, {CELL_METRICS}
         FROM a GROUP BY 1, 2, 3, 4, 5
         HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
         ORDER BY 1, 2, 3, 4, 5
-    """).fetchall():
-        out[(agency, line, direction)][stop]["cells"].append(
-            {"d": bucket, "n": n, "sched": sched, "med": med, "p90": p90, "pct5": pct5}
-        )
+    """,
+    ):
+        key = (row.pop("agency"), row.pop("line"), row.pop("direction_id"))
+        out[key][row.pop("stop_id")]["cells"].append(row)
     return out
+
+
+def direction_totals(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
+    """The all-day numbers for each line and direction."""
+    return {
+        (row.pop("agency"), row.pop("line"), row.pop("direction_id")): row
+        for row in rows(
+            con,
+            f"""
+            SELECT agency, line, direction_id, {DELAYS} FROM a GROUP BY 1, 2, 3
+            HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
+        """,
+        )
+    }
 
 
 def headlines(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
     """One row per line for the index, so the homepage needs no other file."""
     return {
-        (agency, line): {"n": n, "sched": sched, "med": med, "p90": p90, "pct5": pct5}
-        for agency, line, sched, n, med, p90, pct5 in con.sql(f"""
+        (row.pop("agency"), row.pop("line")): row
+        for row in rows(
+            con,
+            f"""
             SELECT agency, line, {METRICS} FROM a GROUP BY 1, 2
             HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
             ORDER BY 1, 2
-        """).fetchall()
+        """,
+        )
     }
+
+
+def network(con: duckdb.DuckDBPyConnection, modes: dict[tuple, str]) -> dict:
+    """The whole network, then bus alone and rail alone, each with its hour-of-week shape.
+
+    `modes` is the mode each line is shown under in the index, so a line is
+    counted in the same mode everywhere. The hour profile pools every line,
+    which is why it needs the arrivals and cannot be built from the line files.
+    A mode with nothing measured is present and empty, so a reader never has to
+    test for a missing key.
+    """
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE line_modes(agency VARCHAR, line VARCHAR, mode VARCHAR)"
+    )
+    con.executemany("INSERT INTO line_modes VALUES (?, ?, ?)", [(*k, v) for k, v in modes.items()])
+    # GROUPING SETS gives the whole network (mode is NULL) and each mode in one scan.
+    joined = "FROM a JOIN line_modes USING (agency, line)"
+    out = {
+        scope: {
+            "all": {"n": 0, "med": None, "p90": None, "pct5": None, "ontime": None},
+            "profile": [],
+        }
+        for scope in ("network", "bus", "rail")
+    }
+    for row in rows(
+        con, f"SELECT mode, {DELAYS} {joined} GROUP BY GROUPING SETS ((mode), ()) ORDER BY mode"
+    ):
+        out[row.pop("mode") or "network"]["all"] = row
+    for row in rows(
+        con,
+        f"""
+        SELECT mode, how AS h, {METRICS} {joined}
+        GROUP BY GROUPING SETS ((mode, how), (how))
+        HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
+        ORDER BY mode NULLS FIRST, how
+    """,
+    ):
+        out[row.pop("mode") or "network"]["profile"].append(row)
+    return out
 
 
 def fetch_arrivals(client: storage.Client, dest: Path) -> int:
@@ -201,13 +304,14 @@ def write_json(path: Path, payload: dict) -> int:
 def build(
     con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path, first: str, last: str, days: int
 ) -> tuple[list[tuple[str, int, int]], list[str]]:
-    """Write index.json, status.json and one file per line.
+    """Write index.json, status.json, network.json and one file per line.
 
     Returns the size of each line file and the names of every file written,
     relative to `out`. `upload` publishes those names and nothing else.
     """
     profile = profiles(con)
     cells = stop_cells(con)
+    totals_by_direction = direction_totals(con)
     heads = headlines(con)
 
     known = {(agency, line) for agency, line, _ in profile}
@@ -244,6 +348,7 @@ def build(
                     "seq": record["seq"],
                     "n": record["n"],
                     "sched": record["sched"],
+                    "all": record["all"],
                     "cells": record["cells"],
                 }
                 for stop_id, record in sorted(
@@ -256,6 +361,7 @@ def build(
                     "to": catalogue["directions"].get((agency, line, direction), ""),
                     "n": sum(s["n"] for s in stops),
                     "sched": sum(s["sched"] for s in stops),
+                    "all": totals_by_direction[key],
                     "profile": profile[key],
                     "stops": stops,
                 }
@@ -301,6 +407,14 @@ def build(
         },
     )
     names.append("status.json")
+
+    default = {"mode": "bus"}
+    modes = {
+        (agency, line): catalogue["lines"].get((agency, line), default)["mode"]
+        for agency, line in con.sql("SELECT DISTINCT agency, line FROM a").fetchall()
+    }
+    write_json(out / "network.json", network(con, modes))
+    names.append("network.json")
 
     return written, sorted(names)
 

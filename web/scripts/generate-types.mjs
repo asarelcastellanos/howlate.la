@@ -14,9 +14,17 @@ const ROOTS = {
 	'current.schema.json': 'CurrentPointer',
 	'index.schema.json': 'SiteIndex',
 	'line.schema.json': 'LineFile',
+	'network.schema.json': 'NetworkFile',
 	'status.schema.json': 'SiteStatus'
 };
-const DEFS = { entry: 'IndexEntry' };
+const DEFS = {
+	entry: 'IndexEntry',
+	delays: 'Delays',
+	stopDelays: 'StopDelays',
+	scope: 'NetworkScope',
+	scopeDelays: 'NetworkDelays',
+	scopeHour: 'NetworkHour'
+};
 
 const HEADER = `// Generated from ../../../../pipeline/schemas by scripts/generate-types.mjs.
 // Do not edit. Run \`npm run types\` in web/ to regenerate it, and commit the

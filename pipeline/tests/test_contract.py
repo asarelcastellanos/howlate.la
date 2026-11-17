@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 import pytest
+import test_ontime
 import test_write
 from fixture_day import SERVICE_DATE, run_day
 
@@ -82,6 +83,7 @@ def documents(site: Path, pointer: dict) -> dict[str, dict]:
         "index": json.loads(written["index.json"].read_text()),
         "status": json.loads(written["status.json"].read_text()),
         "line": json.loads(written["lines/720.json"].read_text()),
+        "network": json.loads(written["network.json"].read_text()),
         Path(aggregate.POINTER).stem: pointer,
     }
 
@@ -111,7 +113,7 @@ def missing_schemas(names: list[str]) -> set[str]:
 
 def test_every_file_aggregate_writes_validates(site, pointer):
     names = sorted(path.relative_to(site).as_posix() for path in site.rglob("*.json"))
-    assert names == ["index.json", "lines/720.json", "status.json"]
+    assert names == ["index.json", "lines/720.json", "network.json", "status.json"]
     for name in names:
         document = json.loads((site / name).read_text())
         errors = [error.message for error in validator(kind_of(name)).iter_errors(document)]
@@ -122,6 +124,18 @@ def test_every_file_aggregate_writes_validates(site, pointer):
     assert pointer["previous"] == ["20261115T130434Z-e4dc48"]
 
 
+def test_a_site_with_rail_and_two_directions_validates(tmp_path):
+    """The fixture is bus only, so this one has rail and every number filled in."""
+    _, site = test_ontime.build_three_lines(tmp_path)
+    names = sorted(path.relative_to(site).as_posix() for path in site.rglob("*.json"))
+    assert names == ["index.json", "lines/720.json", "lines/754.json", "lines/801.json",
+                     "network.json", "status.json"]  # fmt: skip
+    for name in names:
+        document = json.loads((site / name).read_text())
+        errors = [error.message for error in validator(kind_of(name)).iter_errors(document)]
+        assert not errors, f"{name}: {errors[:3]}"
+
+
 def test_a_stop_missing_from_the_timetable_validates_with_null_coordinates(nameless_site):
     document = json.loads((nameless_site / "lines" / "720.json").read_text())
     stops = [stop for direction in document["directions"] for stop in direction["stops"]]
@@ -130,7 +144,7 @@ def test_a_stop_missing_from_the_timetable_validates_with_null_coordinates(namel
     assert not list(validator("line").iter_errors(document))
 
 
-@pytest.mark.parametrize("kind", ["index", "status", "line", "current"])
+@pytest.mark.parametrize("kind", ["index", "status", "line", "network", "current"])
 def test_renaming_or_adding_a_field_fails_validation(site, pointer, kind):
     document = documents(site, pointer)[kind]
     check = validator(kind)

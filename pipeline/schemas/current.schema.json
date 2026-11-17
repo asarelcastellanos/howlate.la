@@ -8,7 +8,7 @@
   "required": ["run", "prefix", "files", "previous"],
   "properties": {
     "run": {"type": "string", "pattern": "^\\d{8}T\\d{6}Z(-[0-9a-f]{6})?$", "description": "The run's name, which is its UTC start time followed by a random suffix. Names sort by age."},
-    "prefix": {"type": "string", "pattern": "^site/runs/[^/]+/$", "description": "Where the run's files are, relative to the bucket root and ending in a slash. Append index.json, status.json or lines/<line>.json."},
+    "prefix": {"type": "string", "pattern": "^site/runs/[^/]+/$", "description": "Where the run's files are, relative to the bucket root and ending in a slash. Append index.json, status.json, network.json or lines/<line>.json."},
     "files": {"type": "integer", "minimum": 1, "description": "How many files the run holds."},
     "previous": {"type": "array", "maxItems": 2, "items": {"type": "string", "pattern": "^\\d{8}T\\d{6}Z(-[0-9a-f]{6})?$"}, "description": "The runs that were current before this one, newest first. They stay in the bucket so a reader that fetched an older pointer can finish."}
   }

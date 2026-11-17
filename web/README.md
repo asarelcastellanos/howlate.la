@@ -81,8 +81,8 @@ field then breaks `npm run check` where the site reads it.
 
 `src/lib/data/load.ts` loads the files. `openRun(base)` fetches
 `<base>/site/current.json`, then returns readers for `index.json`,
-`status.json` and `lines/<line>.json` from the run's `prefix`, so a page never
-mixes two runs. A failed request, a status other than 200, or a body that is not
+`status.json`, `network.json` and `lines/<line>.json` from the run's `prefix`,
+so a page never mixes two runs. A failed request, a status other than 200, or a body that is not
 JSON comes back as `{ ok: false, error }`, never a throw, so a page can show an
 error state. The loader does not validate the body. The pipeline's contract
 test covers the shape.
