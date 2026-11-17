@@ -8,19 +8,18 @@
 	import Masthead from '#lib/design/Masthead.svelte';
 	import SearchBox from '#lib/design/SearchBox.svelte';
 	import StatusStrip from '#lib/design/StatusStrip.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 </script>
 
-<svelte:head>
-	<title>HowLate · How late is LA Metro?</title>
-	<meta
-		name="description"
-		content="How late LA Metro buses and trains run, stop by stop, measured against the timetable."
-	/>
-</svelte:head>
+<PageHead
+	title="HowLate · How late is LA Metro?"
+	description="How late LA Metro buses and trains run, stop by stop, measured against the timetable."
+	path="/"
+/>
 
 <Masthead dateline="LA Metro bus and rail" />
 
-<main class="page py-12">
+<main id="main" class="page py-12">
 	<Kicker>Coming soon</Kicker>
 	<Headline>How late is LA Metro?</Headline>
 	<p class="mt-6">

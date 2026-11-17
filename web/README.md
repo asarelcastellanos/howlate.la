@@ -19,13 +19,38 @@ npm run check        # svelte-check, the type check CI runs
 npm run lint         # prettier and eslint
 npm run types        # regenerate src/lib/data/types.ts from pipeline/schemas
 npm test             # contrast, generated types, data loader and chart tests
-npm run build        # writes the static site to build/
+npm run build        # writes the static site to build/, then runs tests/built.test.ts on it
 npm run preview      # serves build/ on http://localhost:4173
 ```
 
 To run against local data, set `PUBLIC_DATA_BASE=/data` when you build or start
 the dev server. Put a copy of the bucket's `site/` folder in `web/static/data/`,
 which git ignores.
+
+## Navigation and page head
+
+The main navigation is `src/lib/design/Nav.svelte`, and `Masthead` draws it, so
+every page has it with no per-page code. It also draws a "Skip to content" link
+that jumps to the `<main id="main">` each page sets. The links come from one
+list, `NAV` in `src/lib/nav.ts`. An entry with `ready: false` is not drawn. A PR
+that adds a page flips its flag. The current page gets `aria-current="page"`
+from the route id.
+
+Every page calls `PageHead` (`src/lib/PageHead.svelte`) once with a `title`,
+a `description` of 40 to 160 characters, a `path` and optionally `noindex`. It
+writes the title, the description, the canonical link and the Open Graph and
+Twitter tags. Only the home page keeps its whole title. Any other title gets
+" · HowLate" added. A page never writes its own `<title>`, because two tags in
+one head leave the browser to pick one.
+
+`SITE_URL` in `src/lib/config.ts` builds the canonical and preview addresses. It
+is the pages.dev address until the custom domain arrives in 0.5.1 (issue #32).
+
+The preview image is `static/og.png`, made from `scripts/og.html`.
+`scripts/README-og.md` has the steps to remake it. `tests/built.test.ts` runs
+after `npm run build`. It reads every prerendered page and fails on a missing
+nav, a missing or shared title or description, a page without one h1, or a
+preview image of the wrong size.
 
 ## Decisions
 

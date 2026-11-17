@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>HowLate social preview</title>
+		<!-- Source for static/og.png. Steps to remake it are in README-og.md. The
+		     colors are the light tokens in src/routes/layout.css, the fonts are the
+		     site's, and nothing loads from the network. -->
+		<style>
+			@font-face {
+				font-family: 'Source Serif 4 Variable';
+				font-weight: 200 900;
+				src: url('../node_modules/@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2')
+					format('woff2-variations');
+			}
+			@font-face {
+				font-family: 'Inter Variable';
+				font-weight: 100 900;
+				src: url('../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+					format('woff2-variations');
+			}
+			* {
+				box-sizing: border-box;
+				margin: 0;
+			}
+			html,
+			body {
+				width: 1200px;
+				height: 630px;
+				overflow: hidden;
+				background: #fbf8f1;
+				color: #1b1a17;
+			}
+			body {
+				display: flex;
+				flex-direction: column;
+				padding: 52px 72px 48px;
+				font-family: 'Source Serif 4 Variable', Georgia, serif;
+				font-optical-sizing: auto;
+			}
+			.kicker {
+				display: flex;
+				justify-content: space-between;
+				font-family: 'Inter Variable', system-ui, sans-serif;
+				font-size: 20px;
+				font-weight: 600;
+				letter-spacing: 0.09em;
+				text-transform: uppercase;
+				color: #5e5a51;
+			}
+			.nameplate {
+				margin: 22px 0 26px;
+				text-align: center;
+				font-size: 176px;
+				font-weight: 700;
+				letter-spacing: -0.02em;
+				line-height: 1;
+			}
+			.double {
+				border-top: 8px double #1b1a17;
+			}
+			.sentence {
+				margin: 40px auto 0;
+				max-width: 900px;
+				text-align: center;
+				font-size: 46px;
+				font-weight: 500;
+				line-height: 1.25;
+				text-wrap: balance;
+			}
+			.lines {
+				display: flex;
+				justify-content: center;
+				gap: 14px;
+				margin-top: auto;
+				padding-top: 24px;
+				border-top: 2px solid #d9d3c4;
+			}
+			.bullet {
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				width: 44px;
+				height: 44px;
+				border-radius: 50%;
+				font-family: 'Inter Variable', system-ui, sans-serif;
+				font-size: 24px;
+				font-weight: 700;
+			}
+		</style>
+	</head>
+	<body>
+		<p class="kicker"><span>Los Angeles</span><span>LA Metro bus and rail</span></p>
+		<p class="nameplate">HowLate</p>
+		<hr class="double" />
+		<p class="sentence">How late is LA Metro, stop by stop, measured against the timetable.</p>
+		<div class="lines">
+			<span class="bullet" style="background: #0072bc; color: #fff">A</span>
+			<span class="bullet" style="background: #eb131b; color: #fff">B</span>
+			<span class="bullet" style="background: #58a738; color: #fff">C</span>
+			<span class="bullet" style="background: #a05da5; color: #fff">D</span>
+			<span class="bullet" style="background: #fdb913; color: #000">E</span>
+			<span class="bullet" style="background: #e56db1; color: #000">K</span>
+		</div>
+	</body>
+</html>

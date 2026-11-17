@@ -11,6 +11,7 @@
 	import LineBullet from '#lib/design/LineBullet.svelte';
 	import LineChip from '#lib/design/LineChip.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 	import Rule from '#lib/design/Rule.svelte';
 	import { LINES, type BusService } from '#lib/design/lines.ts';
 	import { showsOntime } from '#lib/linePage.ts';
@@ -44,14 +45,16 @@
 	];
 </script>
 
-<svelte:head>
-	<title>Design specimen · HowLate</title>
-	<meta name="robots" content="noindex" />
-</svelte:head>
+<PageHead
+	title="Design specimen"
+	description="The HowLate design system on one page: type, color, rules, line bullets and charts, drawn with sample data."
+	path="/design"
+	noindex
+/>
 
 <Masthead dateline="Specimen, not data" />
 
-<main class="page pb-16">
+<main id="main" class="page pb-16">
 	<section class="pt-10 pb-6">
 		<Kicker>Design system</Kicker>
 		<Headline dek="Every piece of the visual foundation, in the theme your device is using.">
@@ -193,7 +196,11 @@
 	<Rule />
 	<article class="my-8">
 		<Kicker>Sample article</Kicker>
-		<Headline size="md" dek="The answer comes first, in plain words. The figure comes second.">
+		<Headline
+			level={2}
+			size="md"
+			dek="The answer comes first, in plain words. The figure comes second."
+		>
 			A headline states the finding
 		</Headline>
 		<p class="caption text-ink-muted mt-3">Placeholder text. Nothing here is measured.</p>

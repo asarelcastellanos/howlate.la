@@ -25,6 +25,7 @@ registerHooks({
 	resolve(specifier, context, nextResolve) {
 		const stubs: Record<string, string> = {
 			'$app/paths': 'export const resolve = (path) => path;',
+			'$app/state': 'export const page = { route: { id: "/ranking" } };',
 			'$app/env/public': 'export const PUBLIC_DATA_BASE = "/data";'
 		};
 		if (!(specifier in stubs)) return nextResolve(specifier, context);

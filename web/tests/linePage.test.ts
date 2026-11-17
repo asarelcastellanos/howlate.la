@@ -19,7 +19,6 @@ import {
 	headline,
 	lineName,
 	lineResult,
-	pageTitle,
 	shortVia,
 	showsOntime
 } from '../src/lib/linePage.ts';
@@ -30,7 +29,8 @@ registerHooks({
 			'$app/paths':
 				'export const resolve = (path, params) => path.replace(/\\[(\\w+)\\]/g, (_, k) => params[k]);',
 			'$app/navigation': 'export const goto = () => Promise.resolve();',
-			'$app/state': "export const page = { params: { line: '720' } };",
+			'$app/state':
+				"export const page = { params: { line: '720' }, route: { id: '/lines/[line]' } };",
 			'$app/env/public': "export const PUBLIC_DATA_BASE = '/data';"
 		};
 		if (!(specifier in stubs)) return nextResolve(specifier, context);
@@ -173,7 +173,6 @@ test('the page has one h1 and names the line in its title and description', () =
 	assert.equal(body.match(/<h1[\s>]/g)?.length, 1);
 	assert.match(head, /<title>Route 720 · HowLate<\/title>/);
 	assert.match(head, /<meta name="description" content="How late Route 720 runs/);
-	assert.equal(pageTitle({ label: 'Metro A Line', mode: 'rail' }), 'Metro A Line · HowLate');
 	assert.doesNotMatch(head + body, /[—–]/);
 });
 
