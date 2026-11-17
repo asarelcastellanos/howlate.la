@@ -50,19 +50,21 @@ from howlate_pipeline import (
     backfill,
     gtfs,
     labels,
+    pacific_today,
     r2,
     report,
 )
 
 
-def yesterday() -> str:
+def yesterday(now: datetime | None = None) -> str:
     """The default day to measure.
 
     Two days back, not one. A service day is not over until about 3am the
     following morning, and the UTC partition holding its evening is only complete
-    once that morning has passed.
+    once that morning has passed. The count starts from the Pacific date, because
+    a manual run after 16:00 Pacific sees tomorrow's date on a UTC machine.
     """
-    return (datetime.now() - timedelta(days=2)).strftime("%Y%m%d")
+    return (pacific_today(now) - timedelta(days=2)).strftime("%Y%m%d")
 
 
 def require_complete(service_date: str) -> str:

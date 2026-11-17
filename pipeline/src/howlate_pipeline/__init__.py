@@ -12,6 +12,9 @@ Nothing here writes to the raw bucket. The archive is append-only and this reads
 it; a bug in the analysis must never be able to damage the collection.
 """
 
+from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
+
 # Kept equal to the version in pyproject.toml, so a report says which release
 # wrote it. It does not tell two commits of one release apart; to grade a day
 # again, delete its report (see backfill.py).
@@ -29,6 +32,17 @@ DERIVED_BUCKET = "howlate-derived"
 # service day, in local time (see gtfs.day_base), so every conversion in this
 # package goes through this zone and never through the machine's own.
 ZONE = "America/Los_Angeles"
+
+
+def pacific_today(now: datetime | None = None) -> date:
+    """The calendar date in Los Angeles. The one place a date is read from the clock.
+
+    Cloud Run's clock is UTC, which is a day ahead of Los Angeles from 16:00 to
+    24:00 Pacific, so the machine's own date is never the service day. `now` is
+    for tests and must be timezone-aware.
+    """
+    return (now or datetime.now(UTC)).astimezone(ZoneInfo(ZONE)).date()
+
 
 BUS_AGENCY = "LACMTA"
 RAIL_AGENCY = "LACMTA_Rail"

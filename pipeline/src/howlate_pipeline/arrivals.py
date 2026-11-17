@@ -18,9 +18,12 @@ That is a bus parked at its terminal announcing the trip it has not started. The
 first STOPPED_AT there is when it arrived to wait; the last one is when it left.
 So the origin is measured as a departure and marked as one.
 
-**The last stop of a trip is never observed.** Not once in 14,340 trips. Vehicles
-stop reporting a trip before finishing it. Nothing here can fix that; the rows
-exist, unobserved, and the report asserts the count stays at zero so that a
+**The last stop of a trip is timed from an approach report, not a stop.** A
+vehicle stops reporting a trip before it finishes, so a stopped report at the
+final stop is almost never there. The #133 analysis of the arrivals through
+2026-11-15 found the final stop timed from the last approach report in 84% of
+rail trips and 64% of bus trips. That time is an estimate. The report expects no
+stopped records at the final stop and fails its check if one appears, so a
 change in the feed's behaviour shows up as a surprise rather than as data.
 """
 
