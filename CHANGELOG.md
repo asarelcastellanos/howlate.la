@@ -173,7 +173,7 @@ behind-the-scenes page in a browser.
 
 - The pipeline's 441 tests, the collector's 5, ruff lint and ruff format pass.
   The pipeline had 385 tests in 0.4.1.
-- The web type check, lint and build pass, and so do 207 web tests. Five more
+- The web type check, lint and build pass, and so do 210 web tests. Five more
   tests read a git-ignored local data folder and skip when it is absent. The web
   had 28 tests in 0.4.0. `npm run types` leaves no diff.
 - Three lines (801, 720 and 4) and the network match an independent DuckDB query
@@ -185,9 +185,10 @@ behind-the-scenes page in a browser.
   tapping the search box, the 720 result and the Friday 5 pm cell shows the
   readout in three taps at 375 px.
 - Locally, 26 Playwright tests pass. Lighthouse performance is 1 on the home
-  page, 0.92 on a line page and 1 on the ranking, and accessibility is 1 on all
-  three. A deleted line file, a renamed field, a raised threshold and a wide
-  element each fail the right check.
+  page, 0.96 to 1 on a line page, 1 on the ranking and 1 on the
+  behind-the-scenes page, and accessibility is 1 on all four. A deleted line
+  file, a renamed field, a raised threshold and a wide element each fail the
+  right check.
 - Built from the real reports through 2026-11-15, `health.json` is 3.9 KB. The
   newest 14 days all pass, including 2026-11-07, 11-13 and 11-14 under the new
   checks. The three failing days in the bucket are older.
@@ -202,8 +203,10 @@ behind-the-scenes page in a browser.
   behind-the-scenes page says the status is not published yet, because the
   bucket has no `health.json`. The line pages and the home page were checked
   only against local data in the new shape.
-- Lighthouse performance on a line page is 0.92 against a threshold of 0.9. A
-  slow runner could dip under it.
+- Lighthouse performance on a line page is 0.96 to 1 locally against a
+  threshold of 0.9. The first CI run scored 0.89 before the chart code loaded
+  after the headline, so a slow runner can still land a few points below a local
+  run.
 - Rail on-time share is hidden, as described under Changed.
 - Line pages have no title, description, canonical link or Open Graph tags in
   the served HTML, because the browser draws them. A link preview or a crawler
