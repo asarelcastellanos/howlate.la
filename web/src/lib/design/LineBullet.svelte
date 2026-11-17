@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { BUS_SERVICES, lineById, type BusService, type LineId } from './lines';
+	import { BUS_SERVICES, lineById, type BusService, type LineId } from './lines.ts';
 
 	// Rail and busway lines pass `line`. Other bus routes pass `service` and the
 	// route number.

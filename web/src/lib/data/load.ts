@@ -2,11 +2,19 @@ import type { CurrentPointer, LineFile, NetworkFile, SiteIndex, SiteStatus } fro
 
 /** Why a file did not load. The caller shows an error state, never a blank page. */
 export type LoadError = {
-	kind: 'network' | 'status' | 'json';
+	kind: 'network' | 'status' | 'json' | 'shape';
 	url: string;
 	/** The HTTP status, set when kind is 'status'. */
 	status?: number;
 };
+
+/**
+ * What a reader shows for a `shape` error: the file loaded, but a field the
+ * page reads is missing. The bucket holds the old shape until the daily run
+ * after a release, so this is a wait, not a fault.
+ */
+export const SHAPE_MESSAGE =
+	'This page needs newer data than the site has yet. Try again in a few minutes.';
 
 export type Result<T> = { ok: true; data: T } | { ok: false; error: LoadError };
 

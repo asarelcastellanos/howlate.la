@@ -1,6 +1,6 @@
 <script lang="ts" generics="T">
 	import type { Snippet } from 'svelte';
-	import type { Result } from '#lib/data/load.ts';
+	import { SHAPE_MESSAGE, type Result } from '#lib/data/load.ts';
 	import ErrorState from './ErrorState.svelte';
 	import LoadingState from './LoadingState.svelte';
 
@@ -16,7 +16,7 @@
 {#if !result}
 	<LoadingState />
 {:else if !result.ok}
-	<ErrorState {onretry} />
+	<ErrorState {onretry} message={result.error.kind === 'shape' ? SHAPE_MESSAGE : undefined} />
 {:else}
 	{@render children(result.data)}
 {/if}

@@ -1,11 +1,14 @@
 <script lang="ts">
 	import Notice from './Notice.svelte';
 
-	let { onretry }: { onretry?: () => void } = $props();
+	let {
+		onretry,
+		message = "We couldn't load this data."
+	}: { onretry?: () => void; message?: string } = $props();
 </script>
 
 <Notice role="alert">
-	<p>We couldn't load this data.</p>
+	<p>{message}</p>
 	{#if onretry}
 		<button
 			type="button"
