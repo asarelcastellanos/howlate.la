@@ -195,14 +195,11 @@ behind-the-scenes page in a browser.
 
 ### Known gaps
 
-- The live daily job still has the old `R2_PUBLIC_URL`. It is updated by running
-  `pipeline/deploy/daily.sh` again after the owner approves. The `r2.dev`
-  address stays on until the new site is live, then gets turned off.
-- The data on R2 keeps the old shape until the first daily run after the
-  deploy. Until then the ranking page shows a needs-newer-data message and the
-  behind-the-scenes page says the status is not published yet, because the
-  bucket has no `health.json`. The line pages and the home page were checked
-  only against local data in the new shape.
+- After the merge on 2026-11-17, the job was redeployed with
+  `R2_PUBLIC_URL=https://data.howlate.la` and run once by hand, which copied 119
+  files and passed the freshness check, so the new data shape is live.
+- The `r2.dev` address was turned off, and the Pages build variable that still
+  pointed at it was deleted.
 - Lighthouse performance on a line page is 0.96 to 1 locally against a
   threshold of 0.9. The first CI run scored 0.89 before the chart code loaded
   after the headline, so a slow runner can still land a few points below a local
