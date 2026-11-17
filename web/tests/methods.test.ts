@@ -64,3 +64,8 @@ test('stays short enough to read in four minutes', () => {
 	const words = copy.split(' ').length;
 	assert.ok(words <= 900, `${words} words`);
 });
+
+test('says Metro scores rail at the end terminals', () => {
+	assert.ok(text.includes('Metro scores rail at the end terminals.'));
+	assert.ok(!text.includes('near 99 percent'));
+});

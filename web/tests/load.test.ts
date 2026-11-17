@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openRun, type Result } from '../src/lib/data/load.ts';
+import { loadLinePage } from '../src/lib/linePage.ts';
 import { readNetwork } from '../src/lib/data/read.ts';
 import type {
 	CurrentPointer,
@@ -204,4 +205,93 @@ test('readNetwork opens the run, then reads network.json from it', async () => {
 	} finally {
 		globalThis.fetch = realFetch;
 	}
+});
+
+// The live bucket holds the old line shape until the first daily run after a
+// release, so a page can meet files without the new fields. The loader must
+// turn that into a value the page can show, never data the page then trips on.
+const clone = <T>(value: T): T => structuredClone(value);
+const oldLine = (): unknown => {
+	const file = clone(line) as unknown as {
+		directions: { all?: unknown; profile: { ontime?: number }[] }[];
+	};
+	for (const direction of file.directions) {
+		delete direction.all;
+		for (const hour of direction.profile) delete hour.ontime;
+	}
+	return file;
+};
+const lineUrl = `https://data.example/${PREFIX}lines/720.json`;
+const withLine = (body: unknown) => ({ ...published(), [lineUrl]: json(body) });
+
+test('a line file in the old shape is a shape error, not data and not a throw', async () => {
+	const run = unwrap(await openRun(BASE, stub(withLine(oldLine()))));
+	assert.deepEqual(await run.line('720'), { ok: false, error: { kind: 'shape', url: lineUrl } });
+});
+
+test('a line file that is missing a field the page reads is a shape error', async () => {
+	const edits: [string, (file: LineFile) => void][] = [
+		['no directions', (f) => (f.directions = [])],
+		['no all', (f) => delete f.directions[0].all],
+		['med is text', (f) => (f.directions[0].all.med = '80')],
+		['no p90', (f) => delete f.directions[0].all.p90],
+		['no n', (f) => delete f.directions[0].all.n],
+		['no ontime in all', (f) => delete f.directions[0].all.ontime],
+		['no profile', (f) => delete f.directions[0].profile],
+		['an hour without ontime', (f) => delete f.directions[0].profile[0].ontime],
+		['no stops', (f) => delete f.directions[0].stops],
+		['a stop without all', (f) => delete f.directions[0].stops[0].all],
+		['a stop without cells', (f) => delete f.directions[0].stops[0].cells],
+		['no label', (f) => delete f.label]
+	];
+	for (const [name, edit] of edits) {
+		const file = clone(line);
+		edit(file);
+		const run = unwrap(await openRun(BASE, stub(withLine(file))));
+		const result = await run.line('720');
+		assert.ok(!result.ok && result.error.kind === 'shape', name);
+	}
+	for (const body of [null, [], 7, 'text', {}]) {
+		const run = unwrap(await openRun(BASE, stub(withLine(body))));
+		const result = await run.line('720');
+		assert.ok(!result.ok && result.error.kind === 'shape', JSON.stringify(body));
+	}
+});
+
+test('a stop with no measured arrival keeps null numbers and still passes', async () => {
+	const file = clone(line);
+	file.directions[0].stops[0].all = { med: null, p90: null, pct5: null, ontime: null };
+	const run = unwrap(await openRun(BASE, stub(withLine(file))));
+	assert.ok((await run.line('720')).ok);
+});
+
+test('an index or status file that lacks what the pages read is a shape error', async () => {
+	const files = published();
+	const noTo = clone(index) as unknown as { lines: Record<string, unknown>[] };
+	delete noTo.lines[0].to;
+	files[`https://data.example/${PREFIX}index.json`] = json(noTo);
+	files[`https://data.example/${PREFIX}status.json`] = json({ days: 53 });
+	const run = unwrap(await openRun(BASE, stub(files)));
+	const bad = await run.index();
+	assert.ok(!bad.ok && bad.error.kind === 'shape');
+	const badStatus = await run.status();
+	assert.ok(!badStatus.ok && badStatus.error.kind === 'shape');
+});
+
+test('the line page load returns the shape error for an old file, and still finds a missing line', async () => {
+	const old = await loadLinePage(BASE, '720', stub(withLine(oldLine())));
+	assert.deepEqual(old, { ok: false, error: { kind: 'shape', url: lineUrl } });
+	// Not found keeps working: an id the index lacks, and a line file that is 404.
+	assert.deepEqual(await loadLinePage(BASE, 'zzz', stub(published())), {
+		ok: true,
+		data: { kind: 'missing' }
+	});
+	const gone = published();
+	delete gone[lineUrl];
+	assert.deepEqual(await loadLinePage(BASE, '720', stub(gone)), {
+		ok: true,
+		data: { kind: 'missing' }
+	});
+	const good = await loadLinePage(BASE, '720', stub(published()));
+	assert.ok(good.ok && good.data.kind === 'found');
 });
