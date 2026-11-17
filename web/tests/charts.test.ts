@@ -77,7 +77,7 @@ test('an hour with too few arrivals is hatched, not a ramp color', () => {
 	assert.equal(thin.length, 1);
 	const pattern = svg.querySelector('defs pattern')!;
 	assert.equal(thin[0].parentElement!.getAttribute('fill'), `url(#${pattern.getAttribute('id')})`);
-	assert.equal(pattern.querySelector('line')!.getAttribute('stroke'), 'var(--chart-grid)');
+	assert.equal(pattern.querySelector('line')!.getAttribute('stroke'), 'var(--chart-quiet)');
 	assert.match(thin[0].querySelector('title')!.textContent!, /Too few arrivals: 2 of 5 needed/);
 	// The thin hour sits at Tuesday 06:00, a cell no ramp rect occupies.
 	const at = (rect: Element) => `${num(rect, 'x')},${num(rect, 'y')}`;
@@ -91,7 +91,7 @@ test('an hour with no profile entry is a dotted outline with no fill', () => {
 	assert.equal(absent.length, 168 - profile.length);
 	const group = absent[0].parentElement!;
 	assert.equal(group.getAttribute('fill'), 'none');
-	assert.equal(group.getAttribute('stroke'), 'var(--chart-grid)');
+	assert.equal(group.getAttribute('stroke'), 'var(--chart-quiet)');
 	assert.ok(group.getAttribute('stroke-dasharray'));
 	assert.match(absent[0].querySelector('title')!.textContent!, /No service or nothing measured/);
 });
@@ -109,6 +109,25 @@ test('neither a thin hour nor an absent hour can be the worst cell', () => {
 	assert.equal(thin.length, 2);
 	const at = (rect: Element) => `${center(rect, 'x', 'width')},${center(rect, 'y', 'height')}`;
 	assert.ok(!thin.map(at).includes(at(outline[0])));
+});
+
+test('when no hour ran late there is no worst cell and the label says so', () => {
+	const early = fixtureProfile().map((hour) => ({ ...hour, med: -60 - (hour.h % 5) * 10 }));
+	assert.equal(worstHour(early), undefined);
+	const { outline } = cellGroups(heatmap(early, draw));
+	assert.equal(outline.length, 0);
+	assert.doesNotMatch(heatmap(early, draw).textContent!, /Worst/);
+	assert.match(heatmapLabel(early), /No hour ran late\./);
+	assert.doesNotMatch(heatmapLabel(early), /worst hour/);
+	// A largest median of exactly zero is on time, not late.
+	const zero = early.map((hour) => (hour.h === 10 ? { ...hour, med: 0 } : hour));
+	assert.equal(worstHour(zero), undefined);
+	// One late hour brings the worst cell back.
+	assert.equal(
+		worstHour(withHour(10, { med: 1 }).map((hour) => ({ ...hour, med: hour.h === 10 ? 1 : -60 })))
+			?.h,
+		10
+	);
 });
 
 test('the line chart draws two series of at most 168 points', () => {
@@ -133,6 +152,26 @@ test('the strip draws a dot per stop with data, and hollow dots for thin stops',
 	assert.equal(hollow[0].children.length, thin.length);
 	assert.equal(solid[0].children.length, withData.length - thin.length);
 	assert.ok(thin.length > 0);
+});
+
+test('the strip keeps the on-time rule inside the plot when every stop runs early', () => {
+	const early = [-300, -240, -200].map((med, i) => ({
+		...fixtureStops()[0],
+		id: `E${i}`,
+		name: `Early ${i}`,
+		cells: [{ d: 'wk-pm', n: 300, sched: 340, med, p90: med, pct5: 0 }]
+	}));
+	const svg = stopStrip(early, 'wk-pm', draw);
+	// The zero rule is the one ruleX group stroked in ink. Plot puts the stroke on the group.
+	const group = [...svg.querySelectorAll('g[aria-label="rule"]')].find(
+		(g) => g.getAttribute('stroke') === 'var(--chart-ink)'
+	);
+	assert.ok(group, 'the zero rule is drawn');
+	const rule = group.children[0];
+	const x = num(rule, 'x1');
+	assert.ok(x > 0 && x < draw.width, `the rule at zero is at ${x}`);
+	// The latest dot still sits left of the rule, and none leaves the plot.
+	for (const dot of marks(svg, 'dot').flat()) assert.ok(num(dot, 'cx') <= x);
 });
 
 test('every color is a CSS variable, so both themes work', () => {
@@ -208,9 +247,11 @@ test('the key shows the hatch and the dotted outline in words, drawn from the sa
 		props: { profile: fixtureProfile(), caption: 'c', source: 's' }
 	});
 	assert.match(body, /too few arrivals/);
-	assert.match(body, /no service/);
+	assert.match(body, /none measured/);
+	assert.doesNotMatch(body, /no service</);
 	assert.match(body, /<pattern[^>]*id="howlate-thin-key"/);
-	assert.match(body, /stroke="var\(--chart-grid\)"[^>]*stroke-dasharray="1.5 3"/);
+	assert.match(body, /<line[^>]*stroke="var\(--chart-quiet\)"/);
+	assert.match(body, /stroke="var\(--chart-quiet\)"[^>]*stroke-dasharray="1.5 3"/);
 	assert.doesNotMatch(body, /Blank hours/);
 });
 
@@ -223,7 +264,7 @@ test('the heatmap label says how many hours are hatched', () => {
 });
 
 test('the line chart note explains gaps only when hours are missing', () => {
-	const note = /Gaps are hours with too few arrivals or no service\./;
+	const note = /Gaps are hours with too few arrivals or none measured\./;
 	const props = { caption: 'c', source: 's' };
 	assert.match(render(WeekLines, { props: { ...props, profile: fixtureProfile() } }).body, note);
 	const full = fixtureProfile().map((h) => ({ ...h, n: 400 }));

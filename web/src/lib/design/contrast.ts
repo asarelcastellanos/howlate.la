@@ -81,6 +81,7 @@ export function pairs(tokens: Tokens, lines: readonly Line[]): Result[] {
 		on('Chart ink on paper', 'text', t['--chart-ink']);
 		on('Chart annotation on paper', 'text', t['--chart-annotation']);
 		on('Focus ring on paper', 'mark', t['--focus']);
+		on('Heatmap hatch and dotted outline on paper', 'mark', t['--chart-quiet']);
 		on('Rapid bus bullet letter, paper on ink', 'large', t['--paper'], t['--ink']);
 		for (const line of lines) {
 			on(`${line.name} mark on paper`, 'mark', t[`--line-${line.id}`]);

@@ -2,7 +2,7 @@
 	import type { Hour } from '#lib/data/types.ts';
 	import ChartFigure from './ChartFigure.svelte';
 	import { DOTTED, DOTTED_WIDTH, HATCH, heatmap, heatmapLabel, hourlyGrid } from './heatmap.ts';
-	import { DAY_NAMES, GRID, MIN_ARRIVALS, RAMP, RAMP_STEPS, hourLabel, trusted } from './theme.ts';
+	import { DAY_NAMES, MIN_ARRIVALS, QUIET, RAMP, RAMP_STEPS, hourLabel, trusted } from './theme.ts';
 
 	let { profile, caption, source }: { profile: Hour[]; caption: string; source: string } = $props();
 
@@ -44,7 +44,7 @@
 								y1="0"
 								x2={HATCH.size / 2}
 								y2={HATCH.size}
-								stroke={GRID}
+								stroke={QUIET}
 								stroke-width={HATCH.width}
 							/>
 						</pattern>
@@ -61,12 +61,12 @@
 						width="23"
 						height="11"
 						fill="none"
-						stroke={GRID}
+						stroke={QUIET}
 						stroke-dasharray={DOTTED}
 						stroke-width={DOTTED_WIDTH}
 					/>
 				</svg>
-				no service
+				none measured
 			</span>
 			<span
 				>Ramp steps at {RAMP_STEPS.map((s) => s / 60).join(', ')} minutes. Too few is under {MIN_ARRIVALS}.</span

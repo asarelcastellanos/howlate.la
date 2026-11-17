@@ -34,8 +34,10 @@ The data does not need a server either. Per the release plan, the browser
 fetches JSON from R2 at runtime, so a new day of data needs no rebuild.
 
 The adapter also writes `build/200.html` as a fallback, so a path that was not
-prerendered still loads the app and the client router handles it. Check on the
-first preview whether Cloudflare Pages needs a different fallback name.
+prerendered still loads the app and the client router handles it. Cloudflare
+Pages falls back to `200.html` for unknown paths. On the deployed preview, a
+path that is not prerendered, such as `/lines/720`, returned the app shell with
+status 200.
 
 ### Tailwind CSS v4 with shadcn-svelte
 
@@ -121,8 +123,6 @@ Cloudflare dashboard with these settings.
 - Environment variable: `NODE_VERSION=22`
 - Production branch: `main`
 - Preview deployments: on for all branches
-
-The first build should pass once this PR is in.
 
 ## Not done yet
 

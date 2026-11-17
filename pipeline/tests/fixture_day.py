@@ -220,13 +220,16 @@ def run_day(
     extra_reports: list[tuple] = (),
     later_service: bool = False,
     other_copy_lists_later: bool = False,
+    other_copy_expired: bool = False,
 ):
     """Build the fixture day under `root` and run the real steps on it.
 
     `extra_reports` are added to REPORTS, and `later_service` adds trip T9 to
     the timetable, see build_timetable. With `other_copy_lists_later`, T9 is
-    instead only in a second copy that grading does not use. Returns the DuckDB
-    connection holding the arrivals and trips tables.
+    instead only in a second copy that grading does not use. With
+    `other_copy_expired`, the second copy lists T1, T2 and T3 too but its
+    calendar runs nothing on the service day, see build_timetable. Returns the
+    DuckDB connection holding the arrivals and trips tables.
     """
     from howlate_pipeline import arrivals
 
@@ -238,6 +241,8 @@ def run_day(
     other = {}
     if other_copy_lists_later:
         other = {"LACMTA": [build_timetable(root / "gtfs_bus_other", later_service=True)]}
+    if other_copy_expired:
+        other = {"LACMTA": [build_timetable(root / "gtfs_bus_other", services=False)]}
     arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE, other)
     arrivals.match(con, SERVICE_DATE)
     arrivals.trips(con)

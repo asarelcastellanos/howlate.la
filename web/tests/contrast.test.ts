@@ -50,3 +50,13 @@ test('the delay ramp gets stronger against the page at every step', () => {
 		steps.slice(1).forEach((step, i) => assert.ok(step > steps[i], `${theme} step ${i + 2}`));
 	}
 });
+
+test('the hatch and dotted outline are held to 3:1 in both themes', () => {
+	for (const theme of ['light', 'dark'] as const) {
+		const quiet = results.find((r) => r.name.startsWith('Heatmap hatch') && r.theme === theme);
+		assert.ok(quiet, `${theme} has a hatch pair`);
+		assert.equal(quiet.fg, tokens[theme]['--chart-quiet']);
+		assert.equal(quiet.kind, 'mark');
+		assert.ok(quiet.ratio >= 3, `${theme} ${quiet.ratio.toFixed(2)}:1`);
+	}
+});

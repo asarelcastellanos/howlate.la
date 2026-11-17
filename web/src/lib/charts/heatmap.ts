@@ -4,11 +4,11 @@ import {
 	ANNOTATION,
 	DAYS,
 	DAY_NAMES,
-	GRID,
 	INK,
 	MIN_ARRIVALS,
 	PAPER,
 	PLOT_STYLE,
+	QUIET,
 	RAMP,
 	RAMP_STEPS,
 	delayLabel,
@@ -22,11 +22,15 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const day = (h: number) => Math.floor(h / 24);
 const hourOfDay = (h: number) => h % 24;
 
-/** The hour with the highest median among hours with enough arrivals. */
+/**
+ * The hour with the highest median among hours with enough arrivals, when that
+ * median is late. If the largest is zero or below, no hour ran late, and
+ * calling one "the worst" would say "12 am is the worst hour, at 2 min early".
+ */
 export function worstHour(profile: Hour[]): Hour | undefined {
 	let worst: Hour | undefined;
 	for (const hour of trusted(profile)) if (!worst || hour.med > worst.med) worst = hour;
-	return worst;
+	return worst && worst.med > 0 ? worst : undefined;
 }
 
 /**
@@ -69,7 +73,7 @@ function hatchDefs(document: Document) {
 			y1: 0,
 			x2: HATCH.size / 2,
 			y2: HATCH.size,
-			stroke: GRID,
+			stroke: QUIET,
 			'stroke-width': HATCH.width
 		})
 	);
@@ -81,12 +85,13 @@ function hatchDefs(document: Document) {
 export function heatmapLabel(profile: Hour[]): string {
 	const worst = worstHour(profile);
 	const lead = 'Heatmap of median delay for each hour of the week.';
-	if (!worst) return `${lead} No hour has enough arrivals to rank.`;
-	const when = `${DAY_NAMES[day(worst.h)]} ${hourLabel(hourOfDay(worst.h))}`;
+	if (trusted(profile).length === 0) return `${lead} No hour has enough arrivals to rank.`;
 	const thin = profile.filter((hour) => hour.n < MIN_ARRIVALS).length;
 	const note = thin
 		? ` ${thin} ${thin === 1 ? 'hour has' : 'hours have'} too few arrivals to judge and ${thin === 1 ? 'is' : 'are'} hatched.`
 		: '';
+	if (!worst) return `${lead} No hour ran late.${note}`;
+	const when = `${DAY_NAMES[day(worst.h)]} ${hourLabel(hourOfDay(worst.h))}`;
 	return `${lead} ${when} is the worst hour, at ${delayLabel(worst.med)}.${note}`;
 }
 
@@ -118,7 +123,7 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 		Plot.cell(absent, {
 			...pos,
 			fill: 'none',
-			stroke: GRID,
+			stroke: QUIET,
 			strokeDasharray: DOTTED,
 			strokeWidth: DOTTED_WIDTH,
 			inset: 0.5,

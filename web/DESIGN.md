@@ -20,8 +20,9 @@ brighter on the dark theme.
 
 ## Type
 
-Source Serif 4 sets headlines and article text. Inter sets kickers, captions,
-labels and every number, with `tabular-nums`. Both are self-hosted, latin only,
+Source Serif 4 sets headlines and article text. Inter sets labels, captions, kickers and the
+numbers in tables and charts, with `tabular-nums`. The three large headline
+figures on the home page (`StatusStrip`) use the serif face by design. Both are self-hosted, latin only,
 through exact-pinned `@fontsource-variable` packages. The scale is a set of
 `@theme` sizes, `text-kicker`, `text-headline-xl`, `text-headline`, `text-dek`,
 `text-body`, `text-caption` and `text-data`. The two headline sizes are fluid.
@@ -46,7 +47,8 @@ Charts are Observable Plot, in `src/lib/charts/`. They read CSS variables, so
 the theme applies without a rebuild or any JavaScript. Every color is a string
 from `charts/theme.ts`, such as `var(--chart-ink)`. The delay ramp goes to Plot
 as a threshold color scale whose range is `var(--delay-1)` to `var(--delay-5)`.
-`--chart-grid` draws grid lines, `--chart-axis` draws tick labels,
+`--chart-grid` draws grid lines, `--chart-quiet` draws the heatmap hatch and
+dotted outline, `--chart-axis` draws tick labels,
 `--chart-annotation` draws direct labels, and `--paper` draws the halo behind
 a label. Never copy a hex value into chart code. `tests/charts.test.ts` fails
 on one.
@@ -65,8 +67,11 @@ To add a chart:
 3. Load its data with `Remote`, which shows the loading and error states.
 4. Add a test that draws it from `charts/fixtures.ts` and checks its marks.
 
-Hours or cells with fewer than `MIN_ARRIVALS` arrivals are left blank or drawn
-hollow, and are never labelled as the worst. The reason is in `theme.ts`.
+A median from fewer than `MIN_ARRIVALS` arrivals is never a ramp color and is
+never labelled as the worst. The heatmap hatches the hour, the strip draws a
+hollow dot, and the line chart breaks the line. The reason is in `theme.ts`.
+When no hour has a median above zero, the heatmap marks no worst hour and its
+`aria-label` says no hour ran late.
 
 ## Lines
 
@@ -83,6 +88,8 @@ and `lines.ts` disagree, or if any pair drops under WCAG AA.
 ## Contrast test
 
 `npm test` reads the tokens from `layout.css`. It checks 4.5:1 for text, and
-3:1 for bullet letters and for marks that carry meaning. Hairlines and grid
-lines are decoration and are not checked. It needs Node 22.18 or newer, which
+3:1 for bullet letters and for marks that carry meaning. That includes the
+heatmap hatch ("too few arrivals") and dotted outline ("nothing measured"),
+which use `--chart-quiet`. Hairlines and grid lines are decoration and are not
+checked. It needs Node 22.18 or newer, which
 runs `.ts` files without a flag.

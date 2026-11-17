@@ -270,6 +270,16 @@ def test_an_unlisted_stop_on_a_running_trip_is_not_explained(tmp_path):
     assert matched_check(con)["ok"] is False
 
 
+def test_a_trip_any_copy_lists_under_a_running_service_is_not_explained(tmp_path):
+    # The chosen copy runs T1 today but has no stop 9, so this observation has
+    # no scheduled stop. A second copy, whose calendar runs nothing on the 18th,
+    # lists T1 under a service that is not running. One copy listing T1 as
+    # running is enough to call it a real join failure, so it must not be
+    # explained. Taking the second copy's word for it would hide the failure.
+    con = run_day(tmp_path, extra_reports=[stopped("T1", 9, "Z")], other_copy_expired=True)
+    assert (report.summarise(con)["explained"], matched_check(con)["ok"]) == (0, False)
+
+
 def test_the_explained_counts_are_printed_and_saved(tmp_path, capsys):
     con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
     report.show(con, SERVICE_DATE)

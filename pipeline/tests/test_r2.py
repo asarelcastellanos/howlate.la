@@ -4,6 +4,7 @@ No network. The derived bucket is test_write's fake and R2 is FakeS3 below, so
 a test can see every object written and in what order.
 """
 
+import io
 import json
 from pathlib import Path
 
@@ -81,6 +82,11 @@ class FakeS3:
     def delete_object(self, *, Bucket, Key):
         del self.objects[Key]
 
+    def get_object(self, *, Bucket, Key):
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+        return {"Body": io.BytesIO(self.objects[Key][0])}
+
 
 def run_files(client, run):
     return sorted(n for b, n in client.store if b == DERIVED_BUCKET and f"runs/{run}/" in n)
@@ -124,6 +130,50 @@ def test_a_run_missing_files_is_not_copied(tmp_path):
     with pytest.raises(RuntimeError, match="lists 3 files but its pointer says 4"):
         r2.publish(derived, s3, "howlate")
     assert s3.puts == []
+
+
+def test_a_run_that_finishes_mid_copy_with_a_partial_listing_keeps_the_pointer_back(tmp_path):
+    # The derived pointer names OLD while NEW is still uploading, so the first
+    # read cannot check NEW's file count. NEW's upload then finishes during the
+    # copy, and the second read sees a pointer for NEW over a listing of 2 of 4.
+    derived = publish_runs(tmp_path, OLD)
+    full = publish_runs(tmp_path / "full", NEW)
+    names = run_files(full, NEW)
+    assert len(names) == 4
+    for name in names[:2]:
+        derived.store[(DERIVED_BUCKET, name)] = full.store[(DERIVED_BUCKET, name)]
+
+    def upload_finishes(puts):
+        if puts == 1:
+            for name in names[2:]:
+                derived.store[(DERIVED_BUCKET, name)] = full.store[(DERIVED_BUCKET, name)]
+            derived.store[(DERIVED_BUCKET, POINTER)] = full.store[(DERIVED_BUCKET, POINTER)]
+
+    s3 = FakeS3(after_put=upload_finishes, objects=[POINTER])
+    with pytest.raises(RuntimeError, match="lists 2 files but its pointer says 4"):
+        r2.publish(derived, s3, "howlate", run=NEW)
+    assert POINTER not in s3.puts
+    assert s3.objects[POINTER][0] == b"old"
+
+
+def test_the_run_r2_readers_were_just_told_about_survives_the_copy_and_the_next_prunes_it(tmp_path):
+    a, b, c, d = (f"2026110{day}T130000Z-aaaaaa" for day in (1, 2, 3, 4))
+    derived = publish_runs(tmp_path, a, b, c, d)
+    a_files = [f"site/runs/{a}/index.json", f"site/runs/{a}/lines/801.json"]
+    s3 = FakeS3(objects=[*a_files, POINTER])
+    s3.objects[POINTER] = (json.dumps({"run": a, "previous": []}).encode(), None, None)
+
+    assert r2.publish(derived, s3, "howlate") == (4, True)
+    assert all(key in s3.objects for key in a_files)  # readers may still hold A's pointer
+
+    assert r2.publish(derived, s3, "howlate") == (4, True)
+    assert not any(key in s3.objects for key in a_files)
+
+
+def test_an_unreadable_r2_pointer_does_not_stop_the_copy(tmp_path, capsys):
+    s3 = FakeS3(objects=[POINTER])  # holds b"old", which is not JSON
+    assert r2.publish(publish_runs(tmp_path, NEW), s3, "howlate") == (4, True)
+    assert "could not read R2 pointer: JSONDecodeError" in capsys.readouterr().out
 
 
 def test_a_newer_run_published_during_the_copy_keeps_its_pointer(tmp_path):
@@ -197,6 +247,35 @@ def test_full_settings_default_the_bucket_and_keep_secrets_out_of_the_repr():
 def test_an_error_is_described_without_the_endpoint():
     error = ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
     assert r2.describe(error) == "AccessDenied during PutObject"
+
+
+def test_an_unknown_error_is_described_by_its_type_alone():
+    # botocore raises ValueError("Invalid endpoint: <url>") for a bad endpoint.
+    error = ValueError("Invalid endpoint: https://0123abcd.r2.cloudflarestorage.com")
+    assert r2.describe(error) == "ValueError"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://acct_1.r2.cloudflarestorage.com",
+        "https://acct 1.r2.cloudflarestorage.com",
+        "http://acct.r2.cloudflarestorage.com",
+        "https://acct.r2.cloudflarestorage.com/howlate",
+        "https://acct.r2.cloudflarestorage.com?x=1",
+        "https://user:pw@acct.r2.cloudflarestorage.com",
+        "https://[acct.r2.cloudflarestorage.com",
+    ],
+)
+def test_a_malformed_endpoint_is_rejected_without_echoing_it(endpoint):
+    with pytest.raises(ValueError, match="R2_ENDPOINT is not a valid https address") as seen:
+        r2.from_env({**ENV, "R2_ENDPOINT": endpoint})
+    assert "acct" not in str(seen.value) and "pw" not in str(seen.value)
+
+
+def test_an_account_endpoint_passes():
+    endpoint = f"https://{'0123456789abcdef' * 2}.r2.cloudflarestorage.com"
+    assert r2.from_env({**ENV, "R2_ENDPOINT": endpoint}).endpoint == endpoint
 
 
 def test_the_configured_copy_uses_the_client_it_is_given(tmp_path):

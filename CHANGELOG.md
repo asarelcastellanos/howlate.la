@@ -21,12 +21,14 @@ lists under a later start date.
   `routes.txt`. Where a color fails 3:1 against the light page, the charts use a
   darker variant and the bullet keeps Metro's color. Light and dark follow the
   device. A `/design` page shows every piece.
-- A contrast test of 50 color pairs against WCAG AA. CI runs it.
+- A contrast test of 52 color pairs against WCAG AA. The hatch and dotted marks
+  are held to 3:1 in both themes. CI runs it.
 - Three charts, drawn with Observable Plot. The heatmap shows median delay by
   day and hour. The line chart shows the median and the 90th percentile across
-  the week. The strip shows each stop's delay for the weekday rush. A heatmap
-  hour with fewer than 5 arrivals is hatched and an hour with no service is
-  dotted, so a two-arrival hour is never the worst hour.
+  the week. The strip shows each stop's delay for the weekday evening rush, 3 to
+  7 pm. A heatmap hour with fewer than 5 arrivals is hatched, so a two-arrival
+  hour is never the worst hour. An hour with nothing measured is dotted, which
+  can mean no service or no scheduled stop was measured.
 - Error, empty and loading states for every chart, with a retry button on a
   failed load. A home page loads `status.json` from R2 and shows the days of
   data, the stops graded and the share measured.
@@ -44,9 +46,10 @@ lists under a later start date.
   `howlate`, so the public site reads its JSON from R2, which charges no egress.
   It uploads every file of the run, then writes `site/current.json` last, and
   only when `gs://howlate-derived` still names that run, so a run that fails
-  partway leaves R2 on the previous complete run. A failed copy exits non-zero
-  and sends the failure ping, and the graded days stay saved. Without
-  `R2_ENDPOINT`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, it is skipped.
+  partway leaves R2 on the previous complete run. A successful copy also deletes
+  R2 runs the pointer does not list, except the run R2 last named. A failed copy
+  exits non-zero and sends the failure ping, and the graded days stay saved.
+  Without the three R2 settings, it is skipped.
 - `python -m howlate_pipeline publish-r2 [--run RUN]` copies a run on demand. It
   reads `gs://howlate-derived` and writes only R2.
 - `pipeline/deploy/daily.sh` stores the two R2 secrets and the R2 endpoint on
@@ -91,8 +94,8 @@ lists under a later start date.
 
 ### Checked
 
-- The pipeline's 192 tests, ruff lint and ruff format pass. The web type check,
-  lint, build and 25 tests pass, and `npm run types` leaves no diff.
+- The pipeline's 205 tests, ruff lint and ruff format pass. The web type check,
+  lint, build and 28 tests pass, and `npm run types` leaves no diff.
 - Every CI job passed on #107, #108, #110, #111, #112, #114 and #115, and the
   Cloudflare Pages preview deployed on #110 to #115.
 - The charts and home page were checked at 375 and 1280 px in light and dark,
@@ -106,14 +109,14 @@ lists under a later start date.
 
 ### Not done yet
 
-- The live daily job does not copy to R2 until this release is merged and
-  `pipeline/deploy/daily.sh` is run. The R2 secrets are in Secret Manager, and
-  the run on R2 now was copied by hand with `publish-r2`.
 - Reports already in `gs://howlate-derived` keep the old `join_rate` check name
   until those days are graded again.
 
 ### Known gaps
 
+- A job with no R2 settings skips the copy and still sends the success ping.
+  After the merge, the owner runs `pipeline/deploy/daily.sh` once and checks
+  that the first live run logs the copy.
 - No screenshot gate compares pixels. The baselines differ between macOS and the
   Linux runner, so the screenshots are saved for review.
 - The data address is Cloudflare's `r2.dev` development address, which is
