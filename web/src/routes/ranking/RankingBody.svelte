@@ -18,8 +18,13 @@
 	const rail = $derived(index.lines.filter((line) => line.mode === 'rail'));
 	const result = $derived(rankLines(bus, 'ontime'));
 	const edges = $derived(ends(result.ranked, EDGE));
-	const tieNote = (shown: unknown[]) =>
-		shown.length > EDGE ? ', plus any line that ties with the fifth' : '';
+	// Fewer than 2 * EDGE ranked lines leave the bottom panel short or empty, so
+	// the caption counts the lines it lists.
+	const caption = (shown: unknown[], which: 'highest' | 'lowest') => {
+		const listed = Math.min(shown.length, EDGE);
+		const tieNote = shown.length > EDGE ? ', plus any line that ties with the fifth' : '';
+		return `The ${listed} bus ${listed === 1 ? 'line' : 'lines'} with the ${which} on-time share${tieNote}.`;
+	};
 </script>
 
 <p class="kicker text-ink-muted">
@@ -32,16 +37,14 @@
 	</div>
 {:else}
 	<div class="mt-6 grid gap-x-10 gap-y-8 md:grid-cols-2">
-		<Extremes
-			title="Most reliable"
-			lines={edges.top}
-			caption="The {EDGE} bus lines with the highest on-time share{tieNote(edges.top)}."
-		/>
-		<Extremes
-			title="Least reliable"
-			lines={edges.bottom}
-			caption="The {EDGE} bus lines with the lowest on-time share{tieNote(edges.bottom)}."
-		/>
+		<Extremes title="Most reliable" lines={edges.top} caption={caption(edges.top, 'highest')} />
+		{#if edges.bottom.length > 0}
+			<Extremes
+				title="Least reliable"
+				lines={edges.bottom}
+				caption={caption(edges.bottom, 'lowest')}
+			/>
+		{/if}
 	</div>
 
 	<Rule />
@@ -50,7 +53,8 @@
 		<p class="caption text-ink-muted mt-2 mb-4">
 			Ranked by on-time share, the share of measured arrivals from 1 minute early to 5 minutes late.
 			Median delay and 90th percentile are in minutes. Click a heading to sort by it. For median
-			delay and 90th percentile, a smaller delay ranks higher.
+			delay and 90th percentile, a line closer to on time ranks higher, whether it runs early or
+			late, and inside the on-time window the smaller delay ranks higher.
 		</p>
 		<RankedTable entries={bus} />
 	</section>
