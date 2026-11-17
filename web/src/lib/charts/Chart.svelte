@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { dropGroupLabels } from './plotLabels.ts';
+
 	// Draws a Plot chart at the width of its container and again whenever that
 	// width changes. The label states the finding, because Plot's SVG is not
 	// readable by a screen reader. A chart with `onrender` takes input, so it
@@ -30,6 +32,8 @@
 		// Plot returns a finished SVG element, so there is nothing for Svelte to render.
 		if (!host || width <= 0) return;
 		const svg = render(width);
+		// Plot labels groups that have no role, which axe fails as aria-prohibited-attr.
+		dropGroupLabels(svg);
 		// A redraw drops the old SVG, so a keyboard user would lose their place.
 		const hadFocus = host.contains(document.activeElement);
 		// eslint-disable-next-line svelte/no-dom-manipulating

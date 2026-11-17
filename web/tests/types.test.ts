@@ -36,3 +36,12 @@ test('the generated types carry the on-time fields', () => {
 		assert.match(typeBody('NetworkFile'), new RegExp(`\\b${key}\\b`), `NetworkFile has no ${key}`);
 	}
 });
+
+test('the generated types carry the health fields', () => {
+	for (const key of ['pipeline_version', 'last_day', 'days', 'recent', 'checks']) {
+		assert.match(typeBody('HealthFile'), new RegExp(`\\b${key}\\b`), `HealthFile has no ${key}`);
+	}
+	for (const key of ['ok', 'failed', 'coverage_pct', 'explained_trips', 'explained_pct']) {
+		assert.match(typeBody('HealthDay'), new RegExp(`\\b${key}\\b`), `HealthDay has no ${key}`);
+	}
+});

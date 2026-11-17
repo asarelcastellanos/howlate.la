@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openRun, type Result } from '../src/lib/data/load.ts';
 import { loadLinePage } from '../src/lib/linePage.ts';
-import { readNetwork } from '../src/lib/data/read.ts';
+import { readHealth, readNetwork } from '../src/lib/data/read.ts';
 import type {
 	CurrentPointer,
+	HealthFile,
 	LineFile,
 	NetworkFile,
 	SiteIndex,
@@ -294,4 +295,108 @@ test('the line page load returns the shape error for an old file, and still find
 	});
 	const good = await loadLinePage(BASE, '720', stub(published()));
 	assert.ok(good.ok && good.data.kind === 'found');
+});
+
+// health.json has its own shape check. The bucket holds a run with no health.json
+// until the first daily run after the release, and a 404 is already an error value.
+const health: HealthFile = {
+	pipeline_version: '0.4.1',
+	last_day: '2026-11-14',
+	days: 53,
+	recent: [
+		{
+			service_date: '2026-11-14',
+			ok: true,
+			failed: [],
+			coverage_pct: 83.9,
+			explained_trips: 338,
+			explained_pct: 1,
+			observations: 550650
+		},
+		{
+			service_date: '2026-11-13',
+			ok: false,
+			failed: ['coverage'],
+			coverage_pct: 40.2,
+			explained_trips: 0,
+			explained_pct: 0,
+			observations: 300000
+		}
+	],
+	checks: [
+		{
+			name: 'coverage',
+			kind: 'range',
+			label: 'scheduled stops with a timed arrival',
+			ok: true,
+			value: 83.9154,
+			low: 55,
+			high: 90
+		},
+		{
+			name: 'silent_lines',
+			kind: 'count',
+			label: 'lines scheduled today but never seen',
+			ok: true,
+			value: 0,
+			expected: 0
+		}
+	]
+};
+const healthUrl = `https://data.example/${PREFIX}health.json`;
+const withHealth = (body: unknown) => ({ ...published(), [healthUrl]: json(body) });
+
+test('health.json loads from the run, through the run and through readHealth', async () => {
+	const run = unwrap(await openRun(BASE, stub(withHealth(health))));
+	assert.deepEqual(unwrap(await run.health()), health);
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = stub(withHealth(health)) as typeof fetch;
+	try {
+		assert.deepEqual(unwrap(await readHealth(BASE)), health);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
+test('health.json with no reports in it still passes', async () => {
+	const empty = { ...clone(health), recent: [], checks: [] };
+	const run = unwrap(await openRun(BASE, stub(withHealth(empty))));
+	assert.ok((await run.health()).ok);
+});
+
+test('health.json missing a field the page reads is a shape error', async () => {
+	const edits: [string, (file: HealthFile) => void][] = [
+		['no recent', (f) => delete f.recent],
+		['no checks', (f) => delete f.checks],
+		['no last_day', (f) => delete f.last_day],
+		['no version', (f) => delete f.pipeline_version],
+		['ok is text', (f) => (f.recent[0].ok = 'yes')],
+		['no failed', (f) => delete f.recent[0].failed],
+		['no coverage_pct', (f) => delete f.recent[1].coverage_pct],
+		['a check without a value', (f) => delete f.checks[0].value],
+		['a range check without low', (f) => delete f.checks[0].low],
+		['a count check without expected', (f) => delete f.checks[1].expected],
+		['a check of an unknown kind', (f) => (f.checks[1].kind = 'other')]
+	];
+	for (const [name, edit] of edits) {
+		const file = clone(health);
+		edit(file);
+		const run = unwrap(await openRun(BASE, stub(withHealth(file))));
+		assert.deepEqual(
+			await run.health(),
+			{ ok: false, error: { kind: 'shape', url: healthUrl } },
+			name
+		);
+	}
+	for (const body of [null, [], 7, 'text', {}]) {
+		const run = unwrap(await openRun(BASE, stub(withHealth(body))));
+		const result = await run.health();
+		assert.ok(!result.ok && result.error.kind === 'shape', JSON.stringify(body));
+	}
+});
+
+test('a run with no health.json is a status error, not a throw', async () => {
+	const run = unwrap(await openRun(BASE, stub(published())));
+	const result = await run.health();
+	assert.ok(!result.ok && result.error.kind === 'status' && result.error.status === 404);
 });

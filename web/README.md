@@ -2,8 +2,8 @@
 
 The public site for howlate.la. It builds to static files. Right now it is a
 placeholder home page with a live status strip and line search, a page for each
-line at `/lines/<line>`, a ranking at `/ranking`, a methodology page at `/methods`, and a design
-specimen with the chart components.
+line at `/lines/<line>`, a ranking at `/ranking`, a methodology page at `/methods`, a behind-the-scenes
+page at `/behind-the-scenes`, and a design specimen with the chart components.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
 shows every piece in the theme your device is using.
@@ -19,7 +19,7 @@ npm run check        # svelte-check, the type check CI runs
 npm run lint         # prettier and eslint
 npm run types        # regenerate src/lib/data/types.ts from pipeline/schemas
 npm test             # contrast, generated types, data loader and chart tests
-npm run build        # writes the static site to build/
+npm run build        # writes the static site to build/, then runs tests/built.test.ts on it
 npm run preview      # serves build/ on http://localhost:4173
 npm run e2e          # Playwright and axe, against a running preview
 npm run lighthouse   # Lighthouse on mobile, against a running preview
@@ -28,6 +28,31 @@ npm run lighthouse   # Lighthouse on mobile, against a running preview
 To run against local data, set `PUBLIC_DATA_BASE=/data` when you build or start
 the dev server. Put a copy of the bucket's `site/` folder in `web/static/data/`,
 which git ignores.
+
+## Navigation and page head
+
+The main navigation is `src/lib/design/Nav.svelte`, and `Masthead` draws it, so
+every page has it with no per-page code. It also draws a "Skip to content" link
+that jumps to the `<main id="main">` each page sets. The links come from one
+list, `NAV` in `src/lib/nav.ts`. An entry with `ready: false` is not drawn. A PR
+that adds a page flips its flag. The current page gets `aria-current="page"`
+from the route id.
+
+Every page calls `PageHead` (`src/lib/PageHead.svelte`) once with a `title`,
+a `description` of 40 to 160 characters, a `path` and optionally `noindex`. It
+writes the title, the description, the canonical link and the Open Graph and
+Twitter tags. Only the home page keeps its whole title. Any other title gets
+" · HowLate" added. A page never writes its own `<title>`, because two tags in
+one head leave the browser to pick one.
+
+`SITE_URL` in `src/lib/config.ts` builds the canonical and preview addresses. It
+is the pages.dev address until the custom domain arrives in 0.5.1 (issue #32).
+
+The preview image is `static/og.png`, made from `scripts/og.html`.
+`scripts/README-og.md` has the steps to remake it. `tests/built.test.ts` runs
+after `npm run build`. It reads every prerendered page and fails on a missing
+nav, a missing or shared title or description, a page without one h1, or a
+preview image of the wrong size.
 
 ## Browser checks
 
@@ -95,12 +120,12 @@ field then breaks `npm run check` where the site reads it.
 
 `src/lib/data/load.ts` loads the files. `openRun(base)` fetches
 `<base>/site/current.json`, then returns readers for `index.json`,
-`status.json`, `network.json` and `lines/<line>.json` from the run's `prefix`,
+`status.json`, `network.json`, `health.json` and `lines/<line>.json` from the run's `prefix`,
 so a page never mixes two runs. A failed request, a status other than 200, or a body that is not
 JSON comes back as `{ ok: false, error }`, never a throw, so a page can show an
 error state. The pipeline's contract test covers the full shape. The loader
 checks only the fields the pages read (`src/lib/data/shape.ts`) for `index.json`,
-`status.json` and the line files. A file that fails comes back with the error
+`status.json`, `health.json` and the line files. A file that fails comes back with the error
 kind `shape`. The bucket holds the previous shape from a release until the next
 daily run, and the page then shows "This page needs newer data than the site has
 yet" with a retry button. `ResultView` also wraps the data views in a
@@ -192,6 +217,38 @@ checks the order against a plain sort on the real index when `static/data` exist
   covers a throw while the page draws.
 - Table delays show minutes with one decimal, such as "1.3 min late". Seconds
   under two minutes and whole minutes above would not read as sorted.
+
+## Behind the scenes
+
+`/behind-the-scenes` is prerendered. The browser loads `health.json` with
+`readStatusReport` in `src/lib/behind.ts`, which hands the page the loader's
+result as data. A missing file (a 404) or an old shape shows "Status data is not
+published yet", and a failed request shows a separate "could not be loaded"
+message. Neither uses the site's error box. `Remote` still wraps the panel in
+its `<svelte:boundary>`, so a render error shows the error box.
+
+- The panel compares `last_day` with today's date in Los Angeles
+  (`pacificToday` in `src/lib/date.ts`, read in the browser). It turns to a
+  warning when the gap is more than `STALE_AFTER_DAYS` (2). The daily job
+  grades up to two days back, so a gap of 2 is normal. A future date is not a
+  warning.
+- The 14-day strip (`buildStrip`) has one cell per day ending on `last_day`.
+  A day with no report is an empty dashed cell, not a failed one. Each cell
+  has a shape, a color and hidden text.
+- The check list comes from `health.json`, with the pipeline's own labels and
+  values rounded for display. The page hard-codes no check names. A label does
+  not say its unit, so the list shows no units.
+- The diagram (`Architecture.svelte`) is one inline SVG, a single column that
+  scales to a phone, with the same flow as a numbered list under it. It names
+  no bucket, host or account.
+- The cost section gives only the owner's budget, labelled as an estimate. Add
+  the breakdown after billing is reviewed.
+- `tests/built.test.ts` counts the `<title>` in the head only, because the
+  diagram's SVG has its own `<title>`.
+
+To see it with local data, build with `PUBLIC_DATA_BASE=/data` and put the
+files in `static/data/site/<run>/` with a `current.json` that names the run.
+Only `health.json` is needed for this page.
 
 ## Not done yet
 

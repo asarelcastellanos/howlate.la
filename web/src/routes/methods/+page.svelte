@@ -3,23 +3,22 @@
 	import Kicker from '#lib/design/Kicker.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
 	import Rule from '#lib/design/Rule.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 
 	const standards =
 		'https://busstophub.metro.net/wp-content/uploads/2025/10/TSP-2025-Adopted-7-17-2025.pdf';
 	const repository = 'https://github.com/asarelcastellanos/howlate.la';
 </script>
 
-<svelte:head>
-	<title>Methods · HowLate</title>
-	<meta
-		name="description"
-		content="How HowLate measures how late LA Metro buses and trains run, what counts as on time, and why some stops have no number."
-	/>
-</svelte:head>
+<PageHead
+	title="Methods"
+	description="How HowLate measures how late LA Metro buses and trains run, what counts as on time, and why some stops have no number."
+	path="/methods"
+/>
 
 <Masthead dateline="Methods" />
 
-<main class="page pb-16">
+<main id="main" class="page pb-16">
 	<section class="pt-10 pb-6">
 		<Kicker>Methods</Kicker>
 		<Headline dek="What we count, what we estimate, and why some stops have no number.">

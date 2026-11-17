@@ -5,3 +5,10 @@
  * cause and the methodology page says what the rail number means.
  */
 export const SHOW_RAIL_ONTIME = false;
+
+/**
+ * The address that canonical links and preview cards use. It is the Cloudflare
+ * Pages address for now. It changes to the custom domain in 0.5.1 (issue #32),
+ * and it has no trailing slash.
+ */
+export const SITE_URL = 'https://howlate-la.pages.dev';

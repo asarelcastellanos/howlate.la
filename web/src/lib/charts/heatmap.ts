@@ -18,6 +18,11 @@ import {
 } from './theme.ts';
 
 const ROW = 26;
+/**
+ * Class on the three cell groups, so the rects are found by a name this file
+ * sets. Plot's aria-label="cell" on the same groups is dropped after a draw.
+ */
+export const CELL_CLASS = 'howlate-cell';
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const day = (h: number) => Math.floor(h / 24);
 const hourOfDay = (h: number) => h % 24;
@@ -106,6 +111,7 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 	const marks: Plot.Markish[] = [
 		Plot.cell(trusted(profile), {
 			...pos,
+			className: CELL_CLASS,
 			fill: 'med',
 			inset: 0.5,
 			title: (d) => `${when(d.h)}, ${delayLabel(d.med)}, ${d.n} arrivals`
@@ -113,6 +119,7 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 		// Too few arrivals to judge. Hatch, never a ramp color.
 		Plot.cell(thin, {
 			...pos,
+			className: CELL_CLASS,
 			fill: `url(#${HATCH.id})`,
 			inset: 0.5,
 			title: (d) => `${when(d.h)}. Too few arrivals: ${d.n} of ${MIN_ARRIVALS} needed`
@@ -120,6 +127,7 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 		// No profile entry at all, so no service or nothing measured. Outline only.
 		Plot.cell(absent, {
 			...pos,
+			className: CELL_CLASS,
 			fill: 'none',
 			stroke: QUIET,
 			strokeDasharray: DOTTED,
@@ -185,7 +193,7 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 	// leaves out a group whose data is empty. So the groups line up with the
 	// non-empty lists, and each rect is in the order of its list.
 	const lists = [trusted(profile), thin, absent].filter((list) => list.length > 0);
-	const groups = [...svg.querySelectorAll('g[aria-label="cell"]')];
+	const groups = [...svg.querySelectorAll(`g.${CELL_CLASS}`)];
 	lists.forEach((list, i) => {
 		[...(groups[i]?.children ?? [])].forEach((rect, j) => {
 			if (list[j]) rect.setAttribute('data-hour', String(list[j].h));

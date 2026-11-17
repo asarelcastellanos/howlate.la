@@ -383,7 +383,7 @@ def run_daily(args: argparse.Namespace) -> int:
         code = backfill.exit_code(result)
         summary = ", ".join(f"{key} {len(days)}" for key, days in result.items())
         graded = args.cache / "graded" / arrivals.VERSION
-        if not aggregate.fetch_arrivals(bucket(), graded):
+        if not aggregate.fetch_arrivals(bucket(), graded, aggregate.reports_beside(graded)):
             # No day of this layout version has finished yet, as on a first
             # deploy or after a version bump. The day counts say more than the
             # error `aggregate` would raise over an empty directory.
@@ -442,12 +442,15 @@ def run_aggregate(args: argparse.Namespace) -> int:
     bucket = Bucket()
     # Before any download, so a refused run costs nothing.
     timetables = local_timetables(args.gtfs_dir, upload=not args.no_upload)
+    if args.from_bucket and args.reports:
+        # The fetch empties its reports folder, so it must not be one of yours.
+        sys.exit("--reports is for local runs. --from-bucket downloads its own reports.")
     graded = args.arrivals or Path(f"out/arrivals/{arrivals.VERSION}")
     if args.from_bucket:
         # A directory of its own under the cache, because fetching empties it
         # first, and --arrivals may hold days graded locally and never uploaded.
         graded = args.cache / "graded" / arrivals.VERSION
-        aggregate.fetch_arrivals(bucket(), graded)
+        aggregate.fetch_arrivals(bucket(), graded, aggregate.reports_beside(graded))
     return build_site(
         bucket,
         graded,
@@ -455,6 +458,7 @@ def run_aggregate(args: argparse.Namespace) -> int:
         out=args.out,
         timetables=timetables,
         upload=not args.no_upload,
+        reports=args.reports,
     )
 
 
@@ -466,8 +470,14 @@ def build_site(
     out: Path,
     timetables: dict[str, Path] | None = None,
     upload: bool = True,
+    reports: Path | None = None,
 ) -> int:
-    """Summarise every graded day into the site's JSON, and upload it."""
+    """Summarise every graded day into the site's JSON, and upload it.
+
+    `reports` is where health.json reads the saved daily reports. It defaults to
+    the folder beside the arrivals, which is where both `--from-bucket` and a
+    local `arrivals` run leave them.
+    """
     started = time.monotonic()
     con = arrivals.connect()
 
@@ -488,11 +498,15 @@ def build_site(
         f"{len(catalogue['stops']):,} stops named"
     )
 
-    written, names = aggregate.build(con, catalogue, out, first, last, days)
+    written, names = aggregate.build(
+        con, catalogue, out, first, last, days, reports or aggregate.reports_beside(arrivals_dir)
+    )
     biggest = max(written, key=lambda row: row[2])
     total = sum(row[1] for row in written)
 
-    print(f"\n  wrote {len(written)} line files + index.json + status.json + network.json to {out}")
+    print(
+        f"\n  wrote {len(written)} line files + index.json + status.json + network.json + health.json to {out}"
+    )
     print(
         f"  {total / 1e6:.2f} MB total, largest is line {biggest[0]} at "
         f"{biggest[1] / 1e3:.0f} KB ({biggest[2] / 1e3:.0f} KB gzipped)"
@@ -599,6 +613,14 @@ def main() -> None:
         "--gtfs-dir",
         type=Path,
         help="unpacked timetables under DIR/gtfs_bus and DIR/gtfs_rail, instead of the archive",
+    )
+    every.add_argument(
+        "--reports",
+        type=Path,
+        help=(
+            "the saved daily reports health.json reads, one service_date=DAY/report.json each "
+            f"(default: reports/{arrivals.VERSION} beside the arrivals folder's parent)"
+        ),
     )
     source.add_argument(
         "--from-bucket",
