@@ -284,5 +284,13 @@ def test_every_trip_in_trips_txt_is_listed_with_whether_its_service_runs(tmp_pat
         ("LACMTA", "T1", True), ("LACMTA", "T2", True), ("LACMTA", "T3", True),
         ("LACMTA", "T9", False),
     ]  # fmt: skip
+    # The route and the later-start flag come with it. Only T9's service starts
+    # after the 18th.
+    assert con.sql(
+        "SELECT trip_id, route_id, service_later FROM listed_trips ORDER BY trip_id"
+    ).fetchall() == [
+        ("T1", "720-13201", False), ("T2", "720-13201", False), ("T3", "720-13201", False),
+        ("T9", "720-13201", True),
+    ]  # fmt: skip
     # Listing a trip never schedules it.
     assert con.sql("SELECT count(*) FROM scheduled WHERE trip_id = 'T9'").fetchone() == (0,)

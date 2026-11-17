@@ -17,31 +17,36 @@ from pathlib import Path
 import duckdb
 
 from howlate_pipeline import __version__
+from howlate_pipeline.gtfs import line_code
 
 # Measured on 2026-08-18 across all 120 lines. Ranges, not points, because real
 # days differ: weekends run less service and holidays run almost none.
 EXPECTED = {
-    # Counts an observation on a trip the timetable lists under a service that is
-    # not running as matched, so only a trip in no timetable can fail it. The raw
-    # join_rate stays in the stats. On 2026-11-14, 5,370 of the day's rail
-    # observations (338 trips, all route 801) were on trips listed under six
-    # services that start later, and 2026-11-07 had 214 on route 803. Every
-    # trip the vehicles reported on 2026-10-31 and 2026-11-12 matched.
+    # Counts an observation on a trip that every timetable copy lists only under
+    # a service starting after the day as matched, so only a trip in no timetable,
+    # or one under an expired or removed service, can fail it. The raw join_rate
+    # stays in the stats. On 2026-11-14, 5,370 of the day's rail observations
+    # (338 trips, all route 801) were on trips listed under six services that
+    # start later, and 2026-11-07 had 214 on route 803. Every trip the vehicles
+    # reported on 2026-10-31 and 2026-11-12 matched.
     "matched_rate": (
         99.9,
         100.0,
-        "observations matching a scheduled stop, or a trip listed under a service not running",
+        "observations matching a scheduled stop, or a trip listed only under a later-start service",
     ),
-    # The cap on matched_rate's exemption. If a calendar or service-selection bug
-    # marked most of a day's services inactive, nearly every observation would
-    # count as explained and matched_rate would pass. Measured: 5,370 of 550,650
-    # observations on 2026-11-14 (0.98%), 3,882 of 636,571 on 2026-11-13 (0.61%),
-    # 1,083 of 534,060 on 2026-11-07 (0.20%), and 0 on every other day checked.
-    # 5% leaves headroom and still fails a day where most of the network is hidden.
+    # The network-wide cap on matched_rate's exemption. If a calendar or
+    # service-selection bug marked most of a day's services later-start, nearly
+    # every observation would count as explained and matched_rate would pass.
+    # Measured: 5,370 of 550,650 observations on 2026-11-14 (0.98%), 3,882 of
+    # 636,571 on 2026-11-13 (0.61%), 1,083 of 534,060 on 2026-11-07 (0.20%), and
+    # 0 on every other day checked. 5% leaves headroom and still fails a day
+    # where most of the network is hidden. It does not see a part of the network
+    # that is small against the whole, because rail is about 4% of observations
+    # and one rail line less than that. explained_lines covers that.
     "explained_pct": (
         0.0,
         5.0,
-        "observations on trips listed under a service not running",
+        "observations on trips listed only under a later-start service",
     ),
     "stop_id_match": (99.9, 100.0, "reported stop_id agreeing with the timetable"),
     "coverage": (55.0, 90.0, "scheduled stops with a timed arrival"),
@@ -181,31 +186,75 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
 
 
 EXPLAINED_NOTE = (
-    "These trips are in a timetable copy under a service that is not running on this date, "
-    "such as one that starts later, so they have no scheduled stops to grade against "
+    "These trips are in every timetable copy that lists them only under a service whose "
+    "start date is after this date, so they have no scheduled stops to grade against "
     "and stay ungraded."
 )
 
+# One row per trip: its route, and whether it is explained. A trip any copy
+# lists under a running service is a real join failure, so it is not explained
+# however another copy lists it. An expired service, a wrong weekday, a
+# calendar_dates removal and a service with no calendar row are not explained
+# either, because only a later start date has been measured as a cause.
+_TRIP_LISTING = """
+    SELECT agency, trip_id, min(route_id) AS route_id,
+           NOT bool_or(service_active) AND bool_and(service_later) AS explained
+    FROM listed_trips GROUP BY agency, trip_id
+"""
+
 
 def explained_unmatched(con: duckdb.DuckDBPyConnection) -> list[tuple]:
-    """Observations with no scheduled stop whose trip a timetable copy does list.
+    """Observations on trips that no copy lists under a running service, only later-start.
 
-    Per feed: observations, and distinct trips. The trip is in trips.txt under
-    a service that is not running today, so it has no row in `scheduled` and
-    the observation cannot join. A trip in no copy read is not counted here,
-    and neither is a stop the timetable lacks on a trip that does run today.
+    Per feed: observations, and distinct trips. Every listing of the trip is
+    in trips.txt under a service whose start_date is after today, so it has no
+    row in `scheduled` and the observation cannot join. A trip in no copy read
+    is not counted here, and neither is a stop the timetable lacks on a trip
+    that does run today, or a trip under an expired or removed service.
     """
-    return con.sql("""
+    return con.sql(f"""
         SELECT o.agency, count(*) AS observations, count(DISTINCT o.trip_id) AS trips
         FROM observed o
-        JOIN (
-            -- A trip any copy lists under a running service is a real join
-            -- failure, so it is left out however another copy lists it.
-            SELECT agency, trip_id FROM listed_trips
-            GROUP BY agency, trip_id HAVING NOT bool_or(service_active)
-        ) l ON l.agency = o.agency AND l.trip_id = o.trip_id
+        JOIN ({_TRIP_LISTING}) l
+          ON l.agency = o.agency AND l.trip_id = o.trip_id AND l.explained
         GROUP BY o.agency ORDER BY o.agency
     """).fetchall()
+
+
+# Fewest observed trips on a line before it can fail explained_lines. Without a
+# floor, a line with one stray report on a later-start trip would fail the day.
+# The 5 is a judgment, not a measurement: the explained trips on 2026-11-14 were
+# 338 of 1,336 rail trips (route 801 also had 233 that matched), on 2026-11-13
+# 244 of 1,647, and on 2026-11-07 214 of 1,110. Each of those lines had matched
+# trips beside its explained ones, which is what keeps the check passing.
+MIN_LINE_TRIPS = 5
+
+
+def fully_explained_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
+    """Lines with at least MIN_LINE_TRIPS observed trips, every one of them explained.
+
+    A line is hidden when nothing the vehicles reported on it was graded, and
+    neither explained_pct nor matched_rate can see that for a small line. The
+    line is the trip's route_id through `gtfs.line_code`, counted per feed. A
+    trip in no timetable copy has no route here and is left to matched_rate.
+    """
+    by_route = con.sql(f"""
+        SELECT l.agency, l.route_id, count(*) AS trips,
+               count(*) FILTER (WHERE l.explained) AS explained
+        FROM (SELECT DISTINCT agency, trip_id FROM observed) o
+        JOIN ({_TRIP_LISTING}) l ON l.agency = o.agency AND l.trip_id = o.trip_id
+        GROUP BY l.agency, l.route_id
+    """).fetchall()
+    totals: dict[tuple[str, str], list[int]] = {}
+    for agency, route_id, trips, explained in by_route:
+        counts = totals.setdefault((agency, line_code(route_id)), [0, 0])
+        counts[0] += trips
+        counts[1] += explained
+    return sorted(
+        (agency, line, trips)
+        for (agency, line), (trips, explained) in totals.items()
+        if trips >= MIN_LINE_TRIPS and trips == explained
+    )
 
 
 def notes(stats: dict) -> list[str]:
@@ -388,6 +437,18 @@ def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
             "value": len(silent),
             "expect": 0,
             "ok": not silent,
+        }
+    )
+
+    hidden = fully_explained_lines(con)
+    found.append(
+        {
+            "name": "explained_lines",
+            "kind": "count",
+            "label": "lines whose observed trips are all explained",
+            "value": len(hidden),
+            "expect": 0,
+            "ok": not hidden,
         }
     )
     return found

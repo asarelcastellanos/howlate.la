@@ -184,10 +184,23 @@ sometimes report trips that Metro's timetable lists under a service starting on
 a later date. Those trips have no scheduled stops, so they stay ungraded and
 lower the raw `stats.join_rate`, which was 99.02% on 2026-11-14 with 5,370
 observations on 338 trips. `matched_rate` counts them as matched and reports
-their number as `stats.explained`. A trip that no timetable copy lists still
-fails it. A second check, `explained_pct`, caps the explained share at 5% of
-observations (0.98% on 2026-11-14), so a bug that marked most services inactive
-cannot pass as explained.
+their number as `stats.explained`.
+
+A trip is explained only when no timetable copy lists it under a running
+service and every copy that lists it does so under a service whose
+`calendar.txt` `start_date` is after the day. A trip under an expired service,
+a service that runs on another weekday, or one that a `calendar_dates.txt` row
+removes stays unexplained and fails `matched_rate`, as does a trip no copy lists
+and a service with no `calendar.txt` row. Only the later start date has been
+measured as a cause.
+
+Two more checks limit the explained set. `explained_pct` caps it at 5% of
+observations (0.98% on 2026-11-14), so a bug that marked most services later
+cannot pass as explained. It cannot see a small part of the network, because
+rail is about 4% of observations. `explained_lines` fails when any line has at
+least 5 observed trips and every one of them is explained, so a whole line
+cannot be hidden. A line that is only partly explained passes, as route 801 did
+on 2026-11-14 with 338 explained trips and 233 matched ones.
 
 The six bus lines that never appeared were exactly the six in `EVENT_ONLY` in
 `collector/src/howlate_collector/routes.py`. Nothing else was missing.
