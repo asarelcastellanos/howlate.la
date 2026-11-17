@@ -314,8 +314,7 @@ version to link on applications.
   real billing. (Low)
 - Write the methodology page. Coverage gaps are explained here and nowhere else.
   (Low)
-- Add page titles and social preview images, and point the howlate.la DNS at
-  Cloudflare. (Medium)
+- Add page titles and social preview images. (Medium)
 
 The homepage in this version is a placeholder with the network headline and
 search. The story and the replay come in 0.9.0.
@@ -356,6 +355,28 @@ search. The story and the replay come in 0.9.0.
   version exists for screen readers.
 - Search and charts work with a keyboard alone.
 - Social previews render correctly. (Manual)
+
+Done when every test above passes.
+
+## 0.5.1 Custom domains
+
+Goal: the site and its data have their own addresses, so nothing depends on a
+pages.dev or r2.dev address.
+
+- Serve the site at https://howlate.la, with www.howlate.la redirecting to it
+  by a Cloudflare redirect rule. The Pages `_redirects` file does not change.
+  (Medium)
+- Serve the data from https://data.howlate.la, a custom domain on the R2
+  bucket, and make it the default data base in `web/src/env.ts`. (Medium)
+
+### Tests
+
+- `curl -sI https://howlate.la` returns 200, and `curl -sI https://www.howlate.la`
+  returns a 301 to `https://howlate.la/`.
+- `https://data.howlate.la/site/current.json` returns 200 with
+  `access-control-allow-origin: *` and `cache-control: public, max-age=60`.
+- The canonical link and `og:url` of every page start with `https://howlate.la`.
+- A deployed preview shows the `status.json` numbers on the home page.
 
 Done when every test above passes.
 
