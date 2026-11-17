@@ -11,10 +11,12 @@ import json
 from pathlib import Path
 
 import pytest
+import test_ontime
 import test_write
 from fixture_day import SERVICE_DATE, run_day
+from test_health import three_days
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, labels
+from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, health, labels
 
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / "pyproject.toml").is_file():
@@ -52,7 +54,10 @@ def build(root: Path, *, name_stops: bool = True) -> Path:
         # What a stop missing from the timetable's stop list looks like.
         catalogue["stops"].clear()
     site = root / "site"
-    aggregate.build(graded, catalogue, site, first, last, days)
+    # Three saved reports on and before the fixture day, so recent and checks
+    # have objects in them for the rename test to break.
+    reports = three_days(root / "out" / "reports" / arrivals.VERSION)
+    aggregate.build(graded, catalogue, site, first, last, days, reports=reports)
     return site
 
 
@@ -70,8 +75,8 @@ def nameless_site(tmp_path_factory) -> Path:
 def pointer(site) -> dict:
     """site/current.json as `upload` publishes it. Two runs, so previous is not empty."""
     client = test_write.FakeClient([])
-    aggregate.upload(client, site, run="20261115T130434Z-e4dc48")
-    aggregate.upload(client, site, run=RUN)
+    test_write.publish(client, site, run="20261115T130434Z-e4dc48")
+    test_write.publish(client, site, run=RUN)
     return json.loads(client.store[(DERIVED_BUCKET, aggregate.POINTER)])
 
 
@@ -82,6 +87,8 @@ def documents(site: Path, pointer: dict) -> dict[str, dict]:
         "index": json.loads(written["index.json"].read_text()),
         "status": json.loads(written["status.json"].read_text()),
         "line": json.loads(written["lines/720.json"].read_text()),
+        "network": json.loads(written["network.json"].read_text()),
+        "health": json.loads(written["health.json"].read_text()),
         Path(aggregate.POINTER).stem: pointer,
     }
 
@@ -111,7 +118,7 @@ def missing_schemas(names: list[str]) -> set[str]:
 
 def test_every_file_aggregate_writes_validates(site, pointer):
     names = sorted(path.relative_to(site).as_posix() for path in site.rglob("*.json"))
-    assert names == ["index.json", "lines/720.json", "status.json"]
+    assert names == ["health.json", "index.json", "lines/720.json", "network.json", "status.json"]
     for name in names:
         document = json.loads((site / name).read_text())
         errors = [error.message for error in validator(kind_of(name)).iter_errors(document)]
@@ -120,6 +127,36 @@ def test_every_file_aggregate_writes_validates(site, pointer):
     errors = [error.message for error in validator("current").iter_errors(pointer)]
     assert not errors, f"{aggregate.POINTER}: {errors[:3]}"
     assert pointer["previous"] == ["20261115T130434Z-e4dc48"]
+    assert pointer["files"] == len(names)
+
+
+def test_health_names_the_same_last_day_as_status_and_lists_the_reports(site):
+    health = json.loads((site / "health.json").read_text())
+    status = json.loads((site / "status.json").read_text())
+    assert health["last_day"] == status["last_day"] == health["recent"][0]["service_date"]
+    assert [day["ok"] for day in health["recent"]] == [True, False, True]
+
+
+def test_health_validates_when_the_report_for_last_day_is_unreadable(tmp_path):
+    """recent starts at an older day and checks is empty, and the schema allows both."""
+    reports = three_days(tmp_path)
+    (reports / "service_date=2026-08-18" / "report.json").write_text("{")
+    document = health.document(reports, "2026-08-18", 3)
+    assert document["checks"] == []
+    assert document["recent"][0]["service_date"] == "2026-08-17"
+    assert not list(validator("health").iter_errors(document))
+
+
+def test_a_site_with_rail_and_two_directions_validates(tmp_path):
+    """The fixture is bus only, so this one has rail and every number filled in."""
+    _, site = test_ontime.build_three_lines(tmp_path)
+    names = sorted(path.relative_to(site).as_posix() for path in site.rglob("*.json"))
+    assert names == ["health.json", "index.json", "lines/720.json", "lines/754.json",
+                     "lines/801.json", "network.json", "status.json"]  # fmt: skip
+    for name in names:
+        document = json.loads((site / name).read_text())
+        errors = [error.message for error in validator(kind_of(name)).iter_errors(document)]
+        assert not errors, f"{name}: {errors[:3]}"
 
 
 def test_a_stop_missing_from_the_timetable_validates_with_null_coordinates(nameless_site):
@@ -130,7 +167,7 @@ def test_a_stop_missing_from_the_timetable_validates_with_null_coordinates(namel
     assert not list(validator("line").iter_errors(document))
 
 
-@pytest.mark.parametrize("kind", ["index", "status", "line", "current"])
+@pytest.mark.parametrize("kind", ["index", "status", "line", "network", "health", "current"])
 def test_renaming_or_adding_a_field_fails_validation(site, pointer, kind):
     document = documents(site, pointer)[kind]
     check = validator(kind)

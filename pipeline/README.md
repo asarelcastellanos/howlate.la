@@ -39,6 +39,12 @@ instead of counting a day twice.
 Rerunning either is safe: `arrivals` replaces one date and touches no other, and
 `aggregate` is byte-identical over unchanged input.
 
+`aggregate --no-upload` writes the site to a local folder and uploads nothing,
+but it still reads Cloud Storage unless the inputs are local. `--from-bucket`
+reads the arrivals from `gs://howlate-derived`, and without `--gtfs-dir` it
+reads the timetables from `gs://howlate-raw`. Both are read-only, and the
+timetables are what name the lines and give each line its mode.
+
 Nothing is published yet. Roughly a month of collection is where patterns
 separate from noise, so there is no hurry.
 
@@ -84,6 +90,8 @@ stops gives ~300 per cell, and pooling into six dayparts gives ~46.
 site/status.json        days, coverage, totals
 site/index.json         every line with headline numbers
 site/lines/720.json     hour-of-week profile + per-stop dayparts
+site/network.json       hour-of-week profile for the network, bus and rail
+site/health.json        the daily report's results for the newest 14 days
 ```
 
 In the bucket each run goes under `site/runs/<UTC time>/`, and
@@ -92,8 +100,62 @@ is complete, so a reader never gets a mix of two runs.
 
 Every cell carries what was measured *and* what was scheduled, because only
 about half of all scheduled stops can be observed and a cell resting on three
-sightings must not look like one resting on three hundred. Largest line file is
-**19 KB gzipped**.
+sightings must not look like one resting on three hundred.
+
+Each profile hour, each stop's `all`, each direction's `all`, each entry in
+`index.json` and each network profile hour also carries `ontime`, the percent of
+measured arrivals from 60 seconds early to 300 seconds late, both included.
+That is Metro's window, from its 2025 Transit Service Policies and Standards,
+and bus and rail use the same one. It is not Metro's published on-time
+performance. Metro scores bus at timepoints and rail at terminals, and HowLate
+scores the arrival at every scheduled stop, so the two figures differ. A
+daypart cell has no `ontime`, because the cells are most of a line file's size
+and the pages read `med` from them.
+
+`health.json` is for the behind-the-scenes page. It holds `pipeline_version`,
+`last_day` and `days` from the run, `recent`, and `checks`. `recent` has one
+entry for each of the newest 14 service days that have a saved report, newest
+first, with `ok`, the names of the checks that `failed`, `coverage_pct`,
+`explained_trips`, `explained_pct` and `observations`. `checks` is the checks of the
+report for `last_day`, with the report's own labels, either a range (`value`,
+`low`, `high`) or a count (`value`, `expected`). It is empty when `last_day` has
+no readable report, even if `recent` lists older days. The file is public, so
+`pipeline/src/howlate_pipeline/health.py` copies only those fields and no other
+part of a report. A report saved before 0.4.0 names the join check `join_rate`
+and has no explained fields, which read as 0. A day with no report is missing
+from `recent`, and a report that cannot be read is skipped with a line in the
+log. Without reports, as in `aggregate --no-upload` over a folder with none,
+`recent` and `checks` are empty and the file is still written.
+
+`aggregate` reads the reports from `reports/v2` beside the arrivals folder, which
+is where `arrivals` writes them (`out/reports/v2` for `out/arrivals/v2`).
+`--from-bucket` and `daily` instead download the newest 14 days' `report.json`
+files, about 3 KB each, into `reports/v2` under the cache, from the same listing
+as the arrivals so the file never names a day the rest of the site lacks.
+`--reports DIR` reads them from another folder, and cannot be combined with
+`--from-bucket`. Built from the real reports through 2026-11-15, the file is 3,876 bytes (980 gzipped).
+
+Three more levels carry the same numbers over every measured arrival on every
+day and hour.
+
+- Each stop has `all` with `med`, `p90`, `pct5` and `ontime`. Its `cells` split
+  the same arrivals by daypart and leave out a daypart with none, so `all` is
+  the one number per stop. The count is the stop's own `n`. A stop with nothing
+  measured has an `n` of 0 and nulls in `all`.
+- Each direction in a line file has `all` with `n`, `med`, `p90`, `pct5` and
+  `ontime`, and each entry in `index.json` has the same five numbers for the
+  whole line.
+- `network.json` has `network`, `bus` and `rail`, each with `all` and an
+  hour-of-week `profile` of up to 168 entries. A mode with nothing measured is
+  still there, with an `n` of 0 and an empty profile. A line counts in the mode
+  its `index.json` entry shows.
+
+Measured on the data through 2026-11-15, which is 90 service days, the largest
+line file is line 92. Gzipped, it was 55,793 bytes (324,249 raw) before the
+on-time work and is 59,733 bytes (342,297 raw) now. This section used to say
+19 KB. The cells are most of the weight. Line 92 has 4,167 of them, and the file
+gzips to about 16 KB without them. Adding `ontime` to every cell and an `n` to
+every stop's `all` took it to 70,022 bytes, so both were dropped.
 
 ## The data contract
 
@@ -104,6 +166,8 @@ has a JSON Schema (draft 2020-12) in `pipeline/schemas/`:
 index.schema.json     site/index.json
 status.schema.json    site/status.json
 line.schema.json      site/lines/<line>.json
+network.schema.json   site/network.json
+health.schema.json    site/health.json
 current.schema.json   site/current.json, the pointer to the latest run
 ```
 
@@ -148,7 +212,7 @@ R2_ACCESS_KEY_ID       an R2 API token's key id, with write access to the bucket
 R2_SECRET_ACCESS_KEY   its secret
 R2_BUCKET              optional, defaults to howlate
 R2_REQUIRED            anything but 0, false, no, off, none or empty: missing R2 settings fail the run
-R2_PUBLIC_URL          https://<domain>, where the public reads the data, no path
+R2_PUBLIC_URL          https://data.howlate.la, where the public reads the data, no path
 ```
 
 `R2_REQUIRED` stops a redeploy that loses the settings from skipping the copy
@@ -177,7 +241,9 @@ reads `20261107 failed its checks`, and one that only failed its cleanup reads
 `20261107 cleanup failed`. Each line is cut to 160 characters. When the days do
 not all fit, the ping ends with `and N more days`. URLs, `gs://` and `s3://`
 paths and email addresses in an error are replaced with placeholders, in any
-letter case. A bare hostname is not.
+letter case. A URL is replaced up to the next space, so a quote or bracket inside
+it does not end the match and leave the rest of a signed URL in the ping. A bare
+hostname is not replaced.
 
 Known behaviour. When a newer run appears during the copy, R2's pointer is left
 alone and the job still pings success. R2 keeps serving the previous complete
@@ -185,9 +251,12 @@ run, the check is skipped because that is no fault of this copy, and the next
 daily copy moves the pointer.
 
 `deploy/daily.sh` sets these on the Cloud Run job. It accepts only
-`https://<hostname>` for `R2_ENDPOINT` and `R2_PUBLIC_URL`, with no port, path,
-trailing slash, query, fragment or user, so a value that `daily` would reject
-never deploys. To fill a bucket by hand, copy
+`https://` and a dotted domain name for `R2_ENDPOINT` and `R2_PUBLIC_URL`, such
+as `https://data.howlate.la`. The name has at least two labels, each made of
+letters, digits and inner hyphens, with single dots between them and none at the
+end. The last label may not be all digits, which rules out an IPv4 address, and
+`localhost` has no dot. There is no port, path, trailing slash, query, fragment
+or user, so a value that `daily` would reject never deploys. To fill a bucket by hand, copy
 a run, by default the one the derived pointer names.
 
 ```
@@ -195,7 +264,9 @@ python -m howlate_pipeline publish-r2 [--run 20261115T130000Z-a1b2c3]
 ```
 
 The files are public and read-only, so `deploy/r2-cors.json` lets any origin GET
-and HEAD them. Paste it in the dashboard under the bucket's Settings, CORS
+and HEAD them. The origin stays `*` because the data is public, and because
+preview deployments on pages.dev subdomains need to read it. The site reads the
+bucket through the custom domain `https://data.howlate.la`. Paste it in the dashboard under the bucket's Settings, CORS
 Policy. Wrangler takes the same rules in its own shape:
 `npx wrangler r2 bucket cors set howlate --file pipeline/deploy/r2-cors.wrangler.json`.
 At 20 MB a day, about 0.6 GB a month leaves Google Cloud, cents at $0.12/GB.
@@ -224,10 +295,23 @@ sometimes report trips that Metro's timetable lists under a service starting on
 a later date. Those trips have no scheduled stops, so they stay ungraded and
 lower the raw `stats.join_rate`, which was 99.02% on 2026-11-14 with 5,370
 observations on 338 trips. `matched_rate` counts them as matched and reports
-their number as `stats.explained`. A trip that no timetable copy lists still
-fails it. A second check, `explained_pct`, caps the explained share at 5% of
-observations (0.98% on 2026-11-14), so a bug that marked most services inactive
-cannot pass as explained.
+their number as `stats.explained`.
+
+A trip is explained only when no timetable copy lists it under a running
+service and every copy that lists it does so under a service whose
+`calendar.txt` `start_date` is after the day. A trip under an expired service,
+a service that runs on another weekday, or one that a `calendar_dates.txt` row
+removes stays unexplained and fails `matched_rate`, as does a trip no copy lists
+and a service with no `calendar.txt` row. Only the later start date has been
+measured as a cause.
+
+Two more checks limit the explained set. `explained_pct` caps it at 5% of
+observations (0.98% on 2026-11-14), so a bug that marked most services later
+cannot pass as explained. It cannot see a small part of the network, because
+rail is about 4% of observations. `explained_lines` fails when any line has at
+least 5 observed trips and every one of them is explained, so a whole line
+cannot be hidden. A line that is only partly explained passes, as route 801 did
+on 2026-11-14 with 338 explained trips and 233 matched ones.
 
 The six bus lines that never appeared were exactly the six in `EVENT_ONLY` in
 `collector/src/howlate_collector/routes.py`. Nothing else was missing.

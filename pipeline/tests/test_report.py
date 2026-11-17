@@ -43,7 +43,14 @@ def test_the_saved_report_holds_every_check_and_the_overall_result(con):
     assert saved["service_date"] == "2026-08-18"
     assert saved["stats"]["scheduled_stops"] == 8
     names = [check["name"] for check in saved["checks"]]
-    assert names == [*report.EXPECTED, "terminus_stopped", "ambiguous", "feeds", "silent_lines"]
+    assert names == [
+        *report.EXPECTED,
+        "terminus_stopped",
+        "ambiguous",
+        "feeds",
+        "silent_lines",
+        "explained_lines",
+    ]
     # The fixture has only the bus feed, so the feeds check fails, and with it
     # the day.
     feeds = next(check for check in saved["checks"] if check["name"] == "feeds")
@@ -86,8 +93,16 @@ def test_silent_lines_come_out_in_the_same_order_every_time():
 
 
 def arrivals_of(*rows: tuple[str, str]):
-    """A bare arrivals table holding only what the silent-line checks read."""
+    """A bare arrivals table holding only what the silent-line checks read.
+
+    The two empty tables are there because checks() reads them for explained_lines.
+    """
     con = duckdb.connect()
+    con.execute("CREATE TABLE observed (agency VARCHAR, trip_id VARCHAR)")
+    con.execute(
+        "CREATE TABLE listed_trips (agency VARCHAR, trip_id VARCHAR, route_id VARCHAR, "
+        "service_active BOOLEAN, service_later BOOLEAN)"
+    )
     values = ", ".join(f"('LACMTA', '{line}', '{source}')" for line, source in rows)
     con.execute(f"CREATE TABLE arrivals AS SELECT * FROM (VALUES {values}) t(agency, line, source)")
     return con
@@ -242,6 +257,31 @@ def test_a_trip_listed_under_a_later_service_is_explained_not_failed(tmp_path):
     assert (check["value"], check["ok"]) == (100, True)
 
 
+@pytest.mark.parametrize("cause", ["expired", "removed", "no_row"])
+def test_a_trip_under_a_service_that_is_not_later_starting_stays_unexplained(tmp_path, cause):
+    # T9's service is not running on the 18th, but only a later start date was
+    # ever measured as a cause. An expired service, one a calendar_dates row
+    # removed for the day, and one with no calendar.txt row are not explained.
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], t9_service=cause)
+    stats = report.summarise(con)
+    assert (stats["explained"], stats["explained_trips"]) == (0, 0)
+    check = matched_check(con)
+    assert check["value"] == pytest.approx(100 * 5 / 6)
+    assert check["ok"] is False
+
+
+def test_a_trip_one_copy_lists_later_and_another_lists_expired_is_not_explained(tmp_path):
+    # Every listing has to be later-start. One copy saying "starts later" does
+    # not outweigh another saying the service already ended.
+    con = run_day(
+        tmp_path,
+        extra_reports=[stopped("T9", 1, "A")],
+        later_service=True,
+        other_copy_lists_t9="expired",
+    )
+    assert (report.summarise(con)["explained"], matched_check(con)["ok"]) == (0, False)
+
+
 def test_a_trip_in_no_timetable_still_fails_the_check(tmp_path):
     con = run_day(tmp_path, extra_reports=[stopped("T8", 1, "A")], later_service=True)
     stats = report.summarise(con)
@@ -291,12 +331,12 @@ def test_the_explained_counts_are_printed_and_saved(tmp_path, capsys):
     assert len(saved["notes"]) == 1
     cap = next(check for check in saved["checks"] if check["name"] == "explained_pct")
     assert (cap["value"], cap["ok"]) == (saved["stats"]["explained_pct"], False)
-    assert "not running" in saved["notes"][0]
+    assert "start date is after" in saved["notes"][0]
 
 
 def test_a_day_with_nothing_explained_prints_and_saves_no_note(con, capsys):
     report.show(con, SERVICE_DATE)
-    assert "explained" not in capsys.readouterr().out
+    assert "explained:" not in capsys.readouterr().out
     saved = report.document(con, SERVICE_DATE)
     assert saved["stats"]["explained"] == 0
     assert (saved["explained_unmatched"], saved["notes"]) == ([], [])
@@ -322,6 +362,106 @@ def test_a_day_where_most_trips_are_explained_fails_the_cap_but_not_matched_rate
     assert (cap["ok"], matched_check(con)["ok"]) == (False, True)
 
 
+@pytest.mark.parametrize(
+    ("percent", "passes"),
+    [(4.9, True), (5.0, True), (5.005, False), (5.1, False)],
+)
+def test_the_explained_cap_is_five_percent_and_includes_five(con, percent, passes):
+    # The range check is low <= value <= high, so exactly 5.0 passes.
+    stats = report.summarise(con) | {"explained_pct": percent}
+    cap = next(c for c in report.checks(con, stats) if c["name"] == "explained_pct")
+    assert cap["ok"] is passes
+
+
+def test_one_explained_observation_in_twenty_is_exactly_the_cap_and_passes(tmp_path):
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
+    with_joined_filler(con, 14)
+    stats = report.summarise(con)
+    assert (stats["explained"], stats["observations"]) == (1, 20)
+    cap = check_named(con, "explained_pct")
+    assert (cap["value"], cap["ok"]) == (5.0, True)
+
+
 def test_a_day_with_nothing_explained_passes_the_cap(con):
     cap = check_named(con, "explained_pct")
     assert (cap["value"], cap["ok"]) == (0, True)
+
+
+def add_trips(con, route_id, *, explained=0, matched=0, agency="LACMTA"):
+    """Observed trips on one route, one observation each.
+
+    `explained` trips are listed only under a later-start service. `matched`
+    trips are listed under a running one and have a scheduled stop to join.
+    """
+    for kind, count, running in (("E", explained, False), ("M", matched, True)):
+        for i in range(count):
+            trip_id = f"{kind}-{agency}-{route_id}-{i}"
+            con.execute(
+                "INSERT INTO listed_trips VALUES (?, ?, ?, ?, ?)",
+                [agency, trip_id, route_id, running, not running],
+            )
+            con.execute(
+                "INSERT INTO observed BY NAME SELECT ? AS agency, ? AS trip_id, "
+                "1 AS stop_sequence, 1 AS distinct_stop_ids",
+                [agency, trip_id],
+            )
+            if running:
+                con.execute(
+                    "INSERT INTO scheduled BY NAME SELECT ? AS agency, ? AS trip_id, "
+                    "1 AS stop_sequence",
+                    [agency, trip_id],
+                )
+
+
+def test_one_line_whose_observed_trips_are_all_explained_fails_its_own_check(tmp_path):
+    # Rail is about 4% of observations, so six explained trips on one line are
+    # far under the network cap and matched_rate counts them as matched. Only
+    # the per-line check can see that the whole line was hidden.
+    con = run_day(tmp_path)
+    with_joined_filler(con, 2000)
+    add_trips(con, "801", explained=6)
+    assert check_named(con, "matched_rate")["ok"] is True
+    assert check_named(con, "explained_pct")["ok"] is True
+    lines = check_named(con, "explained_lines")
+    assert (lines["value"], lines["ok"]) == (1, False)
+    assert report.fully_explained_lines(con) == [("LACMTA", "801", 6)]
+
+
+def test_a_line_with_some_explained_trips_and_some_matched_passes(tmp_path):
+    # The real 2026-11-14 shape: route 801 had 338 explained trips and 233 that
+    # matched, so the line was only partly hidden and nothing is wrong with it.
+    con = run_day(tmp_path)
+    with_joined_filler(con, 2000)
+    add_trips(con, "801", explained=6, matched=3)
+    lines = check_named(con, "explained_lines")
+    assert (lines["value"], lines["ok"]) == (0, True)
+
+
+@pytest.mark.parametrize(("trips", "failed"), [(4, 0), (5, 1)])
+def test_a_line_needs_five_observed_trips_to_trip_the_check(tmp_path, trips, failed):
+    con = run_day(tmp_path)
+    with_joined_filler(con, 2000)
+    add_trips(con, "801", explained=trips)
+    assert check_named(con, "explained_lines")["value"] == failed
+
+
+def test_the_line_is_the_route_id_without_its_version_suffix(tmp_path):
+    # "720-13201" is line 720. Trips on two route ids of one line add up.
+    con = run_day(tmp_path)
+    with_joined_filler(con, 2000)
+    add_trips(con, "801-1", explained=3)
+    add_trips(con, "801-2", explained=3)
+    assert report.fully_explained_lines(con) == [("LACMTA", "801", 6)]
+
+
+def test_the_same_line_code_in_two_feeds_is_counted_apart(tmp_path):
+    con = run_day(tmp_path)
+    with_joined_filler(con, 2000)
+    add_trips(con, "801", explained=3)
+    add_trips(con, "801", explained=3, agency="LACMTA_Rail")
+    assert check_named(con, "explained_lines")["value"] == 0
+
+
+def test_a_day_with_nothing_explained_passes_the_line_check(con):
+    lines = check_named(con, "explained_lines")
+    assert (lines["value"], lines["ok"]) == (0, True)

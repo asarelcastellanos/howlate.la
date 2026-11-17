@@ -12,11 +12,23 @@ export const OUTPUT = new URL('../src/lib/data/types.ts', import.meta.url);
 // is too vague to read on its own in the site code.
 const ROOTS = {
 	'current.schema.json': 'CurrentPointer',
+	'health.schema.json': 'HealthFile',
 	'index.schema.json': 'SiteIndex',
 	'line.schema.json': 'LineFile',
+	'network.schema.json': 'NetworkFile',
 	'status.schema.json': 'SiteStatus'
 };
-const DEFS = { entry: 'IndexEntry' };
+const DEFS = {
+	entry: 'IndexEntry',
+	delays: 'Delays',
+	stopDelays: 'StopDelays',
+	scope: 'NetworkScope',
+	scopeDelays: 'NetworkDelays',
+	scopeHour: 'NetworkHour',
+	day: 'HealthDay',
+	rangeCheck: 'RangeCheck',
+	countCheck: 'CountCheck'
+};
 
 const HEADER = `// Generated from ../../../../pipeline/schemas by scripts/generate-types.mjs.
 // Do not edit. Run \`npm run types\` in web/ to regenerate it, and commit the
@@ -57,6 +69,9 @@ export async function generate() {
 			await compile(prepare(schema, ROOTS[file]), ROOTS[file], {
 				bannerComment: '',
 				additionalProperties: false,
+				// Past this many, a bounded array becomes plain T[] instead of a union of
+				// tuples. health.json's recent holds up to 14 and a page maps over it.
+				maxItems: 10,
 				// Matches .prettierrc, so `npm run lint` accepts the output.
 				style: { useTabs: true, singleQuote: true, trailingComma: 'none', printWidth: 100 }
 			})

@@ -13,7 +13,7 @@ export interface CurrentPointer {
 	 */
 	run: string;
 	/**
-	 * Where the run's files are, relative to the bucket root and ending in a slash. Append index.json, status.json or lines/<line>.json.
+	 * Where the run's files are, relative to the bucket root and ending in a slash. Append index.json, status.json, network.json or lines/<line>.json.
 	 */
 	prefix: string;
 	/**
@@ -26,6 +26,131 @@ export interface CurrentPointer {
 	 * @maxItems 2
 	 */
 	previous: [] | [string] | [string, string];
+}
+
+/**
+ * Pipeline health. health.json. How the daily grading did on the most recent days, for the behind-the-scenes page. It is built from the reports the pipeline saves for each service day. recent is empty when the run had no reports, as in a local run, and then checks is empty too. A day with no report is left out of recent, not marked as failed.
+ *
+ * @see https://howlate.la/schemas/health.schema.json
+ */
+export interface HealthFile {
+	/**
+	 * The version of the pipeline that built this site, such as 0.4.1.
+	 */
+	pipeline_version: string;
+	/**
+	 * The newest graded service day, as YYYY-MM-DD. It is the same value as last_day in status.json. Compare it with today's date in Los Angeles to show whether the data is fresh.
+	 */
+	last_day: string;
+	/**
+	 * How many service days are graded, which is days in status.json. Every graded day has a saved report. recent lists only the newest 14.
+	 */
+	days: number;
+	/**
+	 * The newest service days that have a report, up to 14, newest first. A day with no report is not in the list, so consecutive entries can be more than one day apart.
+	 *
+	 * @maxItems 14
+	 */
+	recent: HealthDay[];
+	/**
+	 * The checks that the report for `last_day` holds, in the order the pipeline runs them, with the pipeline's own plain-words label for each. An empty list when no readable report exists for `last_day`. Reports from older pipeline versions use older names and labels, so list the checks from this field and do not hard-code them.
+	 */
+	checks: (RangeCheck | CountCheck)[];
+}
+/**
+ * One service day's result.
+ */
+export interface HealthDay {
+	/**
+	 * The service day, as YYYY-MM-DD, in Los Angeles time.
+	 */
+	service_date: string;
+	/**
+	 * True when every check passed for this day. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day.
+	 */
+	ok: boolean;
+	/**
+	 * The names of the checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate.
+	 */
+	failed: string[];
+	/**
+	 * Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place.
+	 */
+	coverage_pct: number;
+	/**
+	 * Trips that vehicles reported but that have no scheduled stops to grade against, because the timetable lists them only under a service that is not running that day. 0 on days graded before the pipeline counted them.
+	 */
+	explained_trips: number;
+	/**
+	 * Percent of the day's vehicle observations that were on those trips, to one decimal place. 0 on days graded before the pipeline counted them.
+	 */
+	explained_pct: number;
+	/**
+	 * Stops that vehicles reported on, counted once per trip and stop, whether or not the stop matches the timetable. This can be more than the stops measured.
+	 */
+	observations: number;
+}
+/**
+ * A check that passes when a measured percentage or value falls between low and high, both included.
+ */
+export interface RangeCheck {
+	/**
+	 * The check's short name, which is what failed in a day lists.
+	 */
+	name: string;
+	/**
+	 * Tells this shape from a count check.
+	 */
+	kind: 'range';
+	/**
+	 * What the check measures, in plain words. The unit is a percent unless the label says otherwise, as in median delay in minutes.
+	 */
+	label: string;
+	/**
+	 * True when value is from low to high.
+	 */
+	ok: boolean;
+	/**
+	 * What the newest day measured. It has many decimal places, so round it before showing it.
+	 */
+	value: number;
+	/**
+	 * The lowest value that passes.
+	 */
+	low: number;
+	/**
+	 * The highest value that passes.
+	 */
+	high: number;
+}
+/**
+ * A check that passes when a count equals the number expected.
+ */
+export interface CountCheck {
+	/**
+	 * The check's short name, which is what failed in a day lists.
+	 */
+	name: string;
+	/**
+	 * Tells this shape from a range check.
+	 */
+	kind: 'count';
+	/**
+	 * What is counted, in plain words.
+	 */
+	label: string;
+	/**
+	 * True when value equals expected.
+	 */
+	ok: boolean;
+	/**
+	 * The count the newest day measured.
+	 */
+	value: number;
+	/**
+	 * The count that passes.
+	 */
+	expected: number;
 }
 
 /**
@@ -92,6 +217,10 @@ export interface IndexEntry {
 	 * Percent of measured arrivals more than 300 seconds late, to one decimal place.
 	 */
 	pct5: number;
+	/**
+	 * Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance.
+	 */
+	ontime: number;
 	/**
 	 * Where each measured direction is signed for, in direction order. An empty string means the timetable names no destination.
 	 *
@@ -164,6 +293,7 @@ export interface Direction {
 	 * Scheduled stops in this direction, summed over its stops, measured or not.
 	 */
 	sched: number;
+	all: Delays;
 	/**
 	 * The hour-of-week shape, pooled over every stop. Hours with nothing measured are left out, so there are up to 168 entries, sorted by h.
 	 *
@@ -176,6 +306,31 @@ export interface Direction {
 	 * @minItems 1
 	 */
 	stops: [Stop, ...Stop[]];
+}
+/**
+ * The delay numbers over every measured arrival in one direction, on every day and hour. n equals the direction's n.
+ */
+export interface Delays {
+	/**
+	 * Arrivals with a measured delay.
+	 */
+	n: number;
+	/**
+	 * Median delay in seconds. Positive means late and negative means early.
+	 */
+	med: number;
+	/**
+	 * 90th percentile delay in seconds. One measured arrival in ten was later than this.
+	 */
+	p90: number;
+	/**
+	 * Percent of measured arrivals more than 300 seconds late, to one decimal place.
+	 */
+	pct5: number;
+	/**
+	 * Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance.
+	 */
+	ontime: number;
 }
 export interface Hour {
 	/**
@@ -202,6 +357,10 @@ export interface Hour {
 	 * Percent of measured arrivals more than 300 seconds late, to one decimal place.
 	 */
 	pct5: number;
+	/**
+	 * Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance.
+	 */
+	ontime: number;
 }
 export interface Stop {
 	/**
@@ -232,10 +391,32 @@ export interface Stop {
 	 * Scheduled stops here, measured or not. It also counts dayparts missing from cells, so a gap in cells is not a gap in the timetable.
 	 */
 	sched: number;
+	all: StopDelays;
 	/**
 	 * One entry per daypart with at least one measured arrival, sorted by d. Dayparts with none are left out.
 	 */
 	cells: Cell[];
+}
+/**
+ * The delay numbers over every measured arrival at one stop, on every day and hour. The cells split the same arrivals by daypart and leave out dayparts with none, so use this for one number per stop. The count is the stop's n.
+ */
+export interface StopDelays {
+	/**
+	 * Median delay in seconds. Positive means late and negative means early. Null when the stop's n is 0.
+	 */
+	med: number | null;
+	/**
+	 * 90th percentile delay in seconds. One measured arrival in ten was later than this. Null when the stop's n is 0.
+	 */
+	p90: number | null;
+	/**
+	 * Percent of measured arrivals more than 300 seconds late, to one decimal place. Null when the stop's n is 0.
+	 */
+	pct5: number | null;
+	/**
+	 * Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. Null when the stop's n is 0. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance.
+	 */
+	ontime: number | null;
 }
 export interface Cell {
 	/**
@@ -262,6 +443,84 @@ export interface Cell {
 	 * Percent of measured arrivals more than 300 seconds late, to one decimal place.
 	 */
 	pct5: number;
+}
+
+/**
+ * Network profile. network.json. The whole network's delay numbers and hour-of-week shape, for the network as a whole and for bus and rail alone. network holds every line, bus holds the lines that index.json gives the mode bus, and rail holds the lines with the mode rail. The hour profile pools every line and stop, so it cannot be built from the line files. Trip origins are left out of every count, because they measure a departure and not an arrival.
+ *
+ * @see https://howlate.la/schemas/network.schema.json
+ */
+export interface NetworkFile {
+	network: NetworkScope;
+	bus: NetworkScope;
+	rail: NetworkScope;
+}
+/**
+ * The delay numbers and hour-of-week shape for one part of the network. A mode with no measured arrival is still present, with an n of 0 and an empty profile.
+ */
+export interface NetworkScope {
+	all: NetworkDelays;
+	/**
+	 * The hour-of-week shape, pooled over every line and stop in this scope. Hours with nothing measured are left out, so there are up to 168 entries, sorted by h. The array is empty when nothing was measured.
+	 *
+	 * @maxItems 168
+	 */
+	profile: NetworkHour[];
+}
+/**
+ * The delay numbers over every measured arrival in this scope, on every day and hour.
+ */
+export interface NetworkDelays {
+	/**
+	 * Arrivals with a measured delay. It is 0 when nothing was measured in this scope, and then every other field is null.
+	 */
+	n: number;
+	/**
+	 * Median delay in seconds. Positive means late and negative means early. Null when n is 0.
+	 */
+	med: number | null;
+	/**
+	 * 90th percentile delay in seconds. One measured arrival in ten was later than this. Null when n is 0.
+	 */
+	p90: number | null;
+	/**
+	 * Percent of measured arrivals more than 300 seconds late, to one decimal place. Null when n is 0.
+	 */
+	pct5: number | null;
+	/**
+	 * Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. Null when n is 0. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance.
+	 */
+	ontime: number | null;
+}
+export interface NetworkHour {
+	/**
+	 * Hour of the week in Los Angeles time, from the scheduled time. 0 is Monday 00:00 to 00:59, 24 is Tuesday 00:00, and 167 is Sunday 23:00.
+	 */
+	h: number;
+	/**
+	 * Arrivals with a measured delay in this hour, over all days, lines and stops.
+	 */
+	n: number;
+	/**
+	 * Scheduled stops in this hour, measured or not.
+	 */
+	sched: number;
+	/**
+	 * Median delay in seconds. Positive means late and negative means early.
+	 */
+	med: number;
+	/**
+	 * 90th percentile delay in seconds. One measured arrival in ten was later than this.
+	 */
+	p90: number;
+	/**
+	 * Percent of measured arrivals more than 300 seconds late, to one decimal place.
+	 */
+	pct5: number;
+	/**
+	 * Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance.
+	 */
+	ontime: number;
 }
 
 /**

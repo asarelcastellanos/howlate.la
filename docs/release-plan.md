@@ -136,7 +136,8 @@ never appear.
 
 - Add pipeline tests on a small hand-built day before changing anything. Cover
   the three-partition service day, origin departures, the approach fallback,
-  and the never-observed last stop. (Medium)
+  and the last stop of a trip, which is timed from its last approach report
+  because vehicles stop reporting before they finish. (Medium)
 - Add `vehicle_id` and `departure_time` (the last `STOPPED_AT`) to each arrival
   row. Bunching, dwell time and early departures all need them. (Medium)
 - Add a trips table with one row per scheduled trip: first seen, last seen,
@@ -314,8 +315,7 @@ version to link on applications.
   real billing. (Low)
 - Write the methodology page. Coverage gaps are explained here and nowhere else.
   (Low)
-- Add page titles and social preview images, and point the howlate.la DNS at
-  Cloudflare. (Medium)
+- Add page titles and social preview images. (Medium)
 
 The homepage in this version is a placeholder with the network headline and
 search. The story and the replay come in 0.9.0.
@@ -341,7 +341,7 @@ search. The story and the replay come in 0.9.0.
   charts.
 - An unknown line URL returns the 404 page.
 - The behind-the-scenes status turns to a warning when the newest graded day is
-  more than two days old. Test this with a stale fixture.
+  more than three days old. Test this with a stale fixture.
 
 #### UI/UX
 
@@ -356,6 +356,33 @@ search. The story and the replay come in 0.9.0.
   version exists for screen readers.
 - Search and charts work with a keyboard alone.
 - Social previews render correctly. (Manual)
+
+Done when every test above passes.
+
+## 0.5.1 Custom domains
+
+Goal: the site and its data have their own addresses, so nothing depends on a
+pages.dev or r2.dev address.
+
+Still to do after the 0.5.0 merge, because deploys take their code from `main`
+and the live job keeps its old settings. Run `pipeline/deploy/daily.sh` so the
+job's public address becomes `https://data.howlate.la`. Then turn the `r2.dev`
+address off once the new site is confirmed live.
+
+- Serve the site at https://howlate.la, with www.howlate.la redirecting to it
+  by a Cloudflare redirect rule. The Pages `_redirects` file does not change.
+  (Medium)
+- Serve the data from https://data.howlate.la, a custom domain on the R2
+  bucket, and make it the default data base in `web/src/env.ts`. (Medium)
+
+### Tests
+
+- `curl -sI https://howlate.la` returns 200, and `curl -sI https://www.howlate.la`
+  returns a 301 to `https://howlate.la/`.
+- `https://data.howlate.la/site/current.json` returns 200 with
+  `access-control-allow-origin: *` and `cache-control: public, max-age=60`.
+- The canonical link and `og:url` of every page start with `https://howlate.la`.
+- A deployed preview shows the `status.json` numbers on the home page.
 
 Done when every test above passes.
 

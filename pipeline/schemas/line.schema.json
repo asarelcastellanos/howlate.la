@@ -21,33 +21,60 @@
     "direction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "to", "n", "sched", "profile", "stops"],
+      "required": ["id", "to", "n", "sched", "all", "profile", "stops"],
       "properties": {
         "id": {"enum": [0, 1], "description": "The timetable's direction id, 0 or 1. Use the to field to name the direction for a rider."},
         "to": {"type": "string", "description": "Where this direction is signed for. It is the destination that appears on the most of the direction's timetable stops. Empty when the timetable names none."},
         "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay in this direction, summed over its stops."},
         "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops in this direction, summed over its stops, measured or not."},
+        "all": {"$ref": "#/$defs/delays"},
         "profile": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hour"}, "description": "The hour-of-week shape, pooled over every stop. Hours with nothing measured are left out, so there are up to 168 entries, sorted by h."},
         "stops": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stop"}, "description": "Every stop with a scheduled arrival in this direction, in route order. Stops that are only a trip's first stop are left out, because they measure a departure."}
+      }
+    },
+    "delays": {
+      "description": "The delay numbers over every measured arrival in one direction, on every day and hour. n equals the direction's n.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n", "med", "p90", "pct5", "ontime"],
+      "properties": {
+        "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay."},
+        "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
+        "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
+        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."},
+        "ontime": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance."}
+      }
+    },
+    "stopDelays": {
+      "description": "The delay numbers over every measured arrival at one stop, on every day and hour. The cells split the same arrivals by daypart and leave out dayparts with none, so use this for one number per stop. The count is the stop's n.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["med", "p90", "pct5", "ontime"],
+      "properties": {
+        "med": {"type": ["integer", "null"], "description": "Median delay in seconds. Positive means late and negative means early. Null when the stop's n is 0."},
+        "p90": {"type": ["integer", "null"], "description": "90th percentile delay in seconds. One measured arrival in ten was later than this. Null when the stop's n is 0."},
+        "pct5": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place. Null when the stop's n is 0."},
+        "ontime": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. Null when the stop's n is 0. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance."}
       }
     },
     "hour": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["h", "n", "sched", "med", "p90", "pct5"],
+      "required": ["h", "n", "sched", "med", "p90", "pct5", "ontime"],
       "properties": {
         "h": {"type": "integer", "minimum": 0, "maximum": 167, "description": "Hour of the week in Los Angeles time, from the scheduled time. 0 is Monday 00:00 to 00:59, 24 is Tuesday 00:00, and 167 is Sunday 23:00."},
         "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay in this hour, over all days and stops."},
         "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops in this hour, measured or not."},
         "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
         "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
-        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."}
+        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."},
+        "ontime": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance."}
       }
     },
     "stop": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "lat", "lon", "seq", "n", "sched", "cells"],
+      "required": ["id", "name", "lat", "lon", "seq", "n", "sched", "all", "cells"],
       "properties": {
         "id": {"type": "string", "minLength": 1, "description": "The stop id, as in Metro's timetable."},
         "name": {"type": "string", "description": "The stop's name. It falls back to the stop id when the timetable has no name for it."},
@@ -56,6 +83,7 @@
         "seq": {"type": "integer", "description": "Where the stop sits along the route. It is the median stop sequence over all trips, so sort by it and do not read it as a count of stops."},
         "n": {"type": "integer", "minimum": 0, "description": "Arrivals with a measured delay at this stop, over all days. It counts every daypart and can be 0."},
         "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops here, measured or not. It also counts dayparts missing from cells, so a gap in cells is not a gap in the timetable."},
+        "all": {"$ref": "#/$defs/stopDelays"},
         "cells": {"type": "array", "items": {"$ref": "#/$defs/cell"}, "description": "One entry per daypart with at least one measured arrival, sorted by d. Dayparts with none are left out."}
       }
     },

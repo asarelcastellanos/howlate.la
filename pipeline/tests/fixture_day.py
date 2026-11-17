@@ -124,28 +124,53 @@ def write_csv(path: Path, header: list[str], rows: list[list]) -> None:
         writer.writerows(rows)
 
 
-def build_timetable(directory: Path, *, services: bool = True, later_service: bool = False) -> Path:
+# Why T9's service is not running on the service day, for build_timetable.
+# `later` starts on 1 September, `expired` ended on 30 June, `removed` runs on
+# Tuesdays but a calendar_dates row takes the 18th out, and `no_row` has no
+# calendar.txt row at all.
+T9_SERVICES = {
+    "later": ("LATER", ["20260901", "20261231"]),
+    "expired": ("EXPIRED", ["20260101", "20260630"]),
+    "removed": ("REMOVED", ["20260101", "20261231"]),
+    "no_row": ("NOROW", None),
+}
+
+
+def build_timetable(
+    directory: Path,
+    *,
+    services: bool = True,
+    later_service: bool = False,
+    t9_service: str | None = None,
+) -> Path:
     """A bus timetable holding T1, T2 and T3.
 
     With services=False the calendar lists nothing running on the service day,
     which is what a copy fetched the morning after looks like. With
     later_service=True, trip T9 is listed under a service that starts on 1
     September, as Metro's rail timetable lists trips for dates not yet reached.
-    T9 has no stop_times, so it can never become a scheduled stop.
+    `t9_service` picks another reason T9's service is not running, see
+    T9_SERVICES. T9 has no stop_times, so it can never become a scheduled stop.
     """
     directory.mkdir(parents=True, exist_ok=True)
     days = ["1"] * 7 if services else ["0"] * 7
     calendar = [["WK", *days, "20260101", "20261231"]]
+    removals = []
     trips = [
         ["720-13201", "WK", "T1", "0"],
         ["720-13201", "WK", "T2", "0"],
         ["720-13201", "WK", "T3", "1"],
     ]
-    if later_service:
-        calendar.append(["LATER", *["1"] * 7, "20260901", "20261231"])
-        trips.append(["720-13201", "LATER", "T9", "0"])
+    t9_service = t9_service or ("later" if later_service else None)
+    if t9_service:
+        service_id, window = T9_SERVICES[t9_service]
+        if window:
+            calendar.append([service_id, *["1"] * 7, *window])
+        if t9_service == "removed":
+            removals.append([service_id, SERVICE_DATE, "2"])
+        trips.append(["720-13201", service_id, "T9", "0"])
     write_csv(directory / "calendar.txt", ["service_id", *_DOW, "start_date", "end_date"], calendar)
-    write_csv(directory / "calendar_dates.txt", ["service_id", "date", "exception_type"], [])
+    write_csv(directory / "calendar_dates.txt", ["service_id", "date", "exception_type"], removals)
     write_csv(
         directory / "trips.txt",
         ["route_id", "service_id", "trip_id", "direction_id"],
@@ -219,14 +244,18 @@ def run_day(
     *,
     extra_reports: list[tuple] = (),
     later_service: bool = False,
+    t9_service: str | None = None,
     other_copy_lists_later: bool = False,
+    other_copy_lists_t9: str | None = None,
     other_copy_expired: bool = False,
 ):
     """Build the fixture day under `root` and run the real steps on it.
 
-    `extra_reports` are added to REPORTS, and `later_service` adds trip T9 to
-    the timetable, see build_timetable. With `other_copy_lists_later`, T9 is
-    instead only in a second copy that grading does not use. With
+    `extra_reports` are added to REPORTS, and `later_service` or `t9_service`
+    adds trip T9 to the timetable, see build_timetable. With `other_copy_lists_later`, T9 is
+    instead only in a second copy that grading does not use, and
+    `other_copy_lists_t9` makes that copy list T9 under another service, see
+    T9_SERVICES. With
     `other_copy_expired`, the second copy lists T1, T2 and T3 too but its
     calendar runs nothing on the service day, see build_timetable. Returns the
     DuckDB connection holding the arrivals and trips tables.
@@ -234,13 +263,19 @@ def run_day(
     from howlate_pipeline import arrivals
 
     raw = build_raw(root / "raw", [*REPORTS, *extra_reports])
-    timetable = build_timetable(root / "gtfs_bus", later_service=later_service)
+    timetable = build_timetable(
+        root / "gtfs_bus", later_service=later_service, t9_service=t9_service
+    )
     con = arrivals.connect()
     files = arrivals.local_files(raw, SERVICE_DATE)
     arrivals.load_observations(con, files, SERVICE_DATE)
     other = {}
     if other_copy_lists_later:
         other = {"LACMTA": [build_timetable(root / "gtfs_bus_other", later_service=True)]}
+    if other_copy_lists_t9:
+        other = {
+            "LACMTA": [build_timetable(root / "gtfs_bus_other", t9_service=other_copy_lists_t9)]
+        }
     if other_copy_expired:
         other = {"LACMTA": [build_timetable(root / "gtfs_bus_other", services=False)]}
     arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE, other)
