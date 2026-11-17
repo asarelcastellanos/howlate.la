@@ -15,7 +15,7 @@ it; a bug in the analysis must never be able to damage the collection.
 # Kept equal to the version in pyproject.toml, so a report says which release
 # wrote it. It does not tell two commits of one release apart; to grade a day
 # again, delete its report (see backfill.py).
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # The bucket the collector writes to. Read-only from here.
 RAW_BUCKET = "howlate-raw"
