@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { BUS_SERVICES, lineById, type BusService, type LineId } from './lines.ts';
 
-	// Rail and busway lines pass `line`. Other bus routes pass `service` and the
-	// route number.
-	type Props = ({ line: LineId } | { service: BusService; route: string }) & {
+	// Rail and busway lines pass `line`. Other bus routes pass the route number,
+	// and a `service` only when the timetable names one (see service.ts). Without
+	// one the bullet is neutral and its name is "Route N".
+	type Props = ({ line: LineId } | { service?: BusService; route: string }) & {
 		size?: 'sm' | 'md' | 'lg';
 	};
 	let { size = 'md', ...props }: Props = $props();
@@ -23,10 +24,10 @@
 				css: `background:${line.color};color:${line.textColor}`
 			};
 		}
-		const service = BUS_SERVICES[props.service];
+		const service = BUS_SERVICES[props.service ?? 'local'];
 		return {
 			symbol: props.route,
-			name: `${service.name} route ${props.route}`,
+			name: props.service ? `${service.name} route ${props.route}` : `Route ${props.route}`,
 			pill: service.shape === 'pill' || props.route.length > 2,
 			css: service.fill
 				? 'background:var(--ink);color:var(--paper)'

@@ -1,8 +1,9 @@
 # Web
 
-The public site for howlate.la. It builds to static files. Right now it is one
-placeholder page with a live status strip, a methodology page at `/methods`,
-and a design specimen with the chart components.
+The public site for howlate.la. It builds to static files. Right now it is a
+placeholder home page with a live status strip and line search, a page for each
+line at `/lines/<line>`, a ranking at `/ranking`, a methodology page at `/methods`, and a design
+specimen with the chart components.
 
 The design system exists. `DESIGN.md` documents it, and the `/design` page
 shows every piece in the theme your device is using.
@@ -21,6 +22,10 @@ npm test             # contrast, generated types, data loader and chart tests
 npm run build        # writes the static site to build/
 npm run preview      # serves build/ on http://localhost:4173
 ```
+
+To run against local data, set `PUBLIC_DATA_BASE=/data` when you build or start
+the dev server. Put a copy of the bucket's `site/` folder in `web/static/data/`,
+which git ignores.
 
 ## Decisions
 
@@ -84,8 +89,13 @@ field then breaks `npm run check` where the site reads it.
 `status.json`, `network.json` and `lines/<line>.json` from the run's `prefix`,
 so a page never mixes two runs. A failed request, a status other than 200, or a body that is not
 JSON comes back as `{ ok: false, error }`, never a throw, so a page can show an
-error state. The loader does not validate the body. The pipeline's contract
-test covers the shape.
+error state. The pipeline's contract test covers the full shape. The loader
+checks only the fields the pages read (`src/lib/data/shape.ts`) for `index.json`,
+`status.json` and the line files. A file that fails comes back with the error
+kind `shape`. The bucket holds the previous shape from a release until the next
+daily run, and the page then shows "This page needs newer data than the site has
+yet" with a retry button. `ResultView` also wraps the data views in a
+`<svelte:boundary>`, so a render error shows the error box and not a 500 page.
 
 `PUBLIC_DATA_BASE` sets `base` and is inlined at build time. SvelteKit 3 reads
 it from `src/env.ts` and exposes it through `$app/env/public`, which
@@ -124,9 +134,58 @@ Cloudflare dashboard with these settings.
 - Production branch: `main`
 - Preview deployments: on for all branches
 
+## Lines
+
+The home page loads `index.json` and shows a search box (`SearchBox.svelte`,
+ranked by `searchLines` in `src/lib/search.ts`). Choosing a result opens
+`/lines/<line>`. That route is client rendered (`prerender = false`). It reads
+`index.json` and `lines/<line>.json` from one run, then shows a headline for each
+direction, a switch between directions, and the three charts. An id that is not
+in the index, or a line file that returns 404, shows a "We could not find that
+line" message. A failed load shows the error state with a retry button. The site
+is static, so both answer with status 200.
+
+`static/_redirects` holds the rule `/lines/* /200 200`, which answers every
+`/lines/*` path with `200.html`, the app shell that adapter-static writes, and
+keeps the address. The target has no `.html` because Cloudflare Pages redirects
+a `.html` target to the clean URL, which changes the address and breaks the
+route. Without it, Cloudflare Pages serves the prerendered home
+page for a path it did not build. A rail line page hides the on-time share while
+`SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+
+## Ranking
+
+`/ranking` is prerendered, and the browser loads `index.json` with
+`readRankingIndex`. The page ranks bus lines by the share of measured arrivals
+from 1 minute early to 5 minutes late, counted at every stop. It is not Metro's
+published figure, and the page says so. Two panels list the top and bottom five.
+The table below has every ranked line, and its three metric headers are buttons
+that sort it. Headers sort best first (the highest on-time share, the lowest
+median delay or 90th percentile) and a second click reverses. Lines with equal
+values share a rank and keep line-id order in both directions. A line that ties
+with the fifth line of a panel is shown too, so a panel can hold six.
+
+`rankLines` in `src/lib/ranking.ts` holds the logic, and `tests/ranking.test.ts`
+checks the order against a plain sort on the real index when `static/data` exists.
+
+- `MIN_RANKED_ARRIVALS` is 500. A line under it is listed under "Not ranked"
+  with its arrival count. In the 2026-11-16 run (90 days) one of 109 bus lines
+  was under it, line 697 at 202 arrivals, and the next smallest was 18,078. Below
+  500 arrivals, five arrivals changing move a share by more than a point. The
+  comment on the constant has the arithmetic.
+- Rail is never ranked. A small rail table shows median and 90th percentile
+  only, and `rankLines` also drops rail from an on-time ranking while
+  `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+- Until the daily run after a release, the live bucket's `index.json` has no
+  `n`, `med`, `p90`, `pct5` or `ontime`. `checkRankingIndex` turns that into a
+  `shape` error, and the page shows "This page needs newer data than the site has
+  yet. Try again in a few minutes." with a retry button. `ResultView`'s boundary
+  covers a throw while the page draws.
+- Table delays show minutes with one decimal, such as "1.3 min late". Seconds
+  under two minutes and whole minutes above would not read as sorted.
+
 ## Not done yet
 
-- A line page that uses the charts. The charts draw on `/design` only.
 - Screenshot comparison. The release plan asks for it, but a baseline image
   from macOS differs from one made on the Linux CI runner, so no baseline is
   committed and CI has no screenshot gate.

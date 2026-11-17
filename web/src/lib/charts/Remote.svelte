@@ -5,7 +5,11 @@
 
 	// Loads in the browser only, because effects do not run during prerender. The
 	// static HTML therefore holds the loading state. A retry runs the load again.
-	let { load, children }: { load: () => Promise<Result<T>>; children: Snippet<[T]> } = $props();
+	let {
+		load,
+		heading,
+		children
+	}: { load: () => Promise<Result<T>>; heading?: Snippet; children: Snippet<[T]> } = $props();
 
 	let result = $state<Result<T>>();
 	let attempt = $state(0);
@@ -23,4 +27,4 @@
 	});
 </script>
 
-<ResultView {result} onretry={() => attempt++} {children} />
+<ResultView {result} onretry={() => attempt++} {heading} {children} />

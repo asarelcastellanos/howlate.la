@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import Guard from '#lib/charts/Guard.svelte';
 	import Remote from '#lib/charts/Remote.svelte';
 	import { DATA_BASE } from '#lib/data/base.ts';
 	import { readRankingIndex } from '#lib/data/read.ts';
@@ -46,10 +45,8 @@
 
 	<Rule />
 	<div class="wide mt-8">
-		<Guard>
-			<Remote load={() => readRankingIndex(DATA_BASE)}>
-				{#snippet children(index)}<RankingBody {index} />{/snippet}
-			</Remote>
-		</Guard>
+		<Remote load={() => readRankingIndex(DATA_BASE)}>
+			{#snippet children(index)}<RankingBody {index} />{/snippet}
+		</Remote>
 	</div>
 </main>

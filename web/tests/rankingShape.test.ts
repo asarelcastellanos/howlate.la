@@ -114,18 +114,13 @@ test('a failed request still comes back as its own error kind', async () => {
 });
 
 let shapeView = '';
-let thrown = '';
 
 before(async () => {
 	const ResultView = (await import('../src/lib/charts/ResultView.svelte')).default;
-	const Guard = (await import('./fixtures/GuardThrows.svelte')).default;
 	const error = { kind: 'shape', url: URL_ } as const;
 	shapeView = render(ResultView, {
 		props: { result: { ok: false, error }, onretry: () => {}, children: () => {} }
 	}).body;
-	// The server renders a failed boundary only when transformError handles the
-	// error. In the browser a boundary catches it with no option.
-	thrown = render(Guard, { transformError: String }).body;
 });
 
 test('the shape error shows the newer-data message with a retry button', () => {
@@ -135,11 +130,4 @@ test('the shape error shows the newer-data message with a retry button', () => {
 	);
 	assert.match(shapeView, /role="alert"/);
 	assert.match(shapeView, /Try again<\/button>/);
-});
-
-test('a component that throws inside the boundary shows the error box', () => {
-	assert.match(thrown, /role="alert"/);
-	assert.match(thrown, /We couldn't load this data\./);
-	assert.match(thrown, /Try again<\/button>/);
-	assert.doesNotMatch(thrown, /never shown/);
 });

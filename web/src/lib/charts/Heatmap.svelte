@@ -1,23 +1,92 @@
 <script lang="ts">
 	import type { Hour } from '#lib/data/types.ts';
 	import ChartFigure from './ChartFigure.svelte';
-	import { DOTTED, DOTTED_WIDTH, HATCH, heatmap, heatmapLabel, hourlyGrid } from './heatmap.ts';
+	import {
+		DOTTED,
+		DOTTED_WIDTH,
+		HATCH,
+		heatmap,
+		heatmapLabel,
+		hourlyGrid,
+		selectHour
+	} from './heatmap.ts';
+	import { nextHour, readoutText, startHour } from './readout.ts';
 	import { DAY_NAMES, MIN_ARRIVALS, QUIET, RAMP, RAMP_STEPS, hourLabel, trusted } from './theme.ts';
 
-	let { profile, caption, source }: { profile: Hour[]; caption: string; source: string } = $props();
+	// `showOntime` is false for a rail line while the on-time share is on hold.
+	let {
+		profile,
+		caption,
+		source,
+		showOntime
+	}: { profile: Hour[]; caption: string; source: string; showOntime: boolean } = $props();
 
+	const uid = $props.id();
 	const grid = $derived(hourlyGrid(profile));
 	const hours = Array.from({ length: 24 }, (_, hour) => hour);
+	const label = $derived(heatmapLabel(profile));
+
+	// The pick remembers its profile, so switching direction starts on that
+	// direction's worst hour. A resize redraws the SVG and keeps the pick.
+	let picked = $state.raw<{ profile: Hour[]; h: number }>();
+	const selected = $derived(picked?.profile === profile ? picked.h : startHour(profile));
+	const readout = $derived(
+		readoutText(profile.find((hour) => hour.h === selected) ?? { h: selected }, { showOntime })
+	);
+	let svg = $state.raw<Element>();
+	$effect(() => {
+		if (svg) selectHour(svg, selected);
+	});
+
+	const choose = (h: number) => (picked = { profile, h });
+	const hourOf = (target: EventTarget | null) => {
+		const value = (target as Element | null)?.closest('[data-hour]')?.getAttribute('data-hour');
+		return value === null || value === undefined ? undefined : Number(value);
+	};
+
+	// Plot hands back a finished SVG, so the events attach to it after each draw.
+	function wire(svgEl: Element) {
+		const el = svgEl as SVGElement;
+		const onclick = (event: Event) => {
+			const h = hourOf(event.target);
+			if (h !== undefined) choose(h);
+		};
+		const onover = (event: PointerEvent) => {
+			const h = event.pointerType === 'mouse' ? hourOf(event.target) : undefined;
+			if (h !== undefined && h !== selected) choose(h);
+		};
+		const onkey = (event: KeyboardEvent) => {
+			if (event.altKey || event.ctrlKey || event.metaKey) return;
+			const next = nextHour(selected, event.key);
+			if (next === undefined) return;
+			// The arrow keys and Home and End scroll the page unless they are stopped here.
+			event.preventDefault();
+			choose(next);
+		};
+		el.setAttribute('tabindex', '0');
+		el.setAttribute('role', 'img');
+		el.setAttribute('aria-label', `${label} Use the arrow keys to choose an hour.`);
+		el.setAttribute('aria-describedby', `${uid}-readout`);
+		el.addEventListener('click', onclick);
+		el.addEventListener('pointerover', onover);
+		el.addEventListener('keydown', onkey);
+		svg = el;
+		return () => {
+			if (svg === el) svg = undefined;
+		};
+	}
 </script>
 
 <ChartFigure
 	empty={trusted(profile).length === 0}
 	render={(width) => heatmap(profile, { width })}
-	label={heatmapLabel(profile)}
+	{label}
+	onrender={wire}
 	{caption}
 	{source}
 >
 	{#snippet extra()}
+		<p id="{uid}-readout" aria-live="polite" class="data mt-3 min-h-[2lh]">{readout}</p>
 		<div
 			class="caption text-ink-muted mt-2 flex flex-wrap items-center gap-x-4 gap-y-1"
 			aria-hidden="true"
@@ -68,6 +137,7 @@
 				</svg>
 				none measured
 			</span>
+			<span>Tap a cell or use the arrow keys to read an hour.</span>
 			<span
 				>Ramp steps at {RAMP_STEPS.map((s) => s / 60).join(', ')} minutes. Too few is under {MIN_ARRIVALS}.</span
 			>

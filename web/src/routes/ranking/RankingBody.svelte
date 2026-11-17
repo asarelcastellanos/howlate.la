@@ -3,7 +3,8 @@
 	import type { SiteIndex } from '#lib/data/types.ts';
 	import Headline from '#lib/design/Headline.svelte';
 	import Rule from '#lib/design/Rule.svelte';
-	import { MIN_RANKED_ARRIVALS, count, ends, longDate, rankLines } from '#lib/ranking.ts';
+	import { longDate } from '#lib/date.ts';
+	import { MIN_RANKED_ARRIVALS, count, ends, rankLines } from '#lib/ranking.ts';
 	import Extremes from './Extremes.svelte';
 	import LineCell from './LineCell.svelte';
 	import RailTable from './RailTable.svelte';

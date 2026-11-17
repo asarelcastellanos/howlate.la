@@ -1,7 +1,6 @@
 import { SHOW_RAIL_ONTIME } from './config.ts';
 import type { Result } from './data/load.ts';
 import type { IndexEntry, SiteIndex } from './data/types';
-import { LINES, type BusService, type LineId } from './design/lines.ts';
 
 export type Metric = 'ontime' | 'med' | 'p90';
 
@@ -36,9 +35,6 @@ export const METRICS: { id: Metric; label: string }[] = [
  * 0.1 point the table shows.
  */
 export const MIN_RANKED_ARRIVALS = 500;
-
-export const RAIL_HOLD_NOTE =
-	"The on-time share for rail is on hold while we check how it compares with Metro's.";
 
 export type RankedLine = {
 	entry: IndexEntry;
@@ -140,52 +136,17 @@ export function ends(
 	};
 }
 
-/** "Route 720" for a number. A rail label already says "Metro A Line" and a shuttle's label is a name. */
-export function lineName(line: Pick<IndexEntry, 'label' | 'mode'>): string {
-	return line.mode === 'bus' && /^[\d/]+$/.test(line.label) ? `Route ${line.label}` : line.label;
-}
-
-/** The index text in front of a rider. One timetable note runs to several sentences. */
-export function shortVia(via: string, max = 60): string {
-	if (via.length <= max) return via;
-	const sentence = via.split('. ')[0];
-	if (sentence.length <= max) return sentence;
-	return `${via.slice(0, max).trimEnd()}…`;
-}
-
-// The index has no service type, so the bullet style follows Metro's route
-// numbers. The same ranges appear in the /design specimen.
-function busService(id: string): BusService {
-	if (/^7\d\d$/.test(id)) return 'rapid';
-	if (/^3\d\d$/.test(id)) return 'limited';
-	if (/^[45]\d\d$/.test(id)) return 'express';
-	return 'local';
-}
-
-/** Props for LineBullet. Rail and the G and J busways use Metro's letter bullet. */
-export function bulletProps(
-	entry: Pick<IndexEntry, 'line' | 'label' | 'mode'>
-): { line: LineId } | { service: BusService; route: string } {
-	// routes.txt names the busways "901-13201" and "910-13201", and the index uses "901".
-	const letter = LINES.find((l) => l.routeId.split('-')[0] === entry.line);
-	if (letter && (entry.mode === 'rail' || entry.line === '901' || entry.line === '910')) {
-		return { line: letter.id };
-	}
-	// A shuttle's label is a sentence, which does not fit in a bullet.
-	return {
-		service: busService(entry.line),
-		route: entry.label.length <= 7 ? entry.label : entry.line
-	};
-}
-
 export const percent = (value: number) => `${value.toFixed(1)}%`;
 
 export const count = (n: number) => n.toLocaleString('en-US');
 
 /**
- * A delay in seconds as minutes with one decimal, such as "4.5 min late".
- * Whole minutes would give the 28, 37 and 44 second medians in the rail table
- * the same "1 min", so the table could not be read in sorted order.
+ * A delay in seconds as minutes with one decimal, such as "4.5 min late". The
+ * table does not use `delayWords` from linePage.ts, which counts seconds under
+ * two minutes and whole minutes above. In the 2026-11-16 run the 108 ranked bus
+ * medians run from 19 to 194 seconds, 90 of them under two minutes, so a sorted
+ * column would switch units partway down. Whole minutes would give the 28, 37
+ * and 44 second rail medians the same "1 min".
  */
 export function delayText(seconds: number): string {
 	const minutes = (Math.abs(seconds) / 60).toFixed(1);
@@ -193,24 +154,14 @@ export function delayText(seconds: number): string {
 	return `${minutes} min ${seconds > 0 ? 'late' : 'early'}`;
 }
 
-/** "2026-11-15" as "November 15, 2026". It reads the day as UTC so no time zone shifts it. */
-export function longDate(day: string): string {
-	return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-US', {
-		month: 'long',
-		day: 'numeric',
-		year: 'numeric',
-		timeZone: 'UTC'
-	});
-}
-
 const isNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
 
 /**
- * Checks the fields the page reads, because the loader does not validate. The
- * bucket's index has no n, med, p90, pct5 or ontime until the daily run after a
- * release, and a page that reads them from the old shape throws. This turns
- * that into a `shape` error, which the page shows as its error box. It takes
- * `unknown` and never throws, whatever the body is.
+ * Checks the numbers the page reads from each entry. The loader's `isSiteIndex`
+ * already checks the strings and `mode`, and passes the old shape, which has
+ * none of `n`, `med`, `p90`, `pct5` and `ontime` until the daily run after a
+ * release. A page that reads them from the old shape throws, so this turns that
+ * into a `shape` error. It takes `unknown` and never throws, whatever the body is.
  */
 export function checkRankingIndex(body: unknown, url: string): Result<SiteIndex> {
 	const bad: Result<SiteIndex> = { ok: false, error: { kind: 'shape', url } };
@@ -220,9 +171,7 @@ export function checkRankingIndex(body: unknown, url: string): Result<SiteIndex>
 	if (!isNumber(index.days)) return bad;
 	for (const line of index.lines as Partial<IndexEntry>[]) {
 		if (typeof line !== 'object' || line === null) return bad;
-		const text = [line.line, line.label, line.via].every((v) => typeof v === 'string');
-		const numbers = [line.n, line.med, line.p90, line.pct5, line.ontime].every(isNumber);
-		if (!text || !numbers || (line.mode !== 'bus' && line.mode !== 'rail')) return bad;
+		if (![line.n, line.med, line.p90, line.pct5, line.ontime].every(isNumber)) return bad;
 	}
 	return { ok: true, data: index as SiteIndex };
 }

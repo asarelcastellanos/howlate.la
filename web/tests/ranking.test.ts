@@ -7,6 +7,7 @@ import { registerHooks } from 'node:module';
 import { before, test } from 'node:test';
 import { render } from 'svelte/server';
 import type { IndexEntry, SiteIndex } from '../src/lib/data/types.ts';
+import { shortVia } from '../src/lib/linePage.ts';
 import {
 	MIN_RANKED_ARRIVALS,
 	ariaSort,
@@ -15,7 +16,6 @@ import {
 	ends,
 	nextSort,
 	rankLines,
-	shortVia,
 	type Metric,
 	type Sort
 } from '../src/lib/ranking.ts';
@@ -219,10 +219,29 @@ test('text helpers', () => {
 	assert.equal(delayText(270), '4.5 min late');
 	assert.equal(delayText(-45), '0.8 min early');
 	assert.equal(delayText(0), 'on time');
-	assert.equal(shortVia('Wilshire Blvd'), 'Wilshire Blvd');
-	const note = `${'The Express Shuttle Will Operate Between Two Places'}. Service Runs Every 5 Minutes`;
-	assert.equal(shortVia(note), 'The Express Shuttle Will Operate Between Two Places');
-	assert.ok(shortVia('x'.repeat(200)).length <= 61);
+	// The table cuts the corridor text at 60 characters, shorter than a line page.
+	assert.ok(shortVia('x'.repeat(200), 60).length <= 61);
+});
+
+test('table bullets follow the service table, never a number range', async () => {
+	const RankedTable = (await import('../src/routes/ranking/RankedTable.svelte')).default;
+	// 720 is in the table. 799, 350 and 450 sit in the old range guesses and are not.
+	const lines = ['720', '799', '350', '450', '4', '901'].map((id, i) =>
+		entry(id, { ontime: 70 - i, via: `Corridor ${id}` })
+	);
+	const html = render(RankedTable, { props: { entries: lines } }).body;
+	const names = [...html.matchAll(/role="img" aria-label="([^"]*)"/g)].map((m) => m[1]);
+	assert.deepEqual(names, [
+		'Rapid route 720',
+		'Route 799',
+		'Route 350',
+		'Route 450',
+		'Route 4',
+		'G Line'
+	]);
+	for (const id of ['720', '799', '350', '450', '4', '901']) {
+		assert.ok(html.includes(`href="/lines/${id}"`), id);
+	}
 });
 
 let head = '';

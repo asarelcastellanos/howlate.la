@@ -1,13 +1,13 @@
 <script lang="ts">
 	import type { IndexEntry } from '#lib/data/types.ts';
 	import LineBullet from '#lib/design/LineBullet.svelte';
-	import { bulletProps, lineName, shortVia } from '#lib/ranking.ts';
+	import { bulletProps, lineName, shortVia } from '#lib/linePage.ts';
 
 	// `compact` hides the corridor on a phone, so a table row stays one line and
 	// the next column shows without scrolling far. Bus bullets share one width,
 	// because a pill is wider than a circle and the names should line up.
 	let { entry, compact = false }: { entry: IndexEntry; compact?: boolean } = $props();
-	const via = $derived(shortVia(entry.via));
+	const via = $derived(shortVia(entry.via, 60));
 </script>
 
 <!-- The line page is built on another branch, so this is a plain link. -->

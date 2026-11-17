@@ -80,8 +80,7 @@
 		</p>
 		<p class="mt-4">
 			For reference, Metro's board report 2025-0860 gives 78.2 percent on time for buses and 99.4
-			percent for rail, for July to September 2025. Rail is near 99 percent for Metro because Metro
-			scores terminals only.
+			percent for rail, for July to September 2025. Metro scores rail at the end terminals.
 		</p>
 	</section>
 

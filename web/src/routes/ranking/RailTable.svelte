@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { IndexEntry } from '#lib/data/types.ts';
-	import { RAIL_HOLD_NOTE, count, delayText } from '#lib/ranking.ts';
+	import { RAIL_HOLD_NOTE } from '#lib/linePage.ts';
+	import { count, delayText } from '#lib/ranking.ts';
 	import LineCell from './LineCell.svelte';
 
 	let { entries }: { entries: IndexEntry[] } = $props();
