@@ -25,11 +25,14 @@ without credentials. `backfill` and `daily` always read the buckets.
 
 `daily` ends by copying the run it published to Cloudflare R2, and `publish-r2`
 does that copy for an existing run on demand; see r2.py. Neither runs `arrivals`
-or `aggregate`, and without R2 settings in the environment `daily` skips the copy.
+or `aggregate`. Without R2 settings in the environment `daily` skips the copy,
+unless R2_REQUIRED is set, which makes missing settings fail the run. When
+R2_PUBLIC_URL is set, `daily` then fetches the public data to check it is current.
 """
 
 import argparse
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -245,6 +248,41 @@ def heartbeat(ok: bool, summary: str) -> None:
         print(f"  heartbeat failed: {type(error).__name__}")
 
 
+# The last character may not be punctuation, so "see https://x/y: denied" keeps its colon.
+URL = re.compile(r"https?://[^\s'\")>\]]*[^\s'\")>\].,:;]")
+GS_PATH = re.compile(r"gs://[^\s'\")>\]]*[^\s'\")>\].,:;]")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def redact(text: str) -> str:
+    """Replace URLs, gs:// paths and email addresses with fixed placeholders.
+
+    Error text goes to healthchecks.io, a third party, and a Google API error
+    names the service account and the bucket path. URLs go first, so an address
+    inside one is not matched on its own.
+    """
+    return EMAIL.sub("<email>", GS_PATH.sub("<gs-path>", URL.sub("<url>", text)))
+
+
+def failure_lines(failures: dict[str, BaseException]) -> str:
+    """One line per failed day, as `<day> failed: <type>: <first line of the error>`."""
+    lines = []
+    for day, error in failures.items():
+        first = redact((str(error).splitlines() or [""])[0])
+        lines.append(f"{day} failed: {type(error).__name__}" + (f": {first}" if first else ""))
+    return "\n".join(lines)
+
+
+def ping_body(head: str, failures: dict[str, BaseException], limit: int = 1000) -> str:
+    """The head, then the failed days, cut to under `limit` characters with an ellipsis.
+
+    The counts in the head come first, so a long list of failures cuts only the
+    list and never the counts.
+    """
+    body = "\n".join(part for part in (head, failure_lines(failures)) if part)
+    return body if len(body) < limit else body[: limit - 4] + "..."
+
+
 def run_daily(args: argparse.Namespace) -> int:
     """Grade the last few days not yet done, then rebuild the site.
 
@@ -263,17 +301,31 @@ def run_daily(args: argparse.Namespace) -> int:
     The run the site published is then copied to R2. By then the graded days and
     the site in Cloud Storage are saved, so a failed copy changes nothing
     already written. It still fails the run and sends /fail, because the public
-    site reads R2 and would otherwise go stale with nothing to say so.
+    site reads R2 and would otherwise go stale with nothing to say so. The same
+    goes for R2 settings that are missing while R2_REQUIRED is set, and for a
+    public address that does not serve the new run; see r2.probe.
+
+    A failure ping names each failed day and the first line of its error.
     """
     # Set in the image, so each run's log shows which code it ran.
     print(f"howlate-pipeline at commit {os.environ.get('HOWLATE_COMMIT', 'unknown')}")
     last = backfill.parse_day(yesterday())
     first = last - timedelta(days=args.catch_up - 1)
     bucket = Bucket()
+    failures: dict[str, BaseException] = {}
+
+    def grade(day: str) -> int:
+        # backfill.run keeps only the day names, and the ping needs each error.
+        try:
+            return grade_day(bucket, day, cache=args.cache, out=args.out)
+        except (Exception, SystemExit) as error:
+            failures[day] = error
+            raise
+
     try:
         result = backfill.run(
             backfill.days_between(f"{first:%Y%m%d}", f"{last:%Y%m%d}"),
-            grade=lambda day: grade_day(bucket, day, cache=args.cache, out=args.out),
+            grade=grade,
             is_done=report_exists(bucket, args.out, upload=True),
             after_day=lambda day: backfill.prune_cache(args.cache, day),
         )
@@ -284,34 +336,40 @@ def run_daily(args: argparse.Namespace) -> int:
             # No day of this layout version has finished yet, as on a first
             # deploy or after a version bump. The day counts say more than the
             # error `aggregate` would raise over an empty directory.
-            heartbeat(False, f"no finished day to publish: {summary}")
+            heartbeat(False, ping_body(f"no finished day to publish: {summary}", failures))
             return code or 1
         build_site(bucket, graded, cache=args.cache, out=args.out / "site")
-        r2_problem = copy_to_r2(bucket)
+        r2_problem = copy_to_r2(bucket, args.out / "site")
     except BaseException as error:
-        heartbeat(False, f"daily run crashed: {error!r}")
+        heartbeat(False, f"daily run crashed: {redact(repr(error))}")
         raise
 
     if r2_problem:
-        heartbeat(False, f"{r2_problem}; the site is published to Cloud Storage only. {summary}")
+        heartbeat(False, ping_body(f"{r2_problem}. {summary}", failures))
         return code or 1
-    heartbeat(code == 0, summary)
+    heartbeat(code == 0, ping_body(summary, failures))
     return code
 
 
-def copy_to_r2(bucket: Bucket) -> str | None:
-    """Copy the published run to R2. Returns what went wrong, or None.
+def copy_to_r2(bucket: Bucket, site_dir: Path) -> str | None:
+    """Copy the published run to R2 and check it from outside. Returns what went wrong, or None.
 
-    Only the error's code and the call are kept, because botocore's messages
-    hold the endpoint URL and the heartbeat is sent to a third party.
+    A Notice carries its own wording. For any other error only the code and the
+    call are kept, because botocore's messages hold the endpoint URL and the
+    heartbeat is sent to a third party.
     """
     try:
-        r2.copy_if_configured(bucket())
+        r2.copy_if_configured(bucket(), site_dir=site_dir)
+    except r2.Notice as error:
+        problem = str(error)
     except Exception as error:
-        problem = f"R2 copy failed: {r2.describe(error)}"
-        print(f"  {problem}")
-        return problem
-    return None
+        problem = (
+            f"R2 copy failed: {r2.describe(error)}; the site is published to Cloud Storage only"
+        )
+    else:
+        return None
+    print(f"  {problem}")
+    return problem
 
 
 def run_publish_r2(args: argparse.Namespace) -> int:

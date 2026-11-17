@@ -6,6 +6,7 @@ a test can see every object written and in what order.
 
 import io
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -297,3 +298,224 @@ def test_the_two_cors_files_say_the_same_thing():
     assert dashboard["AllowedMethods"] == wrangler["allowed"]["methods"] == ["GET", "HEAD"]
     assert dashboard["MaxAgeSeconds"] == wrangler["maxAgeSeconds"] == 3600
     assert "AllowedHeaders" not in dashboard and "headers" not in wrangler["allowed"]
+
+
+PUBLIC = "https://data.howlate.la"
+WEB_ENV = {**ENV, "R2_PUBLIC_URL": PUBLIC}
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", " 1 "])
+def test_a_required_copy_with_no_settings_fails_naming_the_variable(value):
+    # Local runs skip R2. The deployed job must not, or a redeploy that loses
+    # the settings leaves the public site stale with a success ping.
+    with pytest.raises(r2.Notice, match="R2_REQUIRED") as seen:
+        r2.copy_if_configured(None, env={"R2_REQUIRED": value})
+    assert "stale" in str(seen.value)
+    assert "https://" not in str(seen.value)
+
+
+@pytest.mark.parametrize("value", ["", "0", "no", "false"])
+def test_an_unset_or_false_r2_required_keeps_the_skip(value, capsys):
+    assert r2.copy_if_configured(None, env={"R2_REQUIRED": value}) is False
+    assert "R2 copy skipped" in capsys.readouterr().out
+
+
+def test_a_half_set_environment_still_names_what_is_missing_when_required():
+    with pytest.raises(ValueError, match="missing R2_ACCESS_KEY_ID"):
+        r2.copy_if_configured(
+            None,
+            env={
+                "R2_REQUIRED": "1",
+                "R2_ENDPOINT": ENV["R2_ENDPOINT"],
+                "R2_SECRET_ACCESS_KEY": "x",
+            },
+        )
+
+
+class Web:
+    """The public address as the probe sees it, with every URL it was asked for."""
+
+    def __init__(self, *, run=NEW, last_day="2026-11-07", pointer=None, status=None):
+        self.urls = []
+        prefix = f"site/runs/{run}/"
+        self.pages = {
+            "site/current.json": pointer or (200, json.dumps({"run": run, "prefix": prefix})),
+            f"{prefix}status.json": status or (200, json.dumps({"last_day": last_day})),
+        }
+
+    def __call__(self, url):
+        self.urls.append(url)
+        path = url.removeprefix(PUBLIC + "/").split("?")[0]
+        status, body = self.pages.get(path, (404, ""))
+        return status, body.encode()
+
+
+def test_the_probe_passes_when_the_public_pointer_names_the_copied_run_and_is_current():
+    web = Web()
+    r2.probe(PUBLIC, NEW, "2026-11-07", web)
+    assert web.urls[0].startswith(f"{PUBLIC}/site/current.json?nocache=")
+    assert web.urls[1] == f"{PUBLIC}/site/runs/{NEW}/status.json"
+
+
+def test_the_probe_passes_when_a_newer_run_was_published_meanwhile():
+    r2.probe(PUBLIC, OLD, "2026-11-07", Web(run=NEW))
+
+
+def test_the_probe_asks_for_the_pointer_with_the_current_time_as_its_query(monkeypatch):
+    # The pointer is served with a 60 second cache, so a fixed address could
+    # return the previous run's pointer and read as stale.
+    monkeypatch.setattr(r2.time, "time", lambda: 1_800_000_000.7)
+    web = Web()
+    r2.probe(PUBLIC, NEW, "2026-11-07", web)
+    assert web.urls[0] == f"{PUBLIC}/site/current.json?nocache=1800000000"
+
+
+@pytest.mark.parametrize(
+    ("web", "message"),
+    [
+        (Web(pointer=(404, "")), "site/current.json returned 404"),
+        (Web(pointer=(200, "<html>")), "site/current.json is not JSON"),
+        (Web(pointer=(200, "[]")), "site/current.json is not a JSON object"),
+        (Web(pointer=(200, '{"run": "x"}')), "site/current.json has no usable run and prefix"),
+        (Web(pointer=(200, '{"run": "a", "prefix": "../x/"}')), "no usable run and prefix"),
+        (Web(run=OLD), f"names {OLD}, older than the copied {NEW}"),
+        (Web(status=(500, "")), "status.json returned 500"),
+        (Web(status=(200, "nope")), "status.json is not JSON"),
+        (Web(status=(200, "{}")), "status.json has no valid last_day"),
+        (Web(last_day="2026-11-04"), "last_day 2026-11-04 is 3 days behind 2026-11-07"),
+    ],
+)
+def test_the_probe_fails_and_says_which_check_failed(web, message):
+    with pytest.raises(r2.Notice, match=message) as seen:
+        r2.probe(PUBLIC, NEW, "2026-11-07", web)
+    assert "data.howlate.la" not in str(seen.value)
+
+
+def test_the_probe_allows_a_last_day_two_days_behind():
+    r2.probe(PUBLIC, NEW, "2026-11-07", Web(last_day="2026-11-05"))
+
+
+def test_a_failed_fetch_is_reported_by_its_type_alone():
+    def down(url):
+        raise urllib.error.URLError("https://data.howlate.la refused")
+
+    with pytest.raises(r2.Notice, match=r"could not fetch site/current.json \(URLError\)") as seen:
+        r2.probe(PUBLIC, NEW, "2026-11-07", down)
+    assert "howlate.la" not in str(seen.value)
+
+
+class Reply:
+    status = 200
+
+    def read(self):
+        return b"{}"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_the_real_fetch_retries_once_and_then_gives_up(monkeypatch):
+    monkeypatch.setattr(r2.time, "sleep", lambda seconds: None)
+    calls = []
+
+    def flaky(request, timeout):
+        calls.append(timeout)
+        if len(calls) == 1:
+            raise urllib.error.URLError("reset")
+        return Reply()
+
+    monkeypatch.setattr(r2.urllib.request, "urlopen", flaky)
+    assert r2.fetch_public(PUBLIC + "/x") == (200, b"{}")
+    assert len(calls) == 2 and calls[0] <= 10
+
+    calls.clear()
+    monkeypatch.setattr(
+        r2.urllib.request, "urlopen", lambda request, timeout: calls.append(1) or 1 / 0
+    )
+    with pytest.raises(ZeroDivisionError):
+        r2.fetch_public(PUBLIC + "/x")
+    assert len(calls) == 2
+
+
+def local_site(tmp_path, last_day="2026-11-07") -> Path:
+    site = tmp_path / "local"
+    site.mkdir()
+    (site / "status.json").write_text(json.dumps({"last_day": last_day}))
+    return site
+
+
+def test_the_copy_checks_the_public_address_after_the_pointer_moves(tmp_path):
+    derived, web = publish_runs(tmp_path, OLD, NEW), Web()
+    assert r2.copy_if_configured(
+        derived, env=WEB_ENV, s3=FakeS3(), site_dir=local_site(tmp_path), fetch=web
+    )
+    assert len(web.urls) == 2
+
+
+def test_a_stale_public_site_fails_the_copy(tmp_path):
+    derived, web = publish_runs(tmp_path, OLD, NEW), Web(last_day="2026-11-01")
+    with pytest.raises(r2.Notice, match="last_day"):
+        r2.copy_if_configured(
+            derived, env=WEB_ENV, s3=FakeS3(), site_dir=local_site(tmp_path), fetch=web
+        )
+
+
+def test_with_no_public_address_the_probe_is_skipped_and_logged(tmp_path, capsys):
+    derived = publish_runs(tmp_path, NEW)
+    assert r2.copy_if_configured(
+        derived, env=ENV, s3=FakeS3(), site_dir=local_site(tmp_path), fetch=Web()
+    )
+    assert "R2 freshness check skipped: R2_PUBLIC_URL not set" in capsys.readouterr().out
+
+
+def test_a_required_copy_with_no_public_address_fails_after_copying(tmp_path):
+    derived, s3 = publish_runs(tmp_path, NEW), FakeS3()
+    with pytest.raises(r2.Notice, match="R2_REQUIRED is set but R2_PUBLIC_URL is not"):
+        r2.copy_if_configured(
+            derived,
+            env={**ENV, "R2_REQUIRED": "1"},
+            s3=s3,
+            site_dir=local_site(tmp_path),
+            fetch=Web(),
+        )
+    assert POINTER in s3.puts  # the site is fresh; only the check is off
+
+
+@pytest.mark.parametrize(
+    "url", ["http://data.howlate.la", f"{PUBLIC}/", f"{PUBLIC}/site", "https://a b.la"]
+)
+def test_a_malformed_public_address_is_rejected_without_echoing_it(url):
+    with pytest.raises(r2.Notice, match="R2_PUBLIC_URL is not a valid https address") as seen:
+        r2.public_url_from_env({"R2_PUBLIC_URL": url})
+    assert "howlate" not in str(seen.value)
+
+
+def test_the_probe_judges_the_run_that_was_copied_not_the_one_named_later(tmp_path):
+    # A hand-run copy of OLD while NEW is current: R2's pointer stays on NEW, so
+    # the copy says it left the pointer alone and nothing is probed.
+    derived, web = publish_runs(tmp_path, OLD, NEW), Web()
+    assert r2.copy_if_configured(
+        derived, run=OLD, env=WEB_ENV, s3=FakeS3(), site_dir=local_site(tmp_path), fetch=web
+    )
+    assert web.urls == []
+
+
+def test_a_newer_run_landing_during_the_copy_is_not_a_failure(tmp_path, capsys):
+    # The second writer: R2's pointer is left alone, the public pointer is
+    # still the previous run, and the probe must not call that stale.
+    derived = publish_runs(tmp_path, OLD)
+
+    def newer_run_lands(puts):
+        if puts == 2:
+            aggregate.upload(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
+
+    web = Web(run=OLD)
+    s3 = FakeS3(after_put=newer_run_lands)
+    assert r2.copy_if_configured(
+        derived, env=WEB_ENV, s3=s3, site_dir=local_site(tmp_path), fetch=web
+    )
+    assert web.urls == []
+    assert "R2 freshness check skipped: R2's pointer was left alone" in capsys.readouterr().out

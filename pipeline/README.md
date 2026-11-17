@@ -137,15 +137,37 @@ own pointer named before that copy, which the next copy deletes. A failed copy l
 the graded days and the Cloud Storage site saved, but `daily` exits non-zero and
 pings failure.
 
-With none of these settings in the environment, the copy is skipped, as in local
-runs and tests. With only some, it fails and names the missing ones.
+With none of the first three settings in the environment, the copy is skipped,
+as in local runs and tests, unless `R2_REQUIRED` is set. With only some, it
+fails and names the missing ones.
 
 ```
 R2_ENDPOINT            https://<account>.r2.cloudflarestorage.com
 R2_ACCESS_KEY_ID       an R2 API token's key id, with write access to the bucket
 R2_SECRET_ACCESS_KEY   its secret
 R2_BUCKET              optional, defaults to howlate
+R2_REQUIRED            1, true or yes: missing R2 settings fail the run
+R2_PUBLIC_URL          https://<domain>, where the public reads the data, no path
 ```
+
+`R2_REQUIRED` stops a redeploy that loses the settings from skipping the copy
+and pinging success while the public site goes stale. The failure ping says so.
+
+After a copy that moves R2's pointer, `daily` checks the public address from
+outside. It fetches `site/current.json` with a changing query, to get past its 60
+second cache, then the `status.json` the pointer names. It fails the run when a
+fetch fails or is not 200, a body is not JSON, the pointer names an older run
+than the one copied, or `last_day` is more than 2 days behind the newest day just
+built. A newer run passes. Each fetch has a 10 second timeout and one retry. With
+`R2_PUBLIC_URL` unset the check is skipped, or fails when `R2_REQUIRED` is set.
+
+A failure ping names each failed day and its error's first line, such as
+`20261107 failed: SystemExit: no raw files`, within 1000 characters.
+
+Known behaviour. When a newer run appears during the copy, R2's pointer is left
+alone and the job still pings success. R2 keeps serving the previous complete
+run, the check is skipped because that is no fault of this copy, and the next
+daily copy moves the pointer.
 
 `deploy/daily.sh` sets these on the Cloud Run job. To fill a bucket by hand, copy
 a run, by default the one the derived pointer names.
