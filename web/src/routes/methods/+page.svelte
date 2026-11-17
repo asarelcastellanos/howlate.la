@@ -75,12 +75,19 @@
 		</p>
 		<p class="mt-4">
 			Metro and HowLate do not score the same stops. Metro measures buses at timepoints, the stops
-			where the schedule is checked, and trains at the end terminals. HowLate scores every stop. Our
-			numbers are not Metro's published on-time performance, so do not compare them one to one.
+			where the schedule is checked, and trains at the end terminals. HowLate scores every stop for
+			buses. For trains, HowLate does not show an on-time share yet.
 		</p>
 		<p class="mt-4">
-			For reference, Metro's board report 2025-0860 gives 78.2 percent on time for buses and 99.4
-			percent for rail, for July to September 2025. Metro scores rail at the end terminals.
+			In 84 percent of rail trips, HowLate times the last stop from the last report before the train
+			arrived, not from a stopped report. Where the previous stop had a stopped report, the share on
+			time falls from about 67 percent there to about 55 percent at the last stop, mostly into early
+			arrivals. We do not yet know how Metro times a terminal arrival, so we cannot say how our
+			figures compare with Metro's 99 percent.
+		</p>
+		<p class="mt-4">
+			Metro's board report 2025-0860 gives 78.2 percent of buses on time at timepoints, for July to
+			September 2025. It is not comparable with HowLate's bus numbers.
 		</p>
 	</section>
 
@@ -155,6 +162,11 @@
 			<li>Estimated arrivals carry a bias of about 7 seconds, and we do not correct it.</li>
 			<li>
 				Metro changes its timetables, and a change to one agency's schedule can move a number.
+			</li>
+			<li>
+				HowLate does not show an on-time share for rail because it does not yet know how Metro times
+				a terminal arrival, and last-stop arrivals are estimates. Rail lines show median and 90th
+				percentile delay.
 			</li>
 		</ul>
 	</section>
