@@ -341,7 +341,7 @@ search. The story and the replay come in 0.9.0.
   charts.
 - An unknown line URL returns the 404 page.
 - The behind-the-scenes status turns to a warning when the newest graded day is
-  more than two days old. Test this with a stale fixture.
+  more than three days old. Test this with a stale fixture.
 
 #### UI/UX
 

@@ -165,6 +165,44 @@ test('tagging survives a profile with no thin hour and no gap', () => {
 	assert.equal(svg.querySelectorAll('[data-hour]').length, 168);
 });
 
+// With a gap but no thin hour, the thin list is empty and Plot leaves out its
+// group. The absent hours then line up with the second group, not the third.
+test('tagging survives a profile with gaps and no thin hour', () => {
+	const gaps = Array.from({ length: 168 }, (_, h) => h)
+		.filter((h) => h % 10 !== 0)
+		.map((h) => hour(h));
+	assert.ok(
+		gaps.every((entry) => entry.n >= 5),
+		'no hour is thin'
+	);
+	const svg = heatmap(gaps, { width: 800, document });
+	assert.equal(svg.querySelectorAll('[data-hour]').length, 168);
+	assert.deepEqual(
+		[...svg.querySelectorAll('[data-hour]')]
+			.map((el) => Number(el.getAttribute('data-hour')))
+			.sort((a, b) => a - b),
+		Array.from({ length: 168 }, (_, h) => h)
+	);
+	// An absent hour is the dotted outline with no fill, and a measured one is not.
+	const fill = (h: number) =>
+		svg.querySelector(`[data-hour="${h}"]`)!.parentElement!.getAttribute('fill');
+	assert.equal(fill(10), 'none');
+	assert.equal(fill(20), 'none');
+	assert.notEqual(fill(11), 'none');
+});
+
+test('the readout never says 100 percent unless the share is exactly 100', () => {
+	const share = (ontime: number) =>
+		readoutText(hour(30, { ontime }), { showOntime: true }).match(/(\d+) percent on time/)?.[1];
+	assert.equal(share(99.4), '99');
+	assert.equal(share(99.5), '99');
+	assert.equal(share(99.9), '99');
+	assert.equal(share(99.99), '99');
+	assert.equal(share(100), '100');
+	assert.equal(share(56.5), '57');
+	assert.equal(share(0.4), '0');
+});
+
 test('selectHour puts one outline on the chosen cell and moves it', () => {
 	const svg = heatmap(fixtureProfile(), { width: 800, document });
 	selectHour(svg, FRIDAY_5PM - 24);

@@ -18,9 +18,13 @@
 		void attempt;
 		let current = true;
 		result = undefined;
-		load().then((loaded) => {
-			if (current) result = loaded;
-		});
+		// The loaders return errors as values, so a rejection means something else
+		// threw. It gets the same error state and retry, not a spinner that never ends.
+		load()
+			.catch((): Result<T> => ({ ok: false, error: { kind: 'network', url: '' } }))
+			.then((loaded) => {
+				if (current) result = loaded;
+			});
 		return () => {
 			current = false;
 		};

@@ -1,4 +1,4 @@
-import type { HealthFile, LineFile, SiteIndex, SiteStatus } from './types';
+import type { CurrentPointer, HealthFile, LineFile, SiteIndex, SiteStatus } from './types';
 
 // A body is JSON, but the live bucket can hold an older shape than the types say.
 // It does between a release and the first daily run after it. These checks read
@@ -56,6 +56,11 @@ const isEntry = (v: unknown) =>
 	str(v.agency) &&
 	mode(v.mode) &&
 	list(v.to, str);
+
+// The pointer is read before every other file. A body of `null` or one with no
+// prefix would otherwise throw inside every reader.
+export const isCurrentPointer = (v: unknown): v is CurrentPointer =>
+	isObj(v) && str(v.run) && str(v.prefix);
 
 export const isSiteIndex = (v: unknown): v is SiteIndex => isObj(v) && list(v.lines, isEntry);
 

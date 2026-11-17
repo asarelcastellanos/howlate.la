@@ -51,7 +51,9 @@ export function readoutText(entry: ReadoutEntry, { showOntime }: { showOntime: b
 	if (n === undefined || med === undefined || ontime === undefined)
 		return `${when} Nothing measured.`;
 	if (n < MIN_ARRIVALS) return `${when} Only ${plural(n, 'arrival')} measured, too few to judge.`;
-	const share = showOntime ? ` ${Math.round(ontime)} percent on time.` : '';
+	// A share of 99.5 or more rounds to 100, which would say every arrival was on time.
+	const whole = ontime < 100 ? Math.min(99, Math.round(ontime)) : 100;
+	const share = showOntime ? ` ${whole} percent on time.` : '';
 	return `${when} Median ${delayWords(med)}.${share} ${plural(n, 'arrival')} measured.`;
 }
 

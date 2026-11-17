@@ -1,4 +1,4 @@
-import { isHealthFile, isLineFile, isSiteIndex, isSiteStatus } from './shape.ts';
+import { isCurrentPointer, isHealthFile, isLineFile, isSiteIndex, isSiteStatus } from './shape.ts';
 import type {
 	CurrentPointer,
 	HealthFile,
@@ -66,7 +66,11 @@ export async function getJson<T>(
  */
 export async function openRun(base: string, fetchFn: Fetch = fetch): Promise<Result<Run>> {
 	const root = base.replace(/\/+$/, '');
-	const pointer = await getJson<CurrentPointer>(`${root}/site/current.json`, fetchFn);
+	const pointer = await getJson<CurrentPointer>(
+		`${root}/site/current.json`,
+		fetchFn,
+		isCurrentPointer
+	);
 	if (!pointer.ok) return pointer;
 	// The prefix is relative to the bucket root and ends in a slash.
 	const file = <T>(path: string, check?: (body: unknown) => body is T) =>

@@ -20,7 +20,13 @@ const pages: { path: string; ready: (page: Page) => Promise<void> }[] = [
 		path: '/ranking',
 		ready: (page) => expect(page.getByRole('table').first()).toBeVisible()
 	},
-	{ path: '/methods', ready: (page) => expect(page.locator('h1')).toBeVisible() }
+	{ path: '/methods', ready: (page) => expect(page.locator('h1')).toBeVisible() },
+	// The status panel loads in the browser, so wait for its strip. An axe run
+	// before that would test the loading line.
+	{
+		path: '/behind-the-scenes',
+		ready: (page) => expect(page.locator('[data-cell]')).toHaveCount(14)
+	}
 ];
 
 for (const scheme of ['light', 'dark'] as const) {

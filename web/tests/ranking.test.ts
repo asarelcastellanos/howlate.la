@@ -158,6 +158,37 @@ test('a line under the threshold is unranked with its n, and never ranked', () =
 	}
 });
 
+// The constant's own value is written out here on purpose. A test that reads
+// MIN_RANKED_ARRIVALS passes when someone changes it.
+test('the floor is 500 arrivals, so 499 is unranked and 500 is ranked', () => {
+	const { ranked, unranked } = rankLines(
+		[entry('1', { n: 499 }), entry('2', { n: 500 }), entry('3', { n: 501 })],
+		'ontime'
+	);
+	assert.deepEqual(ids(ranked).sort(), ['2', '3']);
+	assert.deepEqual(
+		unranked.map((e) => e.line),
+		['1']
+	);
+	assert.equal(MIN_RANKED_ARRIVALS, 500);
+});
+
+test('the Not ranked copy says 500', async () => {
+	const RankingBody = (await import('../src/routes/ranking/RankingBody.svelte')).default;
+	const index: SiteIndex = {
+		first_day: '2026-08-18',
+		last_day: '2026-11-15',
+		days: 90,
+		lines: [entry('697', { n: 202 }), entry('1'), entry('2')]
+	};
+	const text = render(RankingBody, { props: { index } })
+		.body.replace(/<!--.*?-->/g, '')
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/\s+/g, ' ');
+	assert.ok(text.includes('fewer than 500 measured arrivals'), text);
+	assert.ok(text.includes('202 arrivals measured'));
+});
+
 test('rail is left out of the on-time ranking and the unranked list, but not of median', () => {
 	const rail = entry('801', { mode: 'rail', ontime: 99, med: 1, n: 10 });
 	const lines = [rail, entry('1')];

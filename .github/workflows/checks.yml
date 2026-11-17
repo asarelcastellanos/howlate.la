@@ -180,10 +180,13 @@ jobs:
       - name: Tests
         run: npm test
 
-  # Opens the built site in Chromium and checks every line page, accessibility
-  # and mobile scores against the fixture in web/e2e/fixture, which has the
-  # shape the pipeline writes. Chromium comes from the pinned @playwright/test,
-  # and Lighthouse uses that same Chromium. The fixture is staged into
+  # Opens the built site in Chromium and checks every line page, the
+  # behind-the-scenes page, accessibility and mobile scores against the fixture
+  # in web/e2e/fixture. The fixture is trimmed real aggregate output, plus a
+  # health.json built by the pipeline's own builder, and
+  # pipeline/tests/test_web_fixture.py checks its files against the pipeline's
+  # schemas. Chromium comes from the pinned @playwright/test, and Lighthouse
+  # uses that same Chromium. The fixture is staged into
   # .svelte-kit/output/client because `vite preview` serves that folder and not
   # build/. The preview runs in the background for every step after "Serve".
   browser:

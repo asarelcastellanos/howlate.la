@@ -47,7 +47,7 @@ one head leave the browser to pick one.
 
 `SITE_URL` in `src/lib/config.ts` builds the canonical and preview addresses. It
 is `https://howlate.la`, with no trailing slash. The custom domain replaced the
-pages.dev address in 0.5.1 (issue #32). Cloudflare redirects www.howlate.la to
+pages.dev address in 0.5.0 (issue #32). Cloudflare redirects www.howlate.la to
 it with a redirect rule in the dashboard, so no code handles `www`.
 
 The preview image is `static/og.png`, made from `scripts/og.html`.
@@ -74,11 +74,11 @@ page is prerendered (`src/routes/+layout.ts`). No server runs in front of them.
 The data does not need a server either. Per the release plan, the browser
 fetches JSON from R2 at runtime, so a new day of data needs no rebuild.
 
-The adapter also writes `build/200.html` as a fallback, so a path that was not
-prerendered still loads the app and the client router handles it. Cloudflare
-Pages falls back to `200.html` for unknown paths. On the deployed preview, a
-path that is not prerendered, such as `/lines/720`, returned the app shell with
-status 200.
+The adapter also writes `build/200.html`, the app shell, so the client router
+can handle a path that was not prerendered, such as `/lines/720`. Pages does not
+pick that file by itself for an unknown path. The rule in `static/_redirects`
+(`/lines/* /200 200`) sends every line path to it. The Lines section has the
+details.
 
 ### Tailwind CSS v4 with shadcn-svelte
 
@@ -126,12 +126,13 @@ field then breaks `npm run check` where the site reads it.
 so a page never mixes two runs. A failed request, a status other than 200, or a body that is not
 JSON comes back as `{ ok: false, error }`, never a throw, so a page can show an
 error state. The pipeline's contract test covers the full shape. The loader
-checks only the fields the pages read (`src/lib/data/shape.ts`) for `index.json`,
-`status.json`, `health.json` and the line files. A file that fails comes back with the error
+checks only the fields the pages read (`src/lib/data/shape.ts`) for `current.json`,
+`index.json`, `status.json`, `health.json` and the line files. A file that fails comes back with the error
 kind `shape`. The bucket holds the previous shape from a release until the next
 daily run, and the page then shows "This page needs newer data than the site has
 yet" with a retry button. `ResultView` also wraps the data views in a
-`<svelte:boundary>`, so a render error shows the error box and not a 500 page.
+`<svelte:boundary>`, so a render error shows the error box and not a 500 page. `Remote` also turns a load that rejects into the same error state, with its
+retry button, so a bug outside the loader never leaves the loading line up.
 
 `PUBLIC_DATA_BASE` sets `base` and is inlined at build time. SvelteKit 3 reads
 it from `src/env.ts` and exposes it through `$app/env/public`, which
@@ -176,8 +177,10 @@ Cloudflare dashboard with these settings.
 
 ## Lines
 
-The home page loads `index.json` and shows a search box (`SearchBox.svelte`,
-ranked by `searchLines` in `src/lib/search.ts`). Choosing a result opens
+The home page loads `status.json` and `index.json` with `loadHome`
+(`src/lib/home.ts`), which opens one run and reads both from it. It shows the
+status strip and a search box (`SearchBox.svelte`, ranked by `searchLines` in
+`src/lib/search.ts`). Choosing a result opens
 `/lines/<line>`. That route is client rendered (`prerender = false`). It reads
 `index.json` and `lines/<line>.json` from one run, then shows a headline for each
 direction, a switch between directions, and the three charts. An id that is not
@@ -224,6 +227,16 @@ checks the order against a plain sort on the real index when `static/data` exist
 - Table delays show minutes with one decimal, such as "1.3 min late". Seconds
   under two minutes and whole minutes above would not read as sorted.
 
+Known limits of the ranking. Neither shows in the 2026-11-16 run, which has 108
+ranked bus lines and no bus median below 19 seconds.
+
+- With 10 or fewer ranked lines, the "Least reliable" panel is short or empty
+  while its caption still promises five lines, because the panel leaves out any
+  line the "Most reliable" panel already shows.
+- Sorting by median delay or 90th percentile puts the smallest number first, so
+  a line with a negative median (early on average) ranks above a line that is
+  on time.
+
 ## Behind the scenes
 
 `/behind-the-scenes` is prerendered. The browser loads `health.json` with
@@ -235,9 +248,11 @@ its `<svelte:boundary>`, so a render error shows the error box.
 
 - The panel compares `last_day` with today's date in Los Angeles
   (`pacificToday` in `src/lib/date.ts`, read in the browser). It turns to a
-  warning when the gap is more than `STALE_AFTER_DAYS` (2). The daily job
-  grades up to two days back, so a gap of 2 is normal. A future date is not a
-  warning.
+  warning when the gap is more than `STALE_AFTER_DAYS` (3). The daily job
+  runs at 05:00 Pacific and grades today minus 2, so from midnight until the run
+  finishes the newest day is 3 days old and a gap of 3 is normal. The
+  pipeline's own alarm allows 4 (`MAX_LAG_DAYS` in `r2.py`). A future date is
+  not a warning.
 - The 14-day strip (`buildStrip`) has one cell per day ending on `last_day`.
   A day with no report is an empty dashed cell, not a failed one. Each cell
   has a shape, a color and hidden text.
