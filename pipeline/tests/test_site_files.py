@@ -48,7 +48,7 @@ def test_a_line_dropped_between_runs_is_not_published_by_the_second(tmp_path):
     assert (
         sorted(files)
         == sorted(names)
-        == ["index.json", "lines/720.json", "network.json", "status.json"]
+        == ["health.json", "index.json", "lines/720.json", "network.json", "status.json"]
     )
     assert count == pointer["files"] == len(files)
 
@@ -65,5 +65,11 @@ def test_a_stray_file_in_the_output_directory_is_neither_uploaded_nor_deleted(tm
     aggregate.upload(client, out, names, run="20261116T130000Z")
 
     _, files = test_write.published(client)
-    assert sorted(files) == ["index.json", "lines/720.json", "network.json", "status.json"]
+    assert sorted(files) == [
+        "health.json",
+        "index.json",
+        "lines/720.json",
+        "network.json",
+        "status.json",
+    ]
     assert [(out / stray).read_text() for stray in strays] == ["not ours"] * len(strays)

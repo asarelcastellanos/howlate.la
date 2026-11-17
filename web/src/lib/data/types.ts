@@ -29,6 +29,131 @@ export interface CurrentPointer {
 }
 
 /**
+ * Pipeline health. health.json. How the daily grading did on the most recent days, for the behind-the-scenes page. It is built from the reports the pipeline saves for each service day. recent is empty when the run had no reports, as in a local run, and then checks is empty too. A day with no report is left out of recent, not marked as failed.
+ *
+ * @see https://howlate.la/schemas/health.schema.json
+ */
+export interface HealthFile {
+	/**
+	 * The version of the pipeline that built this site, such as 0.4.1.
+	 */
+	pipeline_version: string;
+	/**
+	 * The newest graded service day, as YYYY-MM-DD. It is the same value as last_day in status.json. Compare it with today's date in Los Angeles to show whether the data is fresh.
+	 */
+	last_day: string;
+	/**
+	 * How many service days are graded, which is days in status.json. Every graded day has a saved report. recent lists only the newest 14.
+	 */
+	days: number;
+	/**
+	 * The newest service days that have a report, up to 14, newest first. A day with no report is not in the list, so consecutive entries can be more than one day apart.
+	 *
+	 * @maxItems 14
+	 */
+	recent: HealthDay[];
+	/**
+	 * The checks the newest day in recent went through, in the order the pipeline runs them, with the pipeline's own plain-words label for each. Empty when recent is empty. Reports from older pipeline versions use older names and labels, so list the checks from this field and do not hard-code them.
+	 */
+	checks: (RangeCheck | CountCheck)[];
+}
+/**
+ * One service day's result.
+ */
+export interface HealthDay {
+	/**
+	 * The service day, as YYYY-MM-DD, in Los Angeles time.
+	 */
+	service_date: string;
+	/**
+	 * True when every check passed for this day. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day.
+	 */
+	ok: boolean;
+	/**
+	 * The names of the checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate.
+	 */
+	failed: string[];
+	/**
+	 * Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place.
+	 */
+	coverage_pct: number;
+	/**
+	 * Trips that vehicles reported but that have no scheduled stops to grade against, because the timetable lists them only under a service that is not running that day. 0 on days graded before the pipeline counted them.
+	 */
+	explained_trips: number;
+	/**
+	 * Percent of the day's vehicle observations that were on those trips, to one decimal place. 0 on days graded before the pipeline counted them.
+	 */
+	explained_pct: number;
+	/**
+	 * Stops that vehicles reported on, counted once per trip and stop, whether or not the stop matches the timetable. This can be more than the stops measured.
+	 */
+	observations: number;
+}
+/**
+ * A check that passes when a measured percentage or value falls between low and high, both included.
+ */
+export interface RangeCheck {
+	/**
+	 * The check's short name, which is what failed in a day lists.
+	 */
+	name: string;
+	/**
+	 * Tells this shape from a count check.
+	 */
+	kind: 'range';
+	/**
+	 * What the check measures, in plain words. The unit is a percent unless the label says otherwise, as in median delay in minutes.
+	 */
+	label: string;
+	/**
+	 * True when value is from low to high.
+	 */
+	ok: boolean;
+	/**
+	 * What the newest day measured. It has many decimal places, so round it before showing it.
+	 */
+	value: number;
+	/**
+	 * The lowest value that passes.
+	 */
+	low: number;
+	/**
+	 * The highest value that passes.
+	 */
+	high: number;
+}
+/**
+ * A check that passes when a count equals the number expected.
+ */
+export interface CountCheck {
+	/**
+	 * The check's short name, which is what failed in a day lists.
+	 */
+	name: string;
+	/**
+	 * Tells this shape from a range check.
+	 */
+	kind: 'count';
+	/**
+	 * What is counted, in plain words.
+	 */
+	label: string;
+	/**
+	 * True when value equals expected.
+	 */
+	ok: boolean;
+	/**
+	 * The count the newest day measured.
+	 */
+	value: number;
+	/**
+	 * The count that passes.
+	 */
+	expected: number;
+}
+
+/**
  * Line index. index.json. One entry per line with headline numbers, so the homepage and line search need no other file. Lines with no measured arrival are left out.
  *
  * @see https://howlate.la/schemas/index.schema.json

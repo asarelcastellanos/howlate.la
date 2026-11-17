@@ -91,6 +91,7 @@ site/status.json        days, coverage, totals
 site/index.json         every line with headline numbers
 site/lines/720.json     hour-of-week profile + per-stop dayparts
 site/network.json       hour-of-week profile for the network, bus and rail
+site/health.json        the daily report's results for the newest 14 days
 ```
 
 In the bucket each run goes under `site/runs/<UTC time>/`, and
@@ -110,6 +111,28 @@ performance. Metro scores bus at timepoints and rail at terminals, and HowLate
 scores the arrival at every scheduled stop, so the two figures differ. A
 daypart cell has no `ontime`, because the cells are most of a line file's size
 and the pages read `med` from them.
+
+`health.json` is for the behind-the-scenes page. It holds `pipeline_version`,
+`last_day` and `days` from the run, `recent`, and `checks`. `recent` has one
+entry for each of the newest 14 service days that have a saved report, newest
+first, with `ok`, the names of the checks that `failed`, `coverage_pct`,
+`explained_trips`, `explained_pct` and `observations`. `checks` is the newest
+day's checks with the report's own labels, either a range (`value`, `low`,
+`high`) or a count (`value`, `expected`). The file is public, so
+`pipeline/src/howlate_pipeline/health.py` copies only those fields and no other
+part of a report. A report saved before 0.4.0 names the join check `join_rate`
+and has no explained fields, which read as 0. A day with no report is missing
+from `recent`, and a report that cannot be read is skipped with a line in the
+log. Without reports, as in `aggregate --no-upload` over a folder with none,
+`recent` and `checks` are empty and the file is still written.
+
+`aggregate` reads the reports from `reports/v2` beside the arrivals folder, which
+is where `arrivals` writes them (`out/reports/v2` for `out/arrivals/v2`).
+`--from-bucket` and `daily` instead download the newest 14 days' `report.json`
+files, about 3 KB each, into `reports/v2` under the cache, from the same listing
+as the arrivals so the file never names a day the rest of the site lacks.
+`--reports DIR` reads them from another folder, and cannot be combined with
+`--from-bucket`. Built from the real reports through 2026-11-15, the file is 3,876 bytes (980 gzipped).
 
 Three more levels carry the same numbers over every measured arrival on every
 day and hour.
@@ -143,6 +166,7 @@ index.schema.json     site/index.json
 status.schema.json    site/status.json
 line.schema.json      site/lines/<line>.json
 network.schema.json   site/network.json
+health.schema.json    site/health.json
 current.schema.json   site/current.json, the pointer to the latest run
 ```
 

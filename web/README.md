@@ -86,12 +86,12 @@ field then breaks `npm run check` where the site reads it.
 
 `src/lib/data/load.ts` loads the files. `openRun(base)` fetches
 `<base>/site/current.json`, then returns readers for `index.json`,
-`status.json`, `network.json` and `lines/<line>.json` from the run's `prefix`,
+`status.json`, `network.json`, `health.json` and `lines/<line>.json` from the run's `prefix`,
 so a page never mixes two runs. A failed request, a status other than 200, or a body that is not
 JSON comes back as `{ ok: false, error }`, never a throw, so a page can show an
 error state. The pipeline's contract test covers the full shape. The loader
 checks only the fields the pages read (`src/lib/data/shape.ts`) for `index.json`,
-`status.json` and the line files. A file that fails comes back with the error
+`status.json`, `health.json` and the line files. A file that fails comes back with the error
 kind `shape`. The bucket holds the previous shape from a release until the next
 daily run, and the page then shows "This page needs newer data than the site has
 yet" with a retry button. `ResultView` also wraps the data views in a

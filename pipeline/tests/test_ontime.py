@@ -256,5 +256,5 @@ def test_the_pointer_counts_network_json(tmp_path):
     _, files = test_write.published(client)
     pointer = json.loads(client.store[(DERIVED_BUCKET, aggregate.POINTER)])
     assert "network.json" in names
-    assert "network.json" in files
-    assert count == pointer["files"] == len(files) == len(names) == 4
+    assert "network.json" in files and "health.json" in files
+    assert count == pointer["files"] == len(files) == len(names) == 5

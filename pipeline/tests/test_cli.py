@@ -101,12 +101,25 @@ def test_aggregate_from_bucket_leaves_local_grading_alone(monkeypatch, tmp_path)
     fetched, built = [], []
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(main, "Bucket", lambda: lambda: None)
-    monkeypatch.setattr(main.aggregate, "fetch_arrivals", lambda client, dest: fetched.append(dest))
+    monkeypatch.setattr(
+        main.aggregate, "fetch_arrivals", lambda client, dest, reports: fetched.append(reports)
+    )
     monkeypatch.setattr(main, "build_site", lambda bucket, graded, **k: built.append(graded) or 0)
     args = argparse.Namespace(
         from_bucket=True, arrivals=None, cache=tmp_path / "cache", out=tmp_path / "site",
-        gtfs_dir=None, no_upload=False,
+        gtfs_dir=None, no_upload=False, reports=None,
     )  # fmt: skip
     main.run_aggregate(args)
-    assert fetched == built == [tmp_path / "cache" / "graded" / arrivals.VERSION]
+    assert built == [tmp_path / "cache" / "graded" / arrivals.VERSION]
+    # The reports land in the cache too, not in out/reports, where local days keep theirs.
+    assert fetched == [tmp_path / "cache" / "reports" / arrivals.VERSION]
     assert (local / "part-0.parquet").exists()
+
+
+def test_reports_cannot_be_combined_with_from_bucket(tmp_path):
+    # The fetch empties its reports folder, so a folder of yours would be wiped.
+    result = cli(
+        "aggregate", "--from-bucket", "--reports", str(tmp_path), "--no-upload", cwd=tmp_path
+    )
+    assert result.returncode != 0
+    assert "--reports is for local runs" in result.stderr
