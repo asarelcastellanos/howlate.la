@@ -199,6 +199,24 @@ def test_the_copy_holding_the_reported_trips_is_used_over_the_one_in_force(tmp_p
     assert chosen["LACMTA"].name == Path(DURING).stem
 
 
+def test_every_copy_compared_is_handed_back_not_only_the_one_chosen(tmp_path, monkeypatch):
+    # The copy in force holds 299 of 300 reported trips and the other all 300. One
+    # trip is under the half point margin, so the one in force stays, and the
+    # other still lists the 300th, which the grading needs to explain it.
+    client = FakeClient([
+        FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "a", reported(299))),
+        FakeBlob(DURING, utc(8, 18, 12), holding(tmp_path / "b", reported(300))),
+    ])  # fmt: skip
+    monkeypatch.setattr(gtfs, "FEEDS", {"gtfs_bus": "LACMTA"})
+
+    read = {}
+    chosen = gtfs.prepare(
+        client, "20260818", tmp_path / "cache", {"LACMTA": set(reported(300))}, read
+    )
+    assert chosen["LACMTA"].name == Path(BEFORE).stem
+    assert [d.name for d in read["LACMTA"]] == [Path(BEFORE).stem, Path(DURING).stem]
+
+
 def test_the_log_names_the_copy_its_match_rate_and_the_one_in_force(tmp_path, monkeypatch, capsys):
     client = FakeClient([
         FakeBlob(BEFORE, utc(8, 16, 12), holding(tmp_path / "before", reported(1))),

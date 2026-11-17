@@ -10,6 +10,8 @@ dist/
 # Collected data. This belongs in cloud storage, not in git: it grows by about a
 # gigabyte a day and would bloat the repo permanently.
 data/
+# The site's data loader and its generated types live in a folder of this name.
+!web/src/lib/data/
 *.jsonl
 *.jsonl.gz
 *.jsonl.raw
@@ -19,6 +21,7 @@ data/
 node_modules/
 web/dist/
 web/build/
+web/.svelte-kit/
 
 # Pipeline output. Derived from the archive and rebuilt by a command, so it is
 # never worth committing.

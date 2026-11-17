@@ -95,6 +95,71 @@ about half of all scheduled stops can be observed and a cell resting on three
 sightings must not look like one resting on three hundred. Largest line file is
 **19 KB gzipped**.
 
+## The data contract
+
+The site reads the files `aggregate` writes and nothing else. Each kind of file
+has a JSON Schema (draft 2020-12) in `pipeline/schemas/`:
+
+```
+index.schema.json     site/index.json
+status.schema.json    site/status.json
+line.schema.json      site/lines/<line>.json
+current.schema.json   site/current.json, the pointer to the latest run
+```
+
+The `description` on each field says what it means, in plain words, for the
+people building the site. Every object sets `additionalProperties: false` and
+lists every key as required. A number or string is `null` only where the code
+can emit null, which today is a stop's `lat` and `lon`.
+
+`pipeline/tests/test_contract.py` builds the site from the hand-made fixture day
+and checks that every file validates. It renames each key in turn, and adds an
+unknown key to each object, and checks that validation fails. It also fails when
+`aggregate` writes a kind of file with no schema, or a schema has no file. A
+change to an output field needs its schema in the same PR.
+
+The schemas are not part of the runtime. The image copies `pipeline/src` only,
+and `jsonschema` is in the `test` extra, not in `requirements.lock`. The test
+skips only when it is not in a checkout, as in the container job, which mounts
+`pipeline/tests` alone. `npm run types` in `web/` generates
+`web/src/lib/data/types.ts` from these schemas, and CI fails when the committed
+file is stale. See "Data" in `web/README.md`.
+
+## Copying the site to R2
+
+The public site reads its JSON from Cloudflare R2, which charges nothing for
+egress. After `daily` publishes a run to `gs://howlate-derived`, it copies that
+run to the R2 bucket `howlate`. It uploads every file under `site/runs/<run>/`,
+then writes `site/current.json` last, and only if the derived bucket still names
+that run. A copy that fails partway leaves R2 on the previous complete run. A
+successful copy deletes R2 runs the pointer does not list, except the runs R2's
+own pointer named before that copy, which the next copy deletes. A failed copy leaves
+the graded days and the Cloud Storage site saved, but `daily` exits non-zero and
+pings failure.
+
+With none of these settings in the environment, the copy is skipped, as in local
+runs and tests. With only some, it fails and names the missing ones.
+
+```
+R2_ENDPOINT            https://<account>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID       an R2 API token's key id, with write access to the bucket
+R2_SECRET_ACCESS_KEY   its secret
+R2_BUCKET              optional, defaults to howlate
+```
+
+`deploy/daily.sh` sets these on the Cloud Run job. To fill a bucket by hand, copy
+a run, by default the one the derived pointer names.
+
+```
+python -m howlate_pipeline publish-r2 [--run 20261115T130000Z-a1b2c3]
+```
+
+The files are public and read-only, so `deploy/r2-cors.json` lets any origin GET
+and HEAD them. Paste it in the dashboard under the bucket's Settings, CORS
+Policy. Wrangler takes the same rules in its own shape:
+`npx wrangler r2 bucket cors set howlate --file pipeline/deploy/r2-cors.wrangler.json`.
+At 20 MB a day, about 0.6 GB a month leaves Google Cloud, cents at $0.12/GB.
+
 ## Measured
 
 The whole network, both feeds, service day 2026-08-18. Not a sample and not an
@@ -113,6 +178,16 @@ STOPPED_AT rows only. The comparison below has the current figures.
 | Median delay, mid-route | +1.4 min |
 | p75 / p95 / p99 | +4.3 / +11.7 / +20.6 min |
 | Absurd values (>60 min) | 0.00% |
+
+The daily report checks the join rate as `matched_rate`. Rail vehicles
+sometimes report trips that Metro's timetable lists under a service starting on
+a later date. Those trips have no scheduled stops, so they stay ungraded and
+lower the raw `stats.join_rate`, which was 99.02% on 2026-11-14 with 5,370
+observations on 338 trips. `matched_rate` counts them as matched and reports
+their number as `stats.explained`. A trip that no timetable copy lists still
+fails it. A second check, `explained_pct`, caps the explained share at 5% of
+observations (0.98% on 2026-11-14), so a bug that marked most services inactive
+cannot pass as explained.
 
 The six bus lines that never appeared were exactly the six in `EVENT_ONLY` in
 `collector/src/howlate_collector/routes.py`. Nothing else was missing.

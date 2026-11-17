@@ -271,6 +271,7 @@ def prepare(
     service_date: str,
     cache: Path,
     observed: dict[str, set[str]] | None = None,
+    read: dict[str, list[Path]] | None = None,
 ) -> dict[str, Path]:
     """Fetch and unpack the timetable that actually describes this service day.
 
@@ -297,6 +298,12 @@ def prepare(
 
     `observed` maps an agency to its reported trip_ids. Without it, or for a feed
     with none, the copy in force is used as before.
+
+    `read`, when given, is filled with every copy that was compared, chosen or
+    not, per agency. The chosen copy can miss trips that a copy fetched the same
+    day lists under a service not yet running, as the 2026-11-14 rail copies did:
+    both matched 998 of 1,336 reported trips, so the copy in force stayed, and
+    142 of the 338 trips that only the later copy lists were absent from it.
     """
     ready = {}
     for feed, agency in FEEDS.items():
@@ -315,6 +322,8 @@ def prepare(
             else:
                 baseline = "the earliest copy with service"
             best = (held, fetched_at(blob), blob, directory, services)
+            if read is not None:
+                read.setdefault(agency, []).append(directory)
             qualifying = []
             for other in fetched_during(order, service_date):
                 if other.name == blob.name:
@@ -332,6 +341,8 @@ def prepare(
                         f"({type(error).__name__}), skipped"
                     )
                     continue
+                if read is not None:
+                    read[agency].append(other_dir)
                 if got - held > MATCH_MARGIN * len(seen):
                     qualifying.append((got, fetched_at(other), other, other_dir, other_services))
             # Highest match, ties to the newest.

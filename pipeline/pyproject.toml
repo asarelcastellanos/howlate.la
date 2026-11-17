@@ -7,7 +7,7 @@
 
 [project]
 name = "howlate-pipeline"
-version = "0.3.0"
+version = "0.4.0"
 description = "Turns the raw archive into how late each LA Metro vehicle actually was"
 requires-python = ">=3.11"
 
@@ -20,12 +20,17 @@ dependencies = [
     # are their own PR, checked against a graded day.
     "duckdb==1.5.6",               # reading, joining, writing Parquet
     "google-cloud-storage>=2.18",  # fetching the raw archive and the timetables
+    # Pinned exactly, like duckdb: it is the only client that talks to R2, so a
+    # new release changes what the daily job sends. R2 speaks the S3 protocol.
+    "boto3==1.44.4",               # copying the site to Cloudflare R2
 ]
 
 # Only for running the tests. Never installed where the pipeline runs. Pinned,
 # like ruff in CI, so a new release cannot fail a PR that changed nothing.
+# jsonschema checks the files in schemas/ against what aggregate writes. It stays
+# out of requirements.in and requirements.lock, which build the production image.
 [project.optional-dependencies]
-test = ["pytest==9.2.0"]
+test = ["pytest==9.2.0", "jsonschema==4.26.0"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from fixture_day import SERVICE_DATE, run_day
+from fixture_day import SERVICE_DATE, local, run_day
 
 from howlate_pipeline import report
 
@@ -198,3 +198,130 @@ def test_the_printed_report_survives_a_day_with_nothing_timed(tmp_path, capsys):
     con.execute("CREATE OR REPLACE TABLE arrivals AS SELECT * FROM arrivals WHERE false")
     report.show(con, SERVICE_DATE)
     assert "median n/a" in capsys.readouterr().out
+
+
+def stopped(trip, seq, stop):
+    """One more STOPPED_AT report on the fixture day, in the shape REPORTS uses."""
+    return (trip, SERVICE_DATE, seq, stop, "STOPPED_AT", local(18, 9, 0), "5816")
+
+
+def check_named(con, name):
+    return next(c for c in report.checks(con, report.summarise(con)) if c["name"] == name)
+
+
+def matched_check(con):
+    return check_named(con, "matched_rate")
+
+
+def with_joined_filler(con, count):
+    """Add `count` observations that join, so the explained share of the day is small.
+
+    The fixture day has only 5 observations, so one explained trip is 17% of it.
+    """
+    con.execute(
+        "INSERT INTO scheduled BY NAME SELECT 'LACMTA' AS agency, 'F' AS trip_id, "
+        "range AS stop_sequence FROM range(1, ?)",
+        [count + 1],
+    )
+    con.execute(
+        "INSERT INTO observed BY NAME SELECT 'LACMTA' AS agency, 'F' AS trip_id, "
+        "range AS stop_sequence, 1 AS distinct_stop_ids FROM range(1, ?)",
+        [count + 1],
+    )
+
+
+def test_a_trip_listed_under_a_later_service_is_explained_not_failed(tmp_path):
+    # T9 is in trips.txt under a service that starts on 1 September, so it has
+    # no scheduled stops on the 18th. Five observations join and this one cannot.
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
+    stats = report.summarise(con)
+    assert stats["observations"] == 6
+    assert stats["join_rate"] == pytest.approx(100 * 5 / 6)
+    assert (stats["explained"], stats["explained_trips"]) == (1, 1)
+    check = matched_check(con)
+    assert (check["value"], check["ok"]) == (100, True)
+
+
+def test_a_trip_in_no_timetable_still_fails_the_check(tmp_path):
+    con = run_day(tmp_path, extra_reports=[stopped("T8", 1, "A")], later_service=True)
+    stats = report.summarise(con)
+    assert (stats["explained"], stats["explained_trips"]) == (0, 0)
+    check = matched_check(con)
+    assert check["value"] == pytest.approx(100 * 5 / 6)
+    assert check["ok"] is False
+
+
+def test_a_trip_only_another_copy_lists_under_a_later_service_is_explained(tmp_path):
+    # The copy graded against lacks T9, as the 2026-11-14 rail copy in force
+    # lacked 142 trips that the copy fetched that day lists under later services.
+    reports = [stopped("T9", 1, "A")]
+    con = run_day(tmp_path / "a", extra_reports=reports, other_copy_lists_later=True)
+    assert (report.summarise(con)["explained"], matched_check(con)["ok"]) == (1, True)
+    # Without the other copy read, nothing lists T9 and it fails as before.
+    con = run_day(tmp_path / "b", extra_reports=reports)
+    assert (report.summarise(con)["explained"], matched_check(con)["ok"]) == (0, False)
+
+
+def test_an_unlisted_stop_on_a_running_trip_is_not_explained(tmp_path):
+    # T1 runs today, so a stop_sequence its timetable lacks is a real join
+    # failure, whatever trips.txt says about T1.
+    con = run_day(tmp_path, extra_reports=[stopped("T1", 9, "Z")], later_service=True)
+    assert report.summarise(con)["explained"] == 0
+    assert matched_check(con)["ok"] is False
+
+
+def test_a_trip_any_copy_lists_under_a_running_service_is_not_explained(tmp_path):
+    # The chosen copy runs T1 today but has no stop 9, so this observation has
+    # no scheduled stop. A second copy, whose calendar runs nothing on the 18th,
+    # lists T1 under a service that is not running. One copy listing T1 as
+    # running is enough to call it a real join failure, so it must not be
+    # explained. Taking the second copy's word for it would hide the failure.
+    con = run_day(tmp_path, extra_reports=[stopped("T1", 9, "Z")], other_copy_expired=True)
+    assert (report.summarise(con)["explained"], matched_check(con)["ok"]) == (0, False)
+
+
+def test_the_explained_counts_are_printed_and_saved(tmp_path, capsys):
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
+    report.show(con, SERVICE_DATE)
+    out = capsys.readouterr().out
+    assert "1 observations on 1 trips" in out
+    saved = report.document(con, SERVICE_DATE)
+    assert saved["stats"]["explained"] == 1
+    assert saved["explained_unmatched"] == [{"agency": "LACMTA", "observations": 1, "trips": 1}]
+    assert len(saved["notes"]) == 1
+    cap = next(check for check in saved["checks"] if check["name"] == "explained_pct")
+    assert (cap["value"], cap["ok"]) == (saved["stats"]["explained_pct"], False)
+    assert "not running" in saved["notes"][0]
+
+
+def test_a_day_with_nothing_explained_prints_and_saves_no_note(con, capsys):
+    report.show(con, SERVICE_DATE)
+    assert "explained" not in capsys.readouterr().out
+    saved = report.document(con, SERVICE_DATE)
+    assert saved["stats"]["explained"] == 0
+    assert (saved["explained_unmatched"], saved["notes"]) == ([], [])
+    assert matched_check(con)["value"] == saved["stats"]["join_rate"] == 100
+
+
+def test_a_small_explained_share_passes_the_cap(tmp_path):
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
+    with_joined_filler(con, 200)
+    stats = report.summarise(con)
+    assert (stats["explained"], stats["observations"]) == (1, 206)
+    cap = check_named(con, "explained_pct")
+    assert cap["value"] == pytest.approx(100 / 206)
+    assert cap["ok"] is True
+
+
+def test_a_day_where_most_trips_are_explained_fails_the_cap_but_not_matched_rate(tmp_path):
+    # One explained observation in six is 16.7%. A service-selection bug that
+    # hid most of a day would look like this, and matched_rate alone cannot tell.
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
+    cap = check_named(con, "explained_pct")
+    assert cap["value"] == pytest.approx(100 / 6)
+    assert (cap["ok"], matched_check(con)["ok"]) == (False, True)
+
+
+def test_a_day_with_nothing_explained_passes_the_cap(con):
+    cap = check_named(con, "explained_pct")
+    assert (cap["value"], cap["ok"]) == (0, True)

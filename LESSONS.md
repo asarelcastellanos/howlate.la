@@ -33,3 +33,27 @@ Each entry records a mistake the checks or review caught and the lasting fix.
 - Fix: a "Review agents" rule in REVIEW.md, and a hook plus a read-only
   credential for subagents, tracked in
   https://github.com/asarelcastellanos/claude-workbench/issues/26.
+
+## 2026-11-16: A dashboard build variable did not reach the Pages build
+- What happened: the site reads its data address from `PUBLIC_DATA_BASE`, which
+  was set in the Cloudflare Pages dashboard. The deployed preview did not
+  contain it, so the home page showed "We couldn't load this data" while a
+  local build with the variable showed real numbers.
+- Caught by: loading the deployed preview. No CI check can see it, because CI
+  does not build with the dashboard's variables.
+- Fix: the public R2 address is the default in `web/src/env.ts`, so every build
+  reads real data and a dashboard value only overrides it. A change to where
+  the site reads data is not done until the deployed preview shows the numbers.
+
+## 2026-11-16: A copy's guarantee held for a crash but not for a race
+- What happened: `r2.publish` promised that R2's pointer never names a partial
+  run, and its tests covered a copy that dies partway. A hand-run
+  `publish-r2 --run X` during X's upload could finish cleanly and write a
+  pointer over 2 of 4 files. A catch-up copy after two failed days deleted the
+  run that readers were still on.
+- Caught by: the review, where three verifiers reproduced each case with the
+  test fakes.
+- Fix: both cases now have checks in `pipeline/src/howlate_pipeline/r2.py` and
+  tests in `pipeline/tests/test_r2.py`. When a docstring promises an
+  invariant, a test must try to break it with a second writer, not only a
+  crash.

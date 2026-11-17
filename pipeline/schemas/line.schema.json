@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://howlate.la/schemas/line.schema.json",
+  "title": "Line detail",
+  "description": "lines/<line>.json. Everything the line page shows, in two grains. The profile pools every stop to answer when the line is worst. The per-stop cells pool six dayparts to answer how bad one stop is. A finer grid would hold too few arrivals per cell to mean anything.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["line", "agency", "label", "via", "mode", "first_day", "last_day", "days", "directions"],
+  "properties": {
+    "line": {"type": "string", "minLength": 1, "description": "The line id, as in Metro's timetable. The file is named after it."},
+    "agency": {"enum": ["LACMTA", "LACMTA_Rail"], "description": "Which Metro feed the line is in. LACMTA is bus and LACMTA_Rail is rail."},
+    "label": {"type": "string", "description": "The name riders use. The route number for a bus and the line name for rail."},
+    "via": {"type": "string", "description": "The corridor the line runs along, in title case. Empty for rail."},
+    "mode": {"enum": ["bus", "rail"], "description": "Bus or rail."},
+    "first_day": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "The earliest service day in the data, as YYYY-MM-DD. This is network-wide, not specific to the line."},
+    "last_day": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "The latest service day in the data, as YYYY-MM-DD."},
+    "days": {"type": "integer", "minimum": 1, "description": "How many service days have data, network-wide."},
+    "directions": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"$ref": "#/$defs/direction"}, "description": "The directions with at least one measured arrival, in direction id order. A direction never observed is absent."}
+  },
+  "$defs": {
+    "direction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "to", "n", "sched", "profile", "stops"],
+      "properties": {
+        "id": {"enum": [0, 1], "description": "The timetable's direction id, 0 or 1. Use the to field to name the direction for a rider."},
+        "to": {"type": "string", "description": "Where this direction is signed for. It is the destination that appears on the most of the direction's timetable stops. Empty when the timetable names none."},
+        "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay in this direction, summed over its stops."},
+        "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops in this direction, summed over its stops, measured or not."},
+        "profile": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hour"}, "description": "The hour-of-week shape, pooled over every stop. Hours with nothing measured are left out, so there are up to 168 entries, sorted by h."},
+        "stops": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stop"}, "description": "Every stop with a scheduled arrival in this direction, in route order. Stops that are only a trip's first stop are left out, because they measure a departure."}
+      }
+    },
+    "hour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["h", "n", "sched", "med", "p90", "pct5"],
+      "properties": {
+        "h": {"type": "integer", "minimum": 0, "maximum": 167, "description": "Hour of the week in Los Angeles time, from the scheduled time. 0 is Monday 00:00 to 00:59, 24 is Tuesday 00:00, and 167 is Sunday 23:00."},
+        "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay in this hour, over all days and stops."},
+        "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops in this hour, measured or not."},
+        "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
+        "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
+        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."}
+      }
+    },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "lat", "lon", "seq", "n", "sched", "cells"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "description": "The stop id, as in Metro's timetable."},
+        "name": {"type": "string", "description": "The stop's name. It falls back to the stop id when the timetable has no name for it."},
+        "lat": {"type": ["number", "null"], "description": "Latitude in degrees. Null when the timetable has no coordinates for the stop."},
+        "lon": {"type": ["number", "null"], "description": "Longitude in degrees. Null when the timetable has no coordinates for the stop."},
+        "seq": {"type": "integer", "description": "Where the stop sits along the route. It is the median stop sequence over all trips, so sort by it and do not read it as a count of stops."},
+        "n": {"type": "integer", "minimum": 0, "description": "Arrivals with a measured delay at this stop, over all days. It counts every daypart and can be 0."},
+        "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops here, measured or not. It also counts dayparts missing from cells, so a gap in cells is not a gap in the timetable."},
+        "cells": {"type": "array", "items": {"$ref": "#/$defs/cell"}, "description": "One entry per daypart with at least one measured arrival, sorted by d. Dayparts with none are left out."}
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["d", "n", "sched", "med", "p90", "pct5"],
+      "properties": {
+        "d": {"type": "string", "pattern": "^(wk|sa|su)-(early|am|mid|pm|eve|late)$", "description": "Kind of day, then part of the day, in Los Angeles time from the scheduled time. wk is Monday to Friday, sa is Saturday and su is Sunday. early is 00:00 to 05:59, am is 06:00 to 08:59, mid is 09:00 to 14:59, pm is 15:00 to 18:59, eve is 19:00 to 21:59 and late is 22:00 to 23:59."},
+        "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay in this daypart, over all days."},
+        "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops in this daypart, measured or not. Compare it with n before trusting med."},
+        "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
+        "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
+        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."}
+      }
+    }
+  }
+}
