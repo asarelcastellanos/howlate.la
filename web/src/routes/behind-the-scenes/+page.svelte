@@ -100,10 +100,7 @@
 			HowLate runs on one small virtual machine, Cloud Run jobs, Cloud Storage, Cloudflare Pages and
 			R2. The owner's budget is about $5 a month. That is an estimate, not a bill.
 		</p>
-		<p class="mt-4">
-			The archive grows by about 1 GB a day, so storage costs grow too. A breakdown will be
-			published once billing is reviewed.
-		</p>
+		<p class="mt-4">The archive grows by about 1 GB a day, so storage costs grow too.</p>
 	</section>
 
 	<Rule />

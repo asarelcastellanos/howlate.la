@@ -267,6 +267,22 @@ describe('the status panel', () => {
 		}
 	});
 
+	test('a wrong device clock gives a wrong warning, an accepted limit', () => {
+		// health.json has no generation time, so the panel trusts the device clock.
+		// A day graded on 2026-11-15 is fresh on 2026-11-17, but a device set to
+		// 2027-01-01 shows the stale warning. The README lists this under Accepted limits.
+		const file = ok(health([day('2026-11-15')]));
+		mock.timers.enable({ apis: ['Date'], now: new Date('2027-01-01T20:00:00Z') });
+		try {
+			const html = render(StatusPanel, { props: { result: file } }).body;
+			assert.match(html, /data-warning/);
+			assert.ok(plain(html).includes('Checked January 1, 2027'));
+		} finally {
+			mock.timers.reset();
+		}
+		assert.doesNotMatch(show(file, '2026-11-17'), /data-warning/);
+	});
+
 	test('the strip ends on last_day, not on today', () => {
 		// The file is 5 days old, and its reports sit at its own end.
 		const file = health(
@@ -394,11 +410,12 @@ describe('the page', () => {
 		assert.ok(items.length >= 4 && items.length <= 6, `${items.length} problems`);
 	});
 
-	test('gives the budget as an estimate, with no $2 and no invented breakdown', () => {
+	test('gives the budget as an estimate, with no $2 and no promised breakdown', () => {
 		const section = plain(body.slice(body.indexOf('What it costs'), body.indexOf('Where to look')));
 		assert.ok(section.includes('about $5 a month'));
 		assert.ok(section.includes('estimate, not a bill'));
-		assert.ok(section.includes('once billing is reviewed'));
+		assert.doesNotMatch(section, /breakdown|billing/);
+		assert.ok(section.includes('about 1 GB a day'));
 		assert.doesNotMatch(text, /\$2\b/);
 		assert.equal(section.match(/\$\d/g)?.length, 1);
 	});
