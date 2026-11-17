@@ -60,12 +60,35 @@ test('states the on-time window and the three explained-trip counts', () => {
 	}
 });
 
-test('stays short enough to read in four minutes', () => {
+test('stays short enough to read in four minutes at about 250 words a minute', () => {
 	const words = copy.split(' ').length;
-	assert.ok(words <= 900, `${words} words`);
+	assert.ok(words <= 1000, `${words} words`);
 });
 
-test('says Metro scores rail at the end terminals', () => {
-	assert.ok(text.includes('Metro scores rail at the end terminals.'));
-	assert.ok(!text.includes('near 99 percent'));
+test('does not compare rail with Metro 99.4 percent and says why', () => {
+	assert.ok(!text.includes('99.4'));
+	assert.ok(text.includes('84 percent'));
+	assert.ok(text.includes('Metro measures buses at timepoints'));
+	assert.ok(text.includes('HowLate does not show an on-time share'));
+});
+
+test('keeps the Metro bus figure with its source and says it is not comparable', () => {
+	assert.ok(text.includes('78.2 percent'));
+	assert.ok(text.includes('2025-0860'));
+	assert.ok(text.includes('July to September 2025'));
+	assert.ok(text.includes('not comparable'));
+});
+
+test('lists the rail limit under what we do not know', () => {
+	const section = text.slice(text.indexOf('What we do not know'));
+	assert.ok(section.includes('does not yet know how Metro times a terminal arrival'));
+	assert.ok(section.includes('Rail lines show median and 90th percentile delay.'));
+});
+
+test('keeps all three health-check examples and the timetable-change limit', () => {
+	assert.ok(text.includes('Three examples follow.'));
+	assert.ok(
+		text.includes('The silent lines check fails when a scheduled line has no report all day.')
+	);
+	assert.ok(text.includes('a change to one agency'));
 });
