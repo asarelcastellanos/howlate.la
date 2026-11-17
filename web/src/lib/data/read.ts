@@ -1,6 +1,6 @@
 import { checkRankingIndex } from '../ranking.ts';
 import { openRun, type Result } from './load.ts';
-import type { LineFile, NetworkFile, SiteIndex, SiteStatus } from './types';
+import type { HealthFile, LineFile, NetworkFile, SiteIndex, SiteStatus } from './types';
 
 // Each read opens the run first, so the file always comes from the run that
 // current.json names. A failure at either step is the same kind of value.
@@ -22,6 +22,11 @@ export async function readLine(base: string, line: string): Promise<Result<LineF
 export async function readNetwork(base: string): Promise<Result<NetworkFile>> {
 	const run = await openRun(base);
 	return run.ok ? run.data.network() : run;
+}
+
+export async function readHealth(base: string): Promise<Result<HealthFile>> {
+	const run = await openRun(base);
+	return run.ok ? run.data.health() : run;
 }
 
 // The ranking page reads five numbers from every entry. Until the daily run

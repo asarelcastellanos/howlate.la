@@ -1,5 +1,12 @@
-import { isLineFile, isSiteIndex, isSiteStatus } from './shape.ts';
-import type { CurrentPointer, LineFile, NetworkFile, SiteIndex, SiteStatus } from './types';
+import { isHealthFile, isLineFile, isSiteIndex, isSiteStatus } from './shape.ts';
+import type {
+	CurrentPointer,
+	HealthFile,
+	LineFile,
+	NetworkFile,
+	SiteIndex,
+	SiteStatus
+} from './types';
 
 /** Why a file did not load. The caller shows an error state, never a blank page. */
 export type LoadError = {
@@ -18,6 +25,7 @@ export type Run = {
 	status: () => Promise<Result<SiteStatus>>;
 	line: (line: string) => Promise<Result<LineFile>>;
 	network: () => Promise<Result<NetworkFile>>;
+	health: () => Promise<Result<HealthFile>>;
 };
 
 type Fetch = typeof fetch;
@@ -70,7 +78,8 @@ export async function openRun(base: string, fetchFn: Fetch = fetch): Promise<Res
 			index: () => file<SiteIndex>('index.json', isSiteIndex),
 			status: () => file<SiteStatus>('status.json', isSiteStatus),
 			line: (line) => file<LineFile>(`lines/${encodeURIComponent(line)}.json`, isLineFile),
-			network: () => file<NetworkFile>('network.json')
+			network: () => file<NetworkFile>('network.json'),
+			health: () => file<HealthFile>('health.json', isHealthFile)
 		}
 	};
 }

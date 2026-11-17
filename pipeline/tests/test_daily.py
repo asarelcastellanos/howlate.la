@@ -54,6 +54,7 @@ class Run:
         # replaced by a recorder, raising `r2_error` when one is given; with
         # `real` holding "r2" it runs for real, with no R2 settings.
         self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
+        self.fetched_reports = []
         self.copied, self.summaries, self.copy_kwargs = [], [], []
         for name in (*r2.REQUIRED, "R2_REQUIRED", "R2_PUBLIC_URL"):
             monkeypatch.delenv(name, raising=False)
@@ -77,8 +78,9 @@ class Run:
         if "r2" not in real:
             monkeypatch.setattr(cli.r2, "copy_if_configured", copy)
 
-        def fetch(client, dest):
+        def fetch(client, dest, reports=None):
             self.fetched.append(dest)
+            self.fetched_reports.append(reports)
             return fetched
 
         monkeypatch.setattr(cli.aggregate, "fetch_arrivals", fetch)
@@ -133,6 +135,8 @@ def test_a_clean_run_summarises_every_graded_day_and_publishes(monkeypatch, tmp_
     run()
     assert run.fetched == run.built
     assert run.published == [True]
+    # health.json reads the reports the fetch downloaded, in a folder of their own.
+    assert run.fetched_reports == [tmp_path / "cache" / "reports" / arrivals.VERSION]
 
 
 def test_the_site_is_copied_to_r2_after_it_is_published_and_the_run_reports_ok(

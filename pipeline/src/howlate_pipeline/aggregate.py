@@ -19,6 +19,7 @@ must not be able to masquerade as one built on three hundred.
 Each stop and direction also carries one all-day set of numbers, so a page can
 show "how bad is this stop" without adding up dayparts that may have gaps.
 `network.json` holds the hour-of-week shape for the whole network, bus and rail.
+`health.json` holds the daily report's results for the newest two weeks.
 
 Trip origins are excluded throughout. They measure a departure rather than an
 arrival and mixing the two would quietly bias every number toward "early".
@@ -35,7 +36,7 @@ import duckdb
 from google.api_core.exceptions import NotFound, PreconditionFailed
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, ZONE
+from howlate_pipeline import DERIVED_BUCKET, ZONE, health
 from howlate_pipeline.arrivals import VERSION
 
 # Six parts of the day, three kinds of day. Coarse enough that cells hold real
@@ -254,7 +255,16 @@ def network(con: duckdb.DuckDBPyConnection, modes: dict[tuple, str]) -> dict:
     return out
 
 
-def fetch_arrivals(client: storage.Client, dest: Path) -> int:
+def reports_beside(arrivals_dir: Path) -> Path:
+    """Where the saved reports sit when the arrivals are at `arrivals_dir`.
+
+    `out/arrivals/v2` has its reports in `out/reports/v2`, the layout `arrivals`
+    writes, so a local run finds them without being told.
+    """
+    return arrivals_dir.parent.parent / "reports" / arrivals_dir.name
+
+
+def fetch_arrivals(client: storage.Client, dest: Path, reports: Path | None = None) -> int:
     """Download every finished day of this layout version into `dest`.
 
     A day counts only once its report is in the bucket. The upload puts the
@@ -265,14 +275,27 @@ def fetch_arrivals(client: storage.Client, dest: Path) -> int:
     It replaces what is there because a day regraded in the bucket must not be
     summarised from an old local copy. On Cloud Run every execution starts
     empty anyway, so this is how the summary sees days graded by other runs.
+
+    With `reports`, the newest `health.RECENT_DAYS` finished days' report.json
+    files are also downloaded there, emptied first like `dest`. They come from
+    the same listing as the tables, so health.json never names a day the rest of
+    the site lacks. Each report is about 3 KB, and nothing is written to the bucket.
     """
     if dest.exists():
         shutil.rmtree(dest)
-    finished = {
-        blob.name.split("/")[2]
+    saved = {
+        blob.name.split("/")[2]: blob
         for blob in client.list_blobs(DERIVED_BUCKET, prefix=f"reports/{VERSION}/")
         if blob.name.endswith("/report.json")
     }
+    finished = set(saved)
+    if reports is not None:
+        if reports.exists():
+            shutil.rmtree(reports)
+        for day in sorted(saved, reverse=True)[: health.RECENT_DAYS]:
+            target = reports / day / "report.json"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            saved[day].download_to_filename(target)
     prefix = f"arrivals/{VERSION}/"
     count = 0
     for blob in client.list_blobs(DERIVED_BUCKET, prefix=prefix):
@@ -302,9 +325,18 @@ def write_json(path: Path, payload: dict) -> int:
 
 
 def build(
-    con: duckdb.DuckDBPyConnection, catalogue: dict, out: Path, first: str, last: str, days: int
+    con: duckdb.DuckDBPyConnection,
+    catalogue: dict,
+    out: Path,
+    first: str,
+    last: str,
+    days: int,
+    reports: Path | None = None,
 ) -> tuple[list[tuple[str, int, int]], list[str]]:
-    """Write index.json, status.json, network.json and one file per line.
+    """Write index.json, status.json, network.json, health.json and one file per line.
+
+    `reports` holds the saved daily reports that health.json is built from. Without
+    them the file is still written, with no days in it.
 
     Returns the size of each line file and the names of every file written,
     relative to `out`. `upload` publishes those names and nothing else.
@@ -415,6 +447,9 @@ def build(
     }
     write_json(out / "network.json", network(con, modes))
     names.append("network.json")
+
+    write_json(out / "health.json", health.document(reports, last, days))
+    names.append("health.json")
 
     return written, sorted(names)
 

@@ -1,4 +1,4 @@
-import type { LineFile, SiteIndex, SiteStatus } from './types';
+import type { HealthFile, LineFile, SiteIndex, SiteStatus } from './types';
 
 // A body is JSON, but the live bucket can hold an older shape than the types say.
 // It does between a release and the first daily run after it. These checks read
@@ -11,6 +11,7 @@ const str = (v: unknown) => typeof v === 'string';
 const list = (v: unknown, each: (item: unknown) => boolean) => Array.isArray(v) && v.every(each);
 const some = (v: unknown, each: (item: unknown) => boolean) =>
 	Array.isArray(v) && v.length > 0 && v.every(each);
+const bool = (v: unknown) => typeof v === 'boolean';
 const mode = (v: unknown) => v === 'bus' || v === 'rail';
 
 const isHour = (v: unknown) =>
@@ -60,3 +61,32 @@ export const isSiteIndex = (v: unknown): v is SiteIndex => isObj(v) && list(v.li
 
 export const isSiteStatus = (v: unknown): v is SiteStatus =>
 	isObj(v) && str(v.last_day) && num(v.days) && num(v.measured_arrivals) && num(v.coverage_pct);
+
+const isHealthDay = (v: unknown) =>
+	isObj(v) &&
+	str(v.service_date) &&
+	bool(v.ok) &&
+	list(v.failed, str) &&
+	num(v.coverage_pct) &&
+	num(v.explained_trips) &&
+	num(v.explained_pct) &&
+	num(v.observations);
+
+// A check is a range or a count, and `kind` says which. The page shows the
+// value and then the range or the expected count.
+const isHealthCheck = (v: unknown) =>
+	isObj(v) &&
+	str(v.name) &&
+	str(v.label) &&
+	bool(v.ok) &&
+	num(v.value) &&
+	(v.kind === 'range' ? num(v.low) && num(v.high) : v.kind === 'count' && num(v.expected));
+
+// `recent` and `checks` can be empty, as in a run built without reports.
+export const isHealthFile = (v: unknown): v is HealthFile =>
+	isObj(v) &&
+	str(v.pipeline_version) &&
+	str(v.last_day) &&
+	num(v.days) &&
+	list(v.recent, isHealthDay) &&
+	list(v.checks, isHealthCheck);
