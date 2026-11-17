@@ -15,12 +15,14 @@ environment and are never printed; see `from_env`.
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import boto3
 from botocore.config import Config as ClientConfig
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import ClientError
 from google.cloud import storage
 
 from howlate_pipeline import DERIVED_BUCKET
@@ -28,6 +30,7 @@ from howlate_pipeline.aggregate import POINTER
 
 REQUIRED = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
 DEFAULT_BUCKET = "howlate"
+HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
 
 # Run files never change once written, so browsers and the CDN may keep them for
 # a year. The pointer is the one file that moves, so it lives for a minute: a
@@ -51,6 +54,10 @@ def from_env(env: Mapping[str, str] = os.environ) -> Config | None:
     half-set environment is a deployment mistake, and skipping it would leave
     the public site stale with nothing to say so. R2_BUCKET is optional and does
     not count as a setting, so a job that sets only the bucket still skips.
+
+    The endpoint holds the Cloudflare account id, so an invalid one is rejected
+    here with a message that does not repeat it. Left to botocore, a malformed
+    value fails later with "Invalid endpoint: <url>".
     """
     values = {name: env.get(name, "").strip() for name in REQUIRED}
     if not any(values.values()):
@@ -58,13 +65,33 @@ def from_env(env: Mapping[str, str] = os.environ) -> Config | None:
     missing = [name for name, value in values.items() if not value]
     if missing:
         raise ValueError(f"R2 is partly configured; missing {', '.join(missing)}")
-    if not values["R2_ENDPOINT"].startswith("https://"):
-        raise ValueError("R2_ENDPOINT must start with https://")
+    if not is_https_address(values["R2_ENDPOINT"]):
+        raise ValueError("R2_ENDPOINT is not a valid https address")
     return Config(
         endpoint=values["R2_ENDPOINT"],
         access_key_id=values["R2_ACCESS_KEY_ID"],
         secret_access_key=values["R2_SECRET_ACCESS_KEY"],
         bucket=env.get("R2_BUCKET", "").strip() or DEFAULT_BUCKET,
+    )
+
+
+def is_https_address(endpoint: str) -> bool:
+    """True for https://<hostname> with no port, userinfo, path, query or fragment.
+
+    The hostname may hold only letters, digits, dots and hyphens, which rules out
+    the underscores and spaces that botocore refuses.
+    """
+    try:
+        parts = urlsplit(endpoint)
+        hostname = parts.hostname
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and hostname is not None
+        and HOSTNAME.fullmatch(hostname) is not None
+        and parts.netloc.lower() == hostname
+        and not (parts.path or parts.query or parts.fragment)
     )
 
 
@@ -95,16 +122,17 @@ def make_client(config: Config):
 
 
 def describe(error: Exception) -> str:
-    """What went wrong, safe to log and to send to healthchecks.io.
+    """What went wrong, with no URL, account id or credential in it.
 
     botocore puts the endpoint URL, which holds the Cloudflare account id, in
-    its messages. Only the error code and the call are kept.
+    its messages, and google-auth puts the service account email in its own. A
+    ClientError keeps only its code and the call. Any other exception keeps only
+    its class name, because the text of an exception this code did not raise is
+    not under its control.
     """
     if isinstance(error, ClientError):
         return f"{error.response['Error'].get('Code')} during {error.operation_name}"
-    if isinstance(error, BotoCoreError):
-        return type(error).__name__
-    return repr(error)
+    return type(error).__name__
 
 
 def read_pointer(derived: storage.Bucket) -> tuple[bytes, dict]:
@@ -113,6 +141,11 @@ def read_pointer(derived: storage.Bucket) -> tuple[bytes, dict]:
         raise RuntimeError(f"gs://{DERIVED_BUCKET}/{POINTER} does not exist; nothing is published")
     body = blob.download_as_bytes()
     return body, json.loads(body)
+
+
+def check_complete(run: str, blobs: list, record: dict) -> None:
+    if len(blobs) != record["files"]:
+        raise RuntimeError(f"{run} lists {len(blobs)} files but its pointer says {record['files']}")
 
 
 def publish(gcs: storage.Client, s3, bucket: str, run: str | None = None) -> tuple[int, bool]:
@@ -125,6 +158,12 @@ def publish(gcs: storage.Client, s3, bucket: str, run: str | None = None) -> tup
     in aggregate.upload. A copy that dies partway leaves R2's pointer on the
     previous complete run, and a reader never sees a mix of two. The files of a
     half-copied run stay in R2 until a later run prunes them.
+
+    R2's pointer moves only when the derived pointer, read again after the copy,
+    still names this run and counts the files that were copied. That catches a
+    run whose upload finished while the copy ran. It cannot make the pointer
+    write atomic. A newer run published between that read and the write is not
+    seen, and R2's pointer then names this run until the next daily copy.
     """
     derived = gcs.bucket(DERIVED_BUCKET)
     _, record = read_pointer(derived)
@@ -136,8 +175,8 @@ def publish(gcs: storage.Client, s3, bucket: str, run: str | None = None) -> tup
     # The pointer counts the files of a complete run. A short listing means files
     # were pruned or are not visible yet, and copying them would publish a site
     # with holes.
-    if run == record["run"] and len(blobs) != record["files"]:
-        raise RuntimeError(f"{run} lists {len(blobs)} files but its pointer says {record['files']}")
+    if run == record["run"]:
+        check_complete(run, blobs, record)
 
     for blob in blobs:
         s3.put_object(
@@ -157,6 +196,16 @@ def publish(gcs: storage.Client, s3, bucket: str, run: str | None = None) -> tup
     if record["run"] != run:
         print(f"  R2 pointer left alone: {POINTER} now names {record['run']}, not {run}")
         return len(blobs), False
+    # The first read may have named an older run, which skipped the count check
+    # above. This run's upload can finish while the copy runs, so the listing may
+    # predate files the pointer now counts. Checking again keeps R2's pointer off
+    # a run that is missing files.
+    check_complete(run, blobs, record)
+    # The run R2's readers were just told about must outlive this copy. A reader
+    # may have fetched the old pointer up to a minute ago and still be loading
+    # that run's files. Without this, a run that fell out of the derived pointer's
+    # `previous` list would be deleted the moment R2's pointer moved off it.
+    r2_keep = r2_pointer_runs(s3, bucket)
     s3.put_object(
         Bucket=bucket,
         Key=POINTER,
@@ -166,11 +215,32 @@ def publish(gcs: storage.Client, s3, bucket: str, run: str | None = None) -> tup
     )
 
     try:
-        prune(s3, bucket, run, {run, *record.get("previous", [])})
+        prune(s3, bucket, run, {run, *record.get("previous", []), *r2_keep})
     except Exception as error:
         # Listing failed. The site is published; the next copy prunes.
         print(f"  could not prune old R2 runs: {describe(error)}")
     return len(blobs), True
+
+
+def r2_pointer_runs(s3, bucket: str) -> set[str]:
+    """The runs R2's pointer names: its `run` and its `previous` list.
+
+    An empty set when there is no pointer yet. Any other failure also gives an
+    empty set, because a copy should not fail for lack of a keep list; the cost
+    is that a reader still on the old pointer may lose its run a copy early.
+    """
+    try:
+        record = json.loads(s3.get_object(Bucket=bucket, Key=POINTER)["Body"].read())
+        return {record["run"], *record.get("previous", [])}
+    except ClientError as error:
+        code = error.response["Error"].get("Code")
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code == "NoSuchKey" or str(code) == "404" or status == 404:
+            return set()
+        print(f"  could not read R2 pointer: {describe(error)}")
+    except Exception as error:
+        print(f"  could not read R2 pointer: {describe(error)}")
+    return set()
 
 
 def prune(s3, bucket: str, current: str, keep: set[str]) -> None:

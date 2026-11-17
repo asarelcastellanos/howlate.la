@@ -13,6 +13,6 @@
 	label={weekLinesLabel(profile)}
 	{caption}
 	source={trusted(profile).length < 168
-		? `${source} Gaps are hours with too few arrivals or no service.`
+		? `${source} Gaps are hours with too few arrivals or none measured.`
 		: source}
 />

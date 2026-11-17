@@ -4,6 +4,8 @@
 
 export const INK = 'var(--chart-ink)';
 export const GRID = 'var(--chart-grid)';
+/** The hatch and the dotted outline. Held to 3:1 on paper, unlike the grid. */
+export const QUIET = 'var(--chart-quiet)';
 export const AXIS = 'var(--chart-axis)';
 export const ANNOTATION = 'var(--chart-annotation)';
 export const PAPER = 'var(--paper)';
@@ -20,11 +22,12 @@ export const RAMP = [1, 2, 3, 4, 5].map((step) => `var(--delay-${step})`);
 export const RAMP_STEPS = [60, 120, 180, 300];
 
 /**
- * A median from fewer arrivals than this is drawn hollow, and is never the
- * "worst" cell. With 4 arrivals one late train moves the median a whole step.
- * In five lines checked on the same run (720, 4, 204, 901 and 70), no weekday
- * evening or Saturday late cell had fewer than 5 arrivals, so hollow dots are
- * rare on today's data. The worst A Line hour toward Long Beach has 2 arrivals,
+ * A median from fewer arrivals than this is never drawn as a ramp color or
+ * named the "worst" cell. The heatmap hatches the hour, the strip draws a
+ * hollow dot, and the line chart breaks the line. With 4 arrivals one late
+ * train moves the median a whole step. In five lines checked on the same run
+ * (720, 4, 204, 901 and 70), no weekday evening or Saturday late cell had
+ * fewer than 5 arrivals, so hollow dots are rare on today's data. The worst A Line hour toward Long Beach has 2 arrivals,
  * which is why the label skips thin cells.
  */
 export const MIN_ARRIVALS = 5;

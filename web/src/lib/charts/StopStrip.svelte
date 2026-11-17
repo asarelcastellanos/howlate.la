@@ -22,8 +22,8 @@
 >
 	{#snippet extra()}
 		<p class="caption text-ink-muted mt-2">
-			{daypartName(daypart)}. Dot area follows the number of arrivals. A hollow dot has too few
-			arrivals to judge, under {MIN_ARRIVALS}.
+			{daypartName(daypart)}. Larger dots have more arrivals. A hollow dot has too few arrivals to
+			judge, under {MIN_ARRIVALS}.
 		</p>
 	{/snippet}
 </ChartFigure>

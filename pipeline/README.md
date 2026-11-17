@@ -121,8 +121,9 @@ change to an output field needs its schema in the same PR.
 The schemas are not part of the runtime. The image copies `pipeline/src` only,
 and `jsonschema` is in the `test` extra, not in `requirements.lock`. The test
 skips only when it is not in a checkout, as in the container job, which mounts
-`pipeline/tests` alone. TypeScript types for the site come from these schemas in
-a later change.
+`pipeline/tests` alone. `npm run types` in `web/` generates
+`web/src/lib/data/types.ts` from these schemas, and CI fails when the committed
+file is stale. See "Data" in `web/README.md`.
 
 ## Copying the site to R2
 
@@ -131,7 +132,8 @@ egress. After `daily` publishes a run to `gs://howlate-derived`, it copies that
 run to the R2 bucket `howlate`. It uploads every file under `site/runs/<run>/`,
 then writes `site/current.json` last, and only if the derived bucket still names
 that run. A copy that fails partway leaves R2 on the previous complete run. A
-successful copy deletes R2 runs the pointer does not list. A failed copy leaves
+successful copy deletes R2 runs the pointer does not list, except the runs R2's
+own pointer named before that copy, which the next copy deletes. A failed copy leaves
 the graded days and the Cloud Storage site saved, but `daily` exits non-zero and
 pings failure.
 

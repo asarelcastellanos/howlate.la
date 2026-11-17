@@ -54,7 +54,9 @@ These go into `REVIEW.md` in 0.1.0.
 8. A release that changed nothing in `collector/` does not touch the VM.
 9. The pipeline from 0.3.0 and the site from 0.4.0 deploy on their own when
    `main` changes. Those versions build that, and neither can lose collected
-   data.
+   data. The 0.4.0 release also needs `pipeline/deploy/daily.sh` run once after
+   the merge, because a deploy changes only the image and the job needs its R2
+   settings. The first live run must log `copied N files to R2`.
 10. Spend 15 minutes on what the reviews kept finding, and turn repeat findings
     into a lint rule or a `REVIEW.md` line.
 

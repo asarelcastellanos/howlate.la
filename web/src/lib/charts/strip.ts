@@ -10,7 +10,7 @@ import {
 	type DrawOptions
 } from './theme.ts';
 
-/** Weekdays 15:00 to 18:59, the part of the day that holds the evening rush. */
+/** The weekday evening rush, 3 to 7 pm (15:00 to 18:59). */
 export const DEFAULT_DAYPART = 'wk-pm';
 
 const KINDS: Record<string, string> = { wk: 'Weekdays', sa: 'Saturdays', su: 'Sundays' };
@@ -37,8 +37,9 @@ const R_MAX = 11;
 const LABELS = 3;
 
 /**
- * One dot per stop that has a cell for the daypart, sized by sqrt(n) so the
- * dot's area follows n. Dots that would overlap are pushed up or down, so
+ * One dot per stop that has a cell for the daypart, given a radius of
+ * R_MIN plus a share of the rest that grows with sqrt(n), so a dot with more
+ * arrivals is larger, but its area is not proportional to n. Dots that would overlap are pushed up or down, so
  * `y` is a pixel offset from the strip's center line.
  */
 export function stripDots(stops: Stop[], daypart: string, width: number): Dot[] {
@@ -68,8 +69,10 @@ const toPx = (med: number, lo: number, hi: number, width: number) =>
 	MARGIN_X + ((med / 60 - lo) / (hi - lo)) * (width - 2 * MARGIN_X);
 
 function extent(seconds: number[]): [number, number] {
+	// Zero stays inside the domain on both sides, so the "on time" rule is
+	// drawn even when every stop is early or every stop is late.
 	const lo = Math.floor(Math.min(0, ...seconds) / 60) - 1;
-	const hi = Math.ceil(Math.max(...seconds) / 60) + 1;
+	const hi = Math.ceil(Math.max(0, ...seconds) / 60) + 1;
 	return [lo, hi];
 }
 
