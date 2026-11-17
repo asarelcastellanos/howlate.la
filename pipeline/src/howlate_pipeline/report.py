@@ -403,10 +403,11 @@ def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
     # and neither can move without something real having changed.
     #
     # The terminus one is specifically about STOPPED_AT. Vehicles stop reporting a
-    # trip before finishing it, so its last stop never produces one; the approach
-    # records do reach it, which is how 9,071 terminus arrivals on 2026-08-18
-    # became measurable for the first time. Narrowed rather than deleted, because
-    # a STOPPED_AT appearing there would still mean the feed had changed.
+    # trip before finishing it, so its last stop has produced none on the days
+    # checked; the approach records do reach it, which is how 9,071 terminus
+    # arrivals on 2026-08-18 became measurable for the first time. Narrowed
+    # rather than deleted, because a STOPPED_AT appearing there would still mean
+    # the feed had changed.
     for name, label in (
         ("terminus_stopped", "STOPPED_AT records on a trip's final stop"),
         ("ambiguous", "stop_sequence values reporting two different stop_ids"),
