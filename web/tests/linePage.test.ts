@@ -45,6 +45,7 @@ registerHooks({
 
 // A static import would load the page before the stand-ins are registered.
 const { default: LineView } = await import('../src/lib/line/LineView.svelte');
+const { default: LineCharts } = await import('../src/lib/charts/LineCharts.svelte');
 const { default: LineNotFound } = await import('../src/lib/line/LineNotFound.svelte');
 const { default: LineRoute } = await import('../src/routes/lines/[line]/+page.svelte');
 const { default: ResultView } = await import('../src/lib/charts/ResultView.svelte');
@@ -137,8 +138,21 @@ test('a rail page shows the share once the gate is open', () => {
 	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
 });
 
-test('a line page has four figures, and the route chart is the last one', () => {
+// The page loads the chart code after the headline has painted, which a
+// server render never reaches, so the tests that look at a chart pass it in.
+test('before the chart code loads the page shows the headline and a loading note, not a chart', () => {
 	const { body } = render(LineView, { props: { line: lineFile('bus', two) } });
+	assert.equal(body.match(/<figure/g), null);
+	assert.match(body, /role="status"/);
+	assert.match(text(body), /How late it runs/);
+	assert.match(text(body), /56\.5 percent of 345,123 measured arrivals were on time/);
+});
+
+test('a line page has four figures, and the route chart is the last one', () => {
+	const { body } = render(LineView, {
+		props: { line: lineFile('bus', two), charts: LineCharts }
+	});
+	assert.doesNotMatch(body, /role="status"/);
 	assert.equal(body.match(/<figure/g)?.length, 4);
 	const captions = [...body.matchAll(/<figcaption[\s\S]*?<\/figcaption>/g)].map((m) => text(m[0]));
 	assert.match(
@@ -147,14 +161,16 @@ test('a line page has four figures, and the route chart is the last one', () => 
 	);
 	// The one-direction case draws the same four, without the switch.
 	assert.equal(
-		render(LineView, { props: { line: lineFile('bus', one) } }).body.match(/<figure/g)?.length,
+		render(LineView, { props: { line: lineFile('bus', one), charts: LineCharts } }).body.match(
+			/<figure/g
+		)?.length,
 		4
 	);
 });
 
 test('a rail page hands the heatmap no on-time share and a bus page does', () => {
 	const readout = (line: LineFile) =>
-		text(render(LineView, { props: { line } }).body).match(
+		text(render(LineView, { props: { line, charts: LineCharts } }).body).match(
 			/Friday 5 pm\. Median[^.]*\.[^.]*\.[^.]*\./
 		)?.[0];
 	assert.match(readout(lineFile('bus', two))!, /percent on time/);

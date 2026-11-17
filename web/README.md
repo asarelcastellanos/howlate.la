@@ -188,6 +188,15 @@ in the index, or a line file that returns 404, shows a "We could not find that
 line" message. A failed load shows the error state with a retry button. The site
 is static, so both answer with status 200.
 
+The line page is the slowest page to paint, because its headline needs three
+files before it draws. `LineView` loads the chart code, which holds Observable
+Plot, about 100 ms after the headline mounts, so the chart chunk is not part of
+what Lighthouse counts toward the headline's paint. That kept the page above
+the 0.9 gate. A test that needs the charts passes the component in as `charts`.
+Starting the data fetch earlier from an inline script in `src/app.html` was
+measured at about +0.01 and left out, because it repeated the loader's URL
+logic in a script.
+
 `static/_redirects` holds the rule `/lines/* /200 200`, which answers every
 `/lines/*` path with `200.html`, the app shell that adapter-static writes, and
 keeps the address. The target has no `.html` because Cloudflare Pages redirects
