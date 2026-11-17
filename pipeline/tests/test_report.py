@@ -362,6 +362,26 @@ def test_a_day_where_most_trips_are_explained_fails_the_cap_but_not_matched_rate
     assert (cap["ok"], matched_check(con)["ok"]) == (False, True)
 
 
+@pytest.mark.parametrize(
+    ("percent", "passes"),
+    [(4.9, True), (5.0, True), (5.005, False), (5.1, False)],
+)
+def test_the_explained_cap_is_five_percent_and_includes_five(con, percent, passes):
+    # The range check is low <= value <= high, so exactly 5.0 passes.
+    stats = report.summarise(con) | {"explained_pct": percent}
+    cap = next(c for c in report.checks(con, stats) if c["name"] == "explained_pct")
+    assert cap["ok"] is passes
+
+
+def test_one_explained_observation_in_twenty_is_exactly_the_cap_and_passes(tmp_path):
+    con = run_day(tmp_path, extra_reports=[stopped("T9", 1, "A")], later_service=True)
+    with_joined_filler(con, 14)
+    stats = report.summarise(con)
+    assert (stats["explained"], stats["observations"]) == (1, 20)
+    cap = check_named(con, "explained_pct")
+    assert (cap["value"], cap["ok"]) == (5.0, True)
+
+
 def test_a_day_with_nothing_explained_passes_the_cap(con):
     cap = check_named(con, "explained_pct")
     assert (cap["value"], cap["ok"]) == (0, True)

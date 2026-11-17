@@ -252,8 +252,11 @@ def heartbeat(ok: bool, summary: str) -> None:
         print(f"  heartbeat failed: {type(error).__name__}")
 
 
-# The last character may not be punctuation, so "see https://x/y: denied" keeps its colon.
-URL = re.compile(r"https?://[^\s'\")>\]]*[^\s'\")>\].,:;]", re.IGNORECASE)
+# A URL runs to the next whitespace. Stopping at a quote or bracket left the tail
+# of "https://x.com/a(b)?X-Goog-Signature=SECRET" in the ping, and a signed
+# URL's secret is in that tail. Only a final . , : or ; stays out of the match,
+# so "see https://x/y: denied" keeps its colon.
+URL = re.compile(r"https?://\S*[^\s.,:;]", re.IGNORECASE)
 GS_PATH = re.compile(r"gs://[^\s'\")>\]]*[^\s'\")>\].,:;]", re.IGNORECASE)
 S3_PATH = re.compile(r"s3://[^\s'\")>\]]*[^\s'\")>\].,:;]", re.IGNORECASE)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")

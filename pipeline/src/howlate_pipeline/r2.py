@@ -26,7 +26,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import boto3
 from botocore.config import Config as ClientConfig
@@ -38,11 +37,17 @@ from howlate_pipeline.aggregate import POINTER
 
 REQUIRED = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
 DEFAULT_BUCKET = "howlate"
-HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
-# The whole value, as daily.sh checks it. urlsplit drops leading spaces and
-# newlines anywhere in the value and lowercases the scheme, so it alone would
-# accept " https://host", "https://ho\nst" and "HTTPS://host".
-HTTPS_ADDRESS = re.compile(r"https://[A-Za-z0-9.-]+")
+# One domain label: letters, digits and inner hyphens, starting and ending with
+# a letter or digit.
+LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+# The whole value, as daily.sh checks it: a lowercase https://, two or more
+# labels with single dots between them, no dot at the end, and a last label
+# that is not all digits, so "https://1.2.3.4" is refused. A bare name such as
+# localhost has no dot and is refused too. fullmatch looks at every character,
+# so a leading space or an embedded newline fails (urlsplit would strip them).
+# Nothing else is allowed, so there is no port, userinfo, path, query or
+# fragment to check separately.
+HTTPS_ADDRESS = re.compile(rf"https://(?:{LABEL}\.)+(?![0-9]+\Z){LABEL}")
 
 # Run files never change once written, so browsers and the CDN may keep them for
 # a year. The pointer is the one file that moves, so it lives for a minute: a
@@ -133,26 +138,13 @@ def public_url_from_env(env: Mapping[str, str] = os.environ) -> str | None:
 
 
 def is_https_address(endpoint: str) -> bool:
-    """True for https://<hostname> with no port, userinfo, path, query or fragment.
+    """True for https:// and a dotted domain name, and nothing else.
 
-    The hostname may hold only letters, digits, dots and hyphens, which rules out
-    the underscores and spaces that botocore refuses. The whole value must match
-    HTTPS_ADDRESS first, with no stripped whitespace and a lowercase scheme.
+    See HTTPS_ADDRESS for the rule. It rules out the underscores and spaces that
+    botocore refuses, and the hosts that cannot be public: a name with no dot,
+    an empty label, a trailing dot and an IPv4 address.
     """
-    if HTTPS_ADDRESS.fullmatch(endpoint) is None:
-        return False
-    try:
-        parts = urlsplit(endpoint)
-        hostname = parts.hostname
-    except ValueError:
-        return False
-    return (
-        parts.scheme == "https"
-        and hostname is not None
-        and HOSTNAME.fullmatch(hostname) is not None
-        and parts.netloc.lower() == hostname
-        and not (parts.path or parts.query or parts.fragment)
-    )
+    return HTTPS_ADDRESS.fullmatch(endpoint) is not None
 
 
 def make_client(config: Config):

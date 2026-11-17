@@ -92,7 +92,7 @@ def test_recent_stops_at_fourteen_days(tmp_path):
     assert out["days"] == 18  # every graded day, not only the ones listed
 
 
-def test_checks_are_the_newest_days_with_the_reports_labels(tmp_path):
+def test_checks_are_last_days_with_the_reports_labels(tmp_path):
     out = health.document(three_days(tmp_path), "2026-08-18", 3)
     assert [check["name"] for check in out["checks"]] == [
         "matched_rate",
@@ -109,6 +109,60 @@ def test_checks_are_the_newest_days_with_the_reports_labels(tmp_path):
         "high": 90.0,
     }
     assert out["checks"][2]["expected"] == 0 and "low" not in out["checks"][2]
+
+
+def test_checks_are_the_report_for_last_day_even_when_older_reports_differ(tmp_path):
+    older = report("2026-08-17", old=True, fail=("coverage",))
+    write(tmp_path, report("2026-08-18"), older, report("2026-08-16", old=True))
+    out = health.document(tmp_path, "2026-08-18", 3)
+    assert [check["name"] for check in out["checks"]] == [
+        "matched_rate",
+        "coverage",
+        "silent_lines",
+    ]
+    assert all(check["ok"] for check in out["checks"])  # the 08-17 failure is not shown
+
+
+def test_checks_are_empty_when_the_report_for_last_day_cannot_be_read(tmp_path, capsys):
+    """Showing an older day's checks next to a newer last_day would read as today's result."""
+    write(tmp_path, report("2026-08-17", fail=("coverage",)), report("2026-08-16", old=True))
+    unreadable = tmp_path / "service_date=2026-08-18" / "report.json"
+    unreadable.parent.mkdir()
+    unreadable.write_text('{"service_date": "2026-0')
+
+    out = health.document(tmp_path, "2026-08-18", 3)
+
+    assert out["checks"] == []
+    assert out["last_day"] == "2026-08-18"
+    assert [day["service_date"] for day in out["recent"]] == ["2026-08-17", "2026-08-16"]
+    assert "skipped the report in service_date=2026-08-18" in capsys.readouterr().out
+
+
+def test_checks_are_empty_when_last_day_has_no_report_at_all(tmp_path):
+    write(tmp_path, report("2026-08-17"), report("2026-08-16"))
+    out = health.document(tmp_path, "2026-08-18", 3)
+    assert out["checks"] == []
+    assert [day["service_date"] for day in out["recent"]] == ["2026-08-17", "2026-08-16"]
+
+
+def test_a_count_check_publishes_its_expect_as_expected(tmp_path):
+    # Every report check in the fixtures expects 0, which a constant 0 would also satisfy.
+    two = report("2026-08-18", fail=("silent_lines",))
+    count = next(check for check in two["checks"] if check["kind"] == "count")
+    count |= {"value": 5, "expect": 2}
+    write(tmp_path, two)
+
+    out = health.document(tmp_path, "2026-08-18", 1)
+
+    published = next(check for check in out["checks"] if check["name"] == "silent_lines")
+    assert published == {
+        "name": "silent_lines",
+        "kind": "count",
+        "label": COUNT[1],
+        "ok": False,
+        "value": 5,
+        "expected": 2,
+    }
 
 
 def test_a_day_with_no_report_is_absent(tmp_path):
@@ -185,11 +239,41 @@ def test_the_fetch_downloads_only_the_newest_fourteen_reports_into_its_own_folde
     days = [f"2026-08-{day:02d}" for day in range(1, 21)]
     names = [f"reports/v2/service_date={day}/report.json" for day in days]
     names += [f"arrivals/v2/service_date={day}/part-0.parquet" for day in days]
+    # Other blobs under the reports folder are not reports. One sits after its
+    # day's report in the listing, and one is the only blob of a newer day.
+    names += ["reports/v2/service_date=2026-08-20/report.json.tmp"]
+    names += ["reports/v2/service_date=2026-08-21/notes.txt"]
     reports = tmp_path / "reports"
-    (reports / "service_date=2026-01-01").mkdir(parents=True)  # left over from an earlier run
+    stale = reports / "service_date=2026-01-01" / "report.json"  # left over from an earlier run
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps(report("2026-01-01")))
 
     aggregate.fetch_arrivals(Listing(names), tmp_path / "graded", reports=reports)
 
     got = sorted(path.parent.name for path in reports.rglob("report.json"))
     assert got == [f"service_date={day}" for day in days[-health.RECENT_DAYS :]]
+    assert not stale.exists()
+    assert not any(path.name != "report.json" for path in reports.rglob("*") if path.is_file())
+    # Each file is the blob that was named report.json, which the fake writes as its name.
+    assert {path.read_text() for path in reports.rglob("report.json")} == {
+        f"reports/v2/service_date={day}/report.json" for day in days[-health.RECENT_DAYS :]
+    }
     assert len(list((tmp_path / "graded").rglob("*.parquet"))) == 20
+
+
+def test_a_stale_report_from_an_earlier_run_never_reaches_recent(tmp_path):
+    names = [f"reports/v2/service_date=2026-08-{day:02d}/report.json" for day in (17, 18)]
+    reports = tmp_path / "reports"
+    write(reports, report("2026-01-01"))  # a real, readable report left in the folder
+
+    class Real(Listed):
+        def download_to_filename(self, target):
+            target.write_text(json.dumps(report(self.name.split("=")[1].split("/")[0])))
+
+    class RealListing(Listing):
+        def list_blobs(self, bucket, prefix):
+            return [Real(name) for name in self.names if name.startswith(prefix)]
+
+    aggregate.fetch_arrivals(RealListing(names), tmp_path / "graded", reports=reports)
+    out = health.document(reports, "2026-08-18", 2)
+    assert [day["service_date"] for day in out["recent"]] == ["2026-08-18", "2026-08-17"]
