@@ -14,17 +14,21 @@
 # secrets the same way, and two values that are not secret and are set on the
 # job as plain variables: the R2 endpoint, and R2_PUBLIC_URL, the address the
 # public reads the data from, as https://<domain> with no path. The script asks
-# for all four once, and Enter at the endpoint prompt skips R2. A rerun reads
-# both values back from the job, so it asks again for nothing.
+# for all four once, and Enter at the endpoint prompt skips R2. The public URL
+# prompt has no skip, because R2 without it is refused. A rerun reads both
+# values back from the job, so it asks again for nothing. Both addresses must be
+# exactly https://<hostname>, with no port, path, query, fragment, user, comma or
+# space, the same rule as `is_https_address` in r2.py; anything else would deploy
+# and then fail every daily run after the copy.
 # `R2_ENDPOINT=https://... R2_PUBLIC_URL=https://... bash daily.sh` sets them
 # without a prompt.
 #
 # With R2 configured, the job is deployed with R2_REQUIRED=1, so a redeploy that
 # loses an R2 setting fails the run and sends /fail instead of skipping the copy.
 # After each copy, `daily` fetches R2_PUBLIC_URL and fails when the public pointer
-# is older than the run it copied or the public status is more than 2 days
-# behind. The script refuses to deploy R2 without a public URL, because the check
-# would be off. Without R2 settings the job deploys as it did before and `daily`
+# is older than the run it copied or the public status's last_day is more than 4
+# days before today in Los Angeles. The script refuses to deploy R2 without a
+# public URL, because the check would be off. Without R2 settings the job deploys as it did before and `daily`
 # skips the copy.
 #
 # The job grades the last seven days, and two processes grading the same day at
@@ -92,6 +96,15 @@ no_backfill() {
   fi
 }
 no_backfill
+
+# True for https://<hostname> and nothing else. The hostname may hold only
+# letters, digits, dots and hyphens. This is r2.is_https_address as one
+# pattern, and a test runs both on the same values. LC_ALL=C keeps the letter
+# ranges to ASCII, which some locales do not.
+is_https_address() {
+  local LC_ALL=C
+  [[ $1 =~ ^https://[A-Za-z0-9.-]+$ ]]
+}
 
 echo "==> APIs"
 gcloud services enable run.googleapis.com cloudscheduler.googleapis.com \
@@ -172,7 +185,8 @@ if [ -z "$R2_ENDPOINT" ] && [ -t 0 ]; then
     R2_ENDPOINT
 fi
 if [ -n "$R2_ENDPOINT" ] && [ -z "$R2_PUBLIC_URL" ] && [ -t 0 ]; then
-  read -rp "    public data URL, https://<domain> with no path (Enter to skip): " R2_PUBLIC_URL
+  read -rp "    public data URL, https://<domain> with no path (required when R2 is configured): " \
+    R2_PUBLIC_URL
 fi
 
 # Stores one R2 secret from a hidden prompt, as for the heartbeat URL. printf is
@@ -198,13 +212,11 @@ store_r2_secret() {
 
 R2=
 if [ -n "$R2_ENDPOINT" ]; then
-  case "$R2_ENDPOINT" in
-    https://*) ;;
-    *) echo "    R2 endpoint must start with https://" >&2; exit 1 ;;
-  esac
-  case "$R2_ENDPOINT" in
-    *,*|*" "*) echo "    R2 endpoint must have no comma or space" >&2; exit 1 ;;
-  esac
+  if ! is_https_address "$R2_ENDPOINT"; then
+    echo "    R2 endpoint must be https://<hostname>, with no port, path, query," >&2
+    echo "    fragment, user, comma or space" >&2
+    exit 1
+  fi
   # Refused before any secret is stored: without it the freshness check is off.
   if [ -z "$R2_PUBLIC_URL" ]; then
     echo "    R2 is configured but the job has no public data URL, so the freshness" >&2
@@ -212,14 +224,11 @@ if [ -n "$R2_ENDPOINT" ]; then
     echo "    R2_PUBLIC_URL=https://<domain>" >&2
     exit 1
   fi
-  case "$R2_PUBLIC_URL" in
-    https://*) ;;
-    *) echo "    public data URL must start with https://" >&2; exit 1 ;;
-  esac
-  case "$R2_PUBLIC_URL" in
-    *,*|*" "*) echo "    public data URL must have no comma or space" >&2; exit 1 ;;
-    https://*/*) echo "    public data URL must have no path or trailing slash" >&2; exit 1 ;;
-  esac
+  if ! is_https_address "$R2_PUBLIC_URL"; then
+    echo "    public data URL must be https://<hostname>, with no port, path, trailing" >&2
+    echo "    slash, query, fragment, user, comma or space" >&2
+    exit 1
+  fi
   if [ -z "$R2_ID_VERSIONS" ]; then
     store_r2_secret "$R2_ID_SECRET" "R2 access key id"
   fi

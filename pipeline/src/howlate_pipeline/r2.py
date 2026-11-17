@@ -24,21 +24,26 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import boto3
 from botocore.config import Config as ClientConfig
 from botocore.exceptions import ClientError
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET
+from howlate_pipeline import DERIVED_BUCKET, ZONE
 from howlate_pipeline.aggregate import POINTER
 
 REQUIRED = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
 DEFAULT_BUCKET = "howlate"
 HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
+# The whole value, as daily.sh checks it. urlsplit drops leading spaces and
+# newlines anywhere in the value and lowercases the scheme, so it alone would
+# accept " https://host", "https://ho\nst" and "HTTPS://host".
+HTTPS_ADDRESS = re.compile(r"https://[A-Za-z0-9.-]+")
 
 # Run files never change once written, so browsers and the CDN may keep them for
 # a year. The pointer is the one file that moves, so it lives for a minute: a
@@ -46,11 +51,15 @@ HOSTNAME = re.compile(r"[A-Za-z0-9.-]+")
 RUN_CACHE = "public, max-age=31536000, immutable"
 POINTER_CACHE = "public, max-age=60"
 
-TRUE = {"1", "true", "yes"}
-# The public status may trail the newest graded day by this many days. The job
-# grades up to two days back and the site is rebuilt from finished days only,
-# so a day or two of difference is normal and three is not.
-MAX_LAG_DAYS = 2
+# R2_REQUIRED fails closed. A value that is not one of these counts as set, so
+# a typo such as "on" or "y" cannot turn the guard off.
+FALSE = {"0", "false", "no", "off", "none"}
+# The public status's `last_day` may trail today's date by this many days. The
+# daily job runs at 05:00 Pacific and grades up to two days back (see
+# `__main__.yesterday`), so right after a run the gap is 2. Allowing 4 forgives
+# a day or two of failed grading, and a larger gap means the job is no longer
+# keeping up.
+MAX_LAG_DAYS = 4
 FETCH_TIMEOUT = 10
 RETRY_PAUSE = 2
 RUN_PREFIX = re.compile(r"site/runs/[A-Za-z0-9._-]+/")
@@ -61,7 +70,7 @@ class Notice(RuntimeError):
 
     `describe` keeps only the class name of any other exception, because their
     text can hold the endpoint or a credential. A Notice never does: it names a
-    variable or a file path and never a host, key or URL.
+    variable, a file path or a check and never a host, key or URL.
     """
 
 
@@ -74,7 +83,7 @@ class Config:
 
 
 def from_env(env: Mapping[str, str] = os.environ) -> Config | None:
-    """The R2 settings, None when none are set, an error when only some are.
+    """The R2 settings, None when none are set, a Notice when only some are.
 
     None means "not configured", which is how local runs and tests skip R2. A
     half-set environment is a deployment mistake, and skipping it would leave
@@ -90,9 +99,9 @@ def from_env(env: Mapping[str, str] = os.environ) -> Config | None:
         return None
     missing = [name for name, value in values.items() if not value]
     if missing:
-        raise ValueError(f"R2 is partly configured; missing {', '.join(missing)}")
+        raise Notice(f"R2 is partly configured; missing {', '.join(missing)}")
     if not is_https_address(values["R2_ENDPOINT"]):
-        raise ValueError("R2_ENDPOINT is not a valid https address")
+        raise Notice("R2_ENDPOINT is not a valid https address")
     return Config(
         endpoint=values["R2_ENDPOINT"],
         access_key_id=values["R2_ACCESS_KEY_ID"],
@@ -102,8 +111,12 @@ def from_env(env: Mapping[str, str] = os.environ) -> Config | None:
 
 
 def is_required(env: Mapping[str, str] = os.environ) -> bool:
-    """True when R2_REQUIRED is 1, true or yes. The deployed job sets it; local runs do not."""
-    return env.get("R2_REQUIRED", "").strip().lower() in TRUE
+    """True when R2_REQUIRED is set to anything but 0, false, no, off or none.
+
+    Unset and empty are not set. The deployed job sets it; local runs do not.
+    """
+    value = env.get("R2_REQUIRED", "").strip().lower()
+    return bool(value) and value not in FALSE
 
 
 def public_url_from_env(env: Mapping[str, str] = os.environ) -> str | None:
@@ -124,8 +137,11 @@ def is_https_address(endpoint: str) -> bool:
     """True for https://<hostname> with no port, userinfo, path, query or fragment.
 
     The hostname may hold only letters, digits, dots and hyphens, which rules out
-    the underscores and spaces that botocore refuses.
+    the underscores and spaces that botocore refuses. The whole value must match
+    HTTPS_ADDRESS first, with no stripped whitespace and a lowercase scheme.
     """
+    if HTTPS_ADDRESS.fullmatch(endpoint) is None:
+        return False
     try:
         parts = urlsplit(endpoint)
         hostname = parts.hostname
@@ -338,7 +354,7 @@ def fetch_public(url: str) -> tuple[int, bytes]:
     return once()
 
 
-def probe(base: str, run: str, last_day: str, fetch: Callable[[str], tuple[int, bytes]]) -> None:
+def probe(base: str, run: str, today: date, fetch: Callable[[str], tuple[int, bytes]]) -> None:
     """Check the public data from the outside. Raises Notice naming the check that failed.
 
     The copy writes R2 with credentials, so it cannot see a broken CORS rule, a
@@ -349,8 +365,10 @@ def probe(base: str, run: str, last_day: str, fetch: Callable[[str], tuple[int, 
     60 second cache, so a fixed address could return the previous pointer from an
     edge cache and read as stale. A pointer that names this run or a newer one
     passes, because a newer run may have been published while this one copied.
-    Run names sort by age. The status file must be within MAX_LAG_DAYS of
-    `last_day`, the newest day the job just built.
+    Run names sort by age. The status file's `last_day` must be no more than
+    MAX_LAG_DAYS before `today`, the current date in America/Los_Angeles. It is
+    compared with the calendar and not with the site this job just built,
+    because the public file is that same build and the two would always agree.
 
     Messages carry file paths and run names, never the host.
     """
@@ -386,16 +404,16 @@ def probe(base: str, run: str, last_day: str, fetch: Callable[[str], tuple[int, 
             f"R2 public check failed: site/current.json names {named}, older than the copied {run}"
         )
 
-    newest = date.fromisoformat(last_day)
     path = f"{prefix}status.json"
     seen = get(path).get("last_day")
     try:
-        behind = (newest - date.fromisoformat(seen)).days
+        gap = (today - date.fromisoformat(seen)).days
     except (TypeError, ValueError):
         raise Notice(f"R2 public check failed: {path} has no valid last_day") from None
-    if behind > MAX_LAG_DAYS:
+    if gap > MAX_LAG_DAYS:
         raise Notice(
-            f"R2 public check failed: {path} last_day {seen} is {behind} days behind {last_day}"
+            f"R2 public check failed: {path} last_day {seen} is {gap} days before today, "
+            f"more than {MAX_LAG_DAYS} allowed"
         )
 
 
@@ -406,17 +424,24 @@ def copy_if_configured(
     s3=None,
     site_dir: Path | None = None,
     fetch: Callable[[str], tuple[int, bytes]] = fetch_public,
+    today: date | None = None,
 ) -> bool:
     """Copy a run to R2 if the environment names an R2 bucket. False when it does not.
 
     With R2_REQUIRED set, missing settings raise a Notice instead of skipping,
     so a deploy that lost them cannot read as a clean run.
 
-    When the copy moves R2's pointer and `site_dir` is given, the public address
-    is then probed against the `status.json` in `site_dir`. The probe is skipped
-    when R2_PUBLIC_URL is unset, and raises when it is unset and R2_REQUIRED is
-    set. A pointer left alone because a newer run appeared is not probed: R2
-    still serves the older run, which is not a fault of this copy.
+    A `site_dir` marks the daily path, which checks the public address after the
+    copy. There the public address is read first, before any file is copied. An
+    invalid R2_PUBLIC_URL raises a Notice, and so does a missing one when
+    R2_REQUIRED is set, whether or not the pointer would move. Without a
+    `site_dir`, as in `publish-r2`, R2_PUBLIC_URL is neither read nor needed.
+
+    When the copy moves R2's pointer on the daily path, the public address is
+    probed against `today`, which defaults to the current date in
+    America/Los_Angeles. The probe is skipped when R2_PUBLIC_URL is unset and
+    R2_REQUIRED is not. A pointer left alone because a newer run appeared is not
+    probed: R2 still serves the older run, which is not a fault of this copy.
     """
     config = from_env(env)
     if config is None:
@@ -427,6 +452,12 @@ def copy_if_configured(
             )
         print("  R2 copy skipped: R2_ENDPOINT, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY not set")
         return False
+    base = public_url_from_env(env) if site_dir is not None else None
+    if site_dir is not None and base is None and is_required(env):
+        raise Notice(
+            "R2 public check not run: R2_REQUIRED is set but R2_PUBLIC_URL is not, "
+            "so a stale public site would go unseen"
+        )
     # Resolved here, not inside publish, so the probe knows which run it is judging.
     run = run or read_pointer(gcs.bucket(DERIVED_BUCKET))[1]["run"]
     count, moved = publish(gcs, s3 or make_client(config), config.bucket, run)
@@ -436,18 +467,12 @@ def copy_if_configured(
     if not moved:
         print("  R2 freshness check skipped: R2's pointer was left alone")
         return True
-    base = public_url_from_env(env)
-    if base is None:
-        if is_required(env):
-            raise Notice(
-                "R2 public check not run: R2_REQUIRED is set but R2_PUBLIC_URL is not, "
-                "so a stale public site would go unseen"
-            )
-        print("  R2 freshness check skipped: R2_PUBLIC_URL not set")
-        return True
     if site_dir is None:
         print("  R2 freshness check skipped: no built site to compare with")
         return True
-    probe(base, run, json.loads((site_dir / "status.json").read_text())["last_day"], fetch)
+    if base is None:
+        print("  R2 freshness check skipped: R2_PUBLIC_URL not set")
+        return True
+    probe(base, run, today or datetime.now(ZoneInfo(ZONE)).date(), fetch)
     print("  R2 freshness check passed")
     return True

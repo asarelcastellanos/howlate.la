@@ -7,33 +7,45 @@ Every release of HowLate, newest first. Versions follow
 ## 0.4.1 - 2026-11-16
 
 The daily job now alarms when the public site data goes stale. It fails when the
-R2 settings are missing, and after each copy it checks the public address from
-outside. The site and the collector do not change.
+R2 settings are missing and checks the public address after each copy.
 
 ### Added
 
 - `R2_REQUIRED` makes a job with no R2 settings fail with the failure ping. It
-  no longer skips the copy and pings success.
+  no longer skips the copy and pings success. Any value except 0, false, no, off
+  or none counts as set, so a typo such as `on` cannot turn the guard off.
 - After each R2 copy that moved the pointer, the job fetches the public
   `status.json` through the pointer. The URL carries a changing query, so the 60
   second cache cannot answer. The run fails with the failure ping if the fetch
   fails, if the public pointer is older than the copied run, or if `last_day` is
-  more than 2 days behind the newest graded day.
+  more than 4 days before today's date in Los Angeles. The job grades up to two
+  days back at 05:00 Pacific, so a gap of 2 is normal.
+- With `R2_REQUIRED` set, a missing or invalid `R2_PUBLIC_URL` fails the daily
+  run before anything is copied. `publish-r2` does not read it.
 
 ### Changed
 
-- The failure ping names each failed day and the first line of its error.
-- Before anything goes to healthchecks.io, the job replaces URLs, `gs://` paths
-  and email addresses with placeholders. This covers the crash ping too.
+- The failure ping names every failed day: each day whose grading raised, with
+  the first non-empty line of its error cut to 160 characters, and each day that
+  only failed its checks or its cleanup. When the 1000 character limit cuts the
+  list, the ping ends with `and N more days`.
+- The R2 settings errors ("R2 is partly configured; missing ...", an invalid
+  endpoint) reach the ping with their text, not just `ValueError`.
+  `publish-r2` prints them as one line and exits 1, not as a traceback.
+- Before anything goes to healthchecks.io, the job replaces URLs, `gs://` and
+  `s3://` paths and email addresses with placeholders, in any letter case, in
+  the crash ping too. A bare hostname with no scheme is not replaced.
 - `pipeline/deploy/daily.sh` sets `R2_REQUIRED=1` and `R2_PUBLIC_URL` when R2 is
-  configured. It refuses to deploy without a public URL.
+  configured. It refuses to deploy without a public URL, and accepts only
+  `https://<hostname>` for it and the endpoint, as `is_https_address` does. The
+  public URL prompt no longer offers a skip.
 
 ### Checked
 
-- The pipeline's 249 tests pass, up from 205 in 0.4.0. The collector's 5 tests
-  pass, and so do ruff lint and ruff format.
-- The probe passed against the live public R2 address before the release,
-  reading the real pointer and status file.
+- The pipeline's 385 tests and the collector's 5 pass, and so do ruff lint and
+  ruff format. The pipeline had 205 tests in 0.4.0.
+- The probe passed against the live public R2 address, reading the real pointer
+  and status file, with today's date in Los Angeles.
 
 ### Not done yet
 
@@ -45,8 +57,7 @@ outside. The site and the collector do not change.
 
 ### Not changed
 
-- The collector stays at 0.1.0, and the VM is not redeployed.
-- The site stays at 0.4.0, and the schemas do not change.
+- The collector stays at 0.1.0, the site at 0.4.0, and the schemas are the same.
 
 ## 0.4.0 - 2026-11-16
 

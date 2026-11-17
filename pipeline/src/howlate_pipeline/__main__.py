@@ -27,7 +27,9 @@ without credentials. `backfill` and `daily` always read the buckets.
 does that copy for an existing run on demand; see r2.py. Neither runs `arrivals`
 or `aggregate`. Without R2 settings in the environment `daily` skips the copy,
 unless R2_REQUIRED is set, which makes missing settings fail the run. When
-R2_PUBLIC_URL is set, `daily` then fetches the public data to check it is current.
+R2_PUBLIC_URL is set, `daily` then fetches the public data and checks that its
+newest day is within a few days of today. With R2_REQUIRED set, a missing
+R2_PUBLIC_URL fails the run. `publish-r2` does not read R2_PUBLIC_URL.
 """
 
 import argparse
@@ -249,38 +251,83 @@ def heartbeat(ok: bool, summary: str) -> None:
 
 
 # The last character may not be punctuation, so "see https://x/y: denied" keeps its colon.
-URL = re.compile(r"https?://[^\s'\")>\]]*[^\s'\")>\].,:;]")
-GS_PATH = re.compile(r"gs://[^\s'\")>\]]*[^\s'\")>\].,:;]")
+URL = re.compile(r"https?://[^\s'\")>\]]*[^\s'\")>\].,:;]", re.IGNORECASE)
+GS_PATH = re.compile(r"gs://[^\s'\")>\]]*[^\s'\")>\].,:;]", re.IGNORECASE)
+S3_PATH = re.compile(r"s3://[^\s'\")>\]]*[^\s'\")>\].,:;]", re.IGNORECASE)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+LINE_LIMIT = 160
 
 
 def redact(text: str) -> str:
-    """Replace URLs, gs:// paths and email addresses with fixed placeholders.
+    """Replace URLs, gs:// and s3:// paths and email addresses with fixed placeholders.
 
     Error text goes to healthchecks.io, a third party, and a Google API error
     names the service account and the bucket path. URLs go first, so an address
-    inside one is not matched on its own.
+    inside one is not matched on its own. Schemes match in any case.
+
+    A bare hostname, such as `acct.r2.cloudflarestorage.com` with no scheme, is
+    not redacted. A pattern for one would also match file names, module paths
+    and version numbers, and eat ordinary text.
     """
-    return EMAIL.sub("<email>", GS_PATH.sub("<gs-path>", URL.sub("<url>", text)))
+    text = URL.sub("<url>", text)
+    text = GS_PATH.sub("<gs-path>", text)
+    return EMAIL.sub("<email>", S3_PATH.sub("<s3-path>", text))
 
 
-def failure_lines(failures: dict[str, BaseException]) -> str:
-    """One line per failed day, as `<day> failed: <type>: <first line of the error>`."""
-    lines = []
+def first_line(text: str) -> str:
+    """The first line of `text` that holds anything but whitespace."""
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
+def clip(line: str, limit: int = LINE_LIMIT) -> str:
+    return line if len(line) <= limit else line[: limit - 3] + "..."
+
+
+def failure_lines(failures: dict[str, BaseException], result: dict[str, list[str]]) -> list[str]:
+    """One line for every failed day, in day order, each at most LINE_LIMIT characters.
+
+    A day whose grading raised reads `<day> failed: <type>: <first line of the
+    error>`. A day that only failed its checks, or only failed its cleanup, has
+    no error text and reads `<day> failed its checks` or `<day> cleanup failed`.
+    `backfill.run` keeps only day names, so these come from its result buckets.
+    A day already named with its error is not named again.
+    """
+    lines = {}
     for day, error in failures.items():
-        first = redact((str(error).splitlines() or [""])[0])
-        lines.append(f"{day} failed: {type(error).__name__}" + (f": {first}" if first else ""))
-    return "\n".join(lines)
+        first = redact(first_line(str(error)))
+        lines[day] = f"{day} failed: {type(error).__name__}" + (f": {first}" if first else "")
+    labels: dict[str, list[str]] = {}
+    for key, label in (
+        ("checks_failed", "failed its checks"),
+        ("errors", "errored"),
+        ("cleanup_failed", "cleanup failed"),
+    ):
+        for day in result[key]:
+            if day not in lines:
+                labels.setdefault(day, []).append(label)
+    lines.update({day: f"{day} {' and '.join(found)}" for day, found in labels.items()})
+    return [clip(lines[day]) for day in sorted(lines)]
 
 
-def ping_body(head: str, failures: dict[str, BaseException], limit: int = 1000) -> str:
-    """The head, then the failed days, cut to under `limit` characters with an ellipsis.
+def ping_body(
+    head: str,
+    failures: dict[str, BaseException],
+    result: dict[str, list[str]],
+    limit: int = 1000,
+) -> str:
+    """The head, then every failed day, under `limit` characters.
 
-    The counts in the head come first, so a long list of failures cuts only the
-    list and never the counts.
+    The counts in the head come first. When the days do not all fit, the body
+    ends with `and N more days`, so a cut is never silent.
     """
-    body = "\n".join(part for part in (head, failure_lines(failures)) if part)
-    return body if len(body) < limit else body[: limit - 4] + "..."
+    lines = failure_lines(failures, result)
+    for kept in range(len(lines), -1, -1):
+        left_out = len(lines) - kept
+        more = [f"and {left_out} more day{'' if left_out == 1 else 's'}"] if left_out else []
+        body = "\n".join(part for part in (head, *lines[:kept], *more) if part)
+        if len(body) < limit:
+            return body
+    return body[: limit - 4] + "..."  # the head alone is too long
 
 
 def run_daily(args: argparse.Namespace) -> int:
@@ -305,7 +352,9 @@ def run_daily(args: argparse.Namespace) -> int:
     goes for R2 settings that are missing while R2_REQUIRED is set, and for a
     public address that does not serve the new run; see r2.probe.
 
-    A failure ping names each failed day and the first line of its error.
+    A failure ping names every failed day. A day whose grading raised comes with
+    the first non-empty line of its error. When the days do not fit in the ping,
+    it says how many it left out.
     """
     # Set in the image, so each run's log shows which code it ran.
     print(f"howlate-pipeline at commit {os.environ.get('HOWLATE_COMMIT', 'unknown')}")
@@ -336,7 +385,7 @@ def run_daily(args: argparse.Namespace) -> int:
             # No day of this layout version has finished yet, as on a first
             # deploy or after a version bump. The day counts say more than the
             # error `aggregate` would raise over an empty directory.
-            heartbeat(False, ping_body(f"no finished day to publish: {summary}", failures))
+            heartbeat(False, ping_body(f"no finished day to publish: {summary}", failures, result))
             return code or 1
         build_site(bucket, graded, cache=args.cache, out=args.out / "site")
         r2_problem = copy_to_r2(bucket, args.out / "site")
@@ -345,9 +394,9 @@ def run_daily(args: argparse.Namespace) -> int:
         raise
 
     if r2_problem:
-        heartbeat(False, ping_body(f"{r2_problem}. {summary}", failures))
+        heartbeat(False, ping_body(f"{r2_problem}. {summary}", failures, result))
         return code or 1
-    heartbeat(code == 0, ping_body(summary, failures))
+    heartbeat(code == 0, ping_body(summary, failures, result))
     return code
 
 
@@ -373,8 +422,16 @@ def copy_to_r2(bucket: Bucket, site_dir: Path) -> str | None:
 
 
 def run_publish_r2(args: argparse.Namespace) -> int:
-    """Copy one run from the derived bucket to R2. Reads Cloud Storage only."""
-    if not r2.copy_if_configured(Bucket()(), args.site_run):
+    """Copy one run from the derived bucket to R2. Reads Cloud Storage only.
+
+    It passes no site directory, so it neither probes nor reads R2_PUBLIC_URL. A
+    Notice is printed as one line with exit status 1, not as a traceback.
+    """
+    try:
+        copied = r2.copy_if_configured(Bucket()(), args.site_run)
+    except r2.Notice as error:
+        sys.exit(str(error))
+    if not copied:
         sys.exit("nothing copied: set R2_ENDPOINT, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY")
     return 0
 
