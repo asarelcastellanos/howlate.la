@@ -176,17 +176,57 @@ own pointer named before that copy, which the next copy deletes. A failed copy l
 the graded days and the Cloud Storage site saved, but `daily` exits non-zero and
 pings failure.
 
-With none of these settings in the environment, the copy is skipped, as in local
-runs and tests. With only some, it fails and names the missing ones.
+With none of the first three settings in the environment, the copy is skipped,
+as in local runs and tests, unless `R2_REQUIRED` is set. With only some, it
+fails and names the missing ones. The failure ping and the log show that text,
+which names variables and never a value.
 
 ```
 R2_ENDPOINT            https://<account>.r2.cloudflarestorage.com
 R2_ACCESS_KEY_ID       an R2 API token's key id, with write access to the bucket
 R2_SECRET_ACCESS_KEY   its secret
 R2_BUCKET              optional, defaults to howlate
+R2_REQUIRED            anything but 0, false, no, off, none or empty: missing R2 settings fail the run
+R2_PUBLIC_URL          https://<domain>, where the public reads the data, no path
 ```
 
-`deploy/daily.sh` sets these on the Cloud Run job. To fill a bucket by hand, copy
+`R2_REQUIRED` stops a redeploy that loses the settings from skipping the copy
+and pinging success while the public site goes stale. The failure ping says so.
+Any other value counts as set, so a typo such as `on` cannot turn the guard off.
+
+After a copy that moves R2's pointer, `daily` checks the public address from
+outside. It fetches `site/current.json` with a changing query, to get past its 60
+second cache, then the `status.json` the pointer names. It fails the run when a
+fetch fails or is not 200, a body is not JSON, the pointer names an older run
+than the one copied, or `last_day` is more than 4 days before today's date in
+Los Angeles. The job grades up to two days back at 05:00 Pacific, so a gap of 2
+is normal. The check compares with the calendar, not with the site the job just
+built, because the public file is that same build. A newer run passes. Each
+fetch has a 10 second timeout and one retry.
+
+With `R2_PUBLIC_URL` unset the check is skipped. When `R2_REQUIRED` is set, a
+missing or invalid `R2_PUBLIC_URL` instead fails the daily run before anything is
+copied. `publish-r2` neither reads `R2_PUBLIC_URL` nor probes, and it prints a
+settings or guard failure as one line and exits 1.
+
+A failure ping names every failed day within 1000 characters. A day whose
+grading raised has its error's first non-empty line, as in
+`20261107 failed: SystemExit: no raw files`. A day that only failed its checks
+reads `20261107 failed its checks`, and one that only failed its cleanup reads
+`20261107 cleanup failed`. Each line is cut to 160 characters. When the days do
+not all fit, the ping ends with `and N more days`. URLs, `gs://` and `s3://`
+paths and email addresses in an error are replaced with placeholders, in any
+letter case. A bare hostname is not.
+
+Known behaviour. When a newer run appears during the copy, R2's pointer is left
+alone and the job still pings success. R2 keeps serving the previous complete
+run, the check is skipped because that is no fault of this copy, and the next
+daily copy moves the pointer.
+
+`deploy/daily.sh` sets these on the Cloud Run job. It accepts only
+`https://<hostname>` for `R2_ENDPOINT` and `R2_PUBLIC_URL`, with no port, path,
+trailing slash, query, fragment or user, so a value that `daily` would reject
+never deploys. To fill a bucket by hand, copy
 a run, by default the one the derived pointer names.
 
 ```

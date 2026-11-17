@@ -11,12 +11,25 @@
 #
 # The job also copies each run of the site to Cloudflare R2, which the public
 # site reads. That needs an R2 access key id and secret, stored in two more
-# secrets the same way, and the R2 endpoint, which is not secret and is set on
-# the job as a plain variable. The script asks for all three once, and Enter at
-# the endpoint prompt skips R2. A rerun reads the endpoint back from the job, so
-# it asks again for nothing. Without R2 settings the job deploys as it did
-# before and `daily` skips the copy. `R2_ENDPOINT=https://... bash daily.sh`
-# sets the endpoint without a prompt.
+# secrets the same way, and two values that are not secret and are set on the
+# job as plain variables: the R2 endpoint, and R2_PUBLIC_URL, the address the
+# public reads the data from, as https://<domain> with no path. The script asks
+# for all four once, and Enter at the endpoint prompt skips R2. The public URL
+# prompt has no skip, because R2 without it is refused. A rerun reads both
+# values back from the job, so it asks again for nothing. Both addresses must be
+# exactly https://<hostname>, with no port, path, query, fragment, user, comma or
+# space, the same rule as `is_https_address` in r2.py; anything else would deploy
+# and then fail every daily run after the copy.
+# `R2_ENDPOINT=https://... R2_PUBLIC_URL=https://... bash daily.sh` sets them
+# without a prompt.
+#
+# With R2 configured, the job is deployed with R2_REQUIRED=1, so a redeploy that
+# loses an R2 setting fails the run and sends /fail instead of skipping the copy.
+# After each copy, `daily` fetches R2_PUBLIC_URL and fails when the public pointer
+# is older than the run it copied or the public status's last_day is more than 4
+# days before today in Los Angeles. The script refuses to deploy R2 without a
+# public URL, because the check would be off. Without R2 settings the job deploys as it did before and `daily`
+# skips the copy.
 #
 # The job grades the last seven days, and two processes grading the same day at
 # once can interleave their uploads, so the daily job and a backfill must never
@@ -84,6 +97,15 @@ no_backfill() {
 }
 no_backfill
 
+# True for https://<hostname> and nothing else. The hostname may hold only
+# letters, digits, dots and hyphens. This is r2.is_https_address as one
+# pattern, and a test runs both on the same values. LC_ALL=C keeps the letter
+# ranges to ASCII, which some locales do not.
+is_https_address() {
+  local LC_ALL=C
+  [[ $1 =~ ^https://[A-Za-z0-9.-]+$ ]]
+}
+
 echo "==> APIs"
 gcloud services enable run.googleapis.com cloudscheduler.googleapis.com \
   artifactregistry.googleapis.com cloudbuild.googleapis.com \
@@ -126,22 +148,20 @@ R2_ID_VERSIONS=$(lookup gcloud secrets versions list "$R2_ID_SECRET" --project "
   --filter state=ENABLED --limit 1 --format 'value(name)')
 R2_KEY_VERSIONS=$(lookup gcloud secrets versions list "$R2_KEY_SECRET" --project "$PROJECT" \
   --filter state=ENABLED --limit 1 --format 'value(name)')
-# The endpoint is read back from the job because the deploy below replaces every
-# variable on it, and a rerun would otherwise drop it. The walk finds the
-# variable wherever gcloud nests the container. A job that does not exist yet,
-# or a failed describe, reads as "no endpoint", which is safe: if the R2 secrets
-# exist, the check further down refuses to deploy without an endpoint.
-R2_ENDPOINT=${R2_ENDPOINT:-}
-if [ -z "$R2_ENDPOINT" ]; then
-  JOB_JSON=$(gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" \
-    --format json 2>/dev/null || true)
-  R2_ENDPOINT=$(printf '%s' "$JOB_JSON" | python3 -c '
+# The endpoint and public URL are read back from the job because the deploy
+# below replaces every variable on it, and a rerun would otherwise drop them.
+# The walk finds a variable wherever gcloud nests the container. A job that does
+# not exist yet, or a failed describe, reads as "not set", which is safe: if the
+# R2 secrets exist, the checks further down refuse to deploy without them.
+job_var() {
+  printf '%s' "$JOB_JSON" | python3 -c '
 import json, sys
 text = sys.stdin.read()
+wanted = sys.argv[1]
 
 def find(node):
     if isinstance(node, dict):
-        if node.get("name") == "R2_ENDPOINT" and "value" in node:
+        if node.get("name") == wanted and "value" in node:
             yield node["value"]
         node = list(node.values())
     if isinstance(node, list):
@@ -150,11 +170,23 @@ def find(node):
 
 if text.strip():
     print(next(find(json.loads(text)), ""))
-')
+' "$1"
+}
+R2_ENDPOINT=${R2_ENDPOINT:-}
+R2_PUBLIC_URL=${R2_PUBLIC_URL:-}
+if [ -z "$R2_ENDPOINT" ] || [ -z "$R2_PUBLIC_URL" ]; then
+  JOB_JSON=$(gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" \
+    --format json 2>/dev/null || true)
+  [ -n "$R2_ENDPOINT" ] || R2_ENDPOINT=$(job_var R2_ENDPOINT)
+  [ -n "$R2_PUBLIC_URL" ] || R2_PUBLIC_URL=$(job_var R2_PUBLIC_URL)
 fi
 if [ -z "$R2_ENDPOINT" ] && [ -t 0 ]; then
   read -rp "    R2 endpoint, https://<account>.r2.cloudflarestorage.com (Enter to skip R2): " \
     R2_ENDPOINT
+fi
+if [ -n "$R2_ENDPOINT" ] && [ -z "$R2_PUBLIC_URL" ] && [ -t 0 ]; then
+  read -rp "    public data URL, https://<domain> with no path (required when R2 is configured): " \
+    R2_PUBLIC_URL
 fi
 
 # Stores one R2 secret from a hidden prompt, as for the heartbeat URL. printf is
@@ -180,13 +212,23 @@ store_r2_secret() {
 
 R2=
 if [ -n "$R2_ENDPOINT" ]; then
-  case "$R2_ENDPOINT" in
-    https://*) ;;
-    *) echo "    R2 endpoint must start with https://" >&2; exit 1 ;;
-  esac
-  case "$R2_ENDPOINT" in
-    *,*|*" "*) echo "    R2 endpoint must have no comma or space" >&2; exit 1 ;;
-  esac
+  if ! is_https_address "$R2_ENDPOINT"; then
+    echo "    R2 endpoint must be https://<hostname>, with no port, path, query," >&2
+    echo "    fragment, user, comma or space" >&2
+    exit 1
+  fi
+  # Refused before any secret is stored: without it the freshness check is off.
+  if [ -z "$R2_PUBLIC_URL" ]; then
+    echo "    R2 is configured but the job has no public data URL, so the freshness" >&2
+    echo "    check would be off; rerun from a terminal or with" >&2
+    echo "    R2_PUBLIC_URL=https://<domain>" >&2
+    exit 1
+  fi
+  if ! is_https_address "$R2_PUBLIC_URL"; then
+    echo "    public data URL must be https://<hostname>, with no port, path, trailing" >&2
+    echo "    slash, query, fragment, user, comma or space" >&2
+    exit 1
+  fi
   if [ -z "$R2_ID_VERSIONS" ]; then
     store_r2_secret "$R2_ID_SECRET" "R2 access key id"
   fi
@@ -201,7 +243,8 @@ if [ -n "$R2_ENDPOINT" ]; then
 elif [ -n "$R2_ID_VERSIONS$R2_KEY_VERSIONS" ]; then
   # Deploying now would drop the copy and leave the public site stale.
   echo "    R2 secrets exist but the job has no R2 endpoint; rerun from a terminal" >&2
-  echo "    or with R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com" >&2
+  echo "    or with R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com and" >&2
+  echo "    R2_PUBLIC_URL=https://<domain>" >&2
   exit 1
 else
   echo "    no R2 settings; the job will not copy to R2"
@@ -255,6 +298,7 @@ ENV_VARS="HOWLATE_DUCKDB_MEMORY_LIMIT=8GB,HOWLATE_DUCKDB_TEMP_DIRECTORY=/work/.s
 SECRETS="HOWLATE_HEARTBEAT_URL=$SECRET:latest"
 if [ -n "$R2" ]; then
   ENV_VARS="$ENV_VARS,R2_ENDPOINT=$R2_ENDPOINT,R2_BUCKET=$R2_BUCKET_NAME"
+  ENV_VARS="$ENV_VARS,R2_PUBLIC_URL=$R2_PUBLIC_URL,R2_REQUIRED=1"
   SECRETS="$SECRETS,R2_ACCESS_KEY_ID=$R2_ID_SECRET:latest,R2_SECRET_ACCESS_KEY=$R2_KEY_SECRET:latest"
 fi
 gcloud run jobs deploy "$JOB" --project "$PROJECT" --region "$REGION" \

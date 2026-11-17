@@ -57,3 +57,27 @@ Each entry records a mistake the checks or review caught and the lasting fix.
   tests in `pipeline/tests/test_r2.py`. When a docstring promises an
   invariant, a test must try to break it with a second writer, not only a
   crash.
+
+## 2026-11-17: Two validators for one value disagreed
+- What happened: `daily.sh` and `r2.py` each checked the public data address.
+  The shell accepted `https://host:443` and `https://host?x=1`, and the Python
+  rejected them, so a value could deploy cleanly and then fail every daily run
+  after the copy. The Python check also let an embedded newline through.
+- Caught by: the review, where three finders each found it and ran both checks
+  on the same inputs.
+- Fix: both checks now match `https://[A-Za-z0-9.-]+` in full, and
+  `pipeline/tests/test_daily_sh.py` runs the shell check and the Python check
+  on the same list of good and bad values. When a value is validated in two
+  languages, one test must feed both the same inputs.
+
+## 2026-11-17: A freshness check compared the data with itself
+- What happened: the probe checked that the public `last_day` was within 2 days
+  of the newest graded day, but it took the newest day from the site the same
+  job had just built. The public file was that same build, so the gap was always
+  0 and the check could never fire, while the docs listed it as a separate
+  alarm.
+- Caught by: the review, where two finders reasoned about where each side of
+  the comparison came from.
+- Fix: the probe compares `last_day` with today's date in Los Angeles, and a
+  test shows a mutant that reads the gap as always 0 fails. An alarm needs a
+  reference that its own run cannot change.
