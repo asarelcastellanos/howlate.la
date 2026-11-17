@@ -271,14 +271,30 @@ its `<svelte:boundary>`, so a render error shows the error box.
 - The diagram (`Architecture.svelte`) is one inline SVG, a single column that
   scales to a phone, with the same flow as a numbered list under it. It names
   no bucket, host or account.
-- The cost section gives only the owner's budget, labelled as an estimate. Add
-  the breakdown after billing is reviewed.
+- The cost section gives only the owner's budget, labelled as an estimate, and
+  the archive's growth of about 1 GB a day. It promises no breakdown.
 - `tests/built.test.ts` counts the `<title>` in the head only, because the
   diagram's SVG has its own `<title>`.
 
 To see it with local data, build with `PUBLIC_DATA_BASE=/data` and put the
 files in `static/data/site/<run>/` with a `current.json` that names the run.
 Only `health.json` is needed for this page.
+
+## Accepted limits
+
+Known issues from 0.5.0 that stay as they are, with the reason.
+
+- The behind-the-scenes warning reads today from the browser clock
+  (`pacificToday` in `src/routes/behind-the-scenes/StatusPanel.svelte`), so a
+  device with a wrong clock shows a wrong warning. It is accepted because
+  `health.json` has no generation timestamp to compare against, and the miss
+  affects only a device with a wrong clock. A test in `tests/behind.test.ts`
+  records the current behavior.
+- The public line, index and network JSON still carry rail `ontime` values. The
+  pipeline writes them (`ONTIME` in `pipeline/src/howlate_pipeline/aggregate.py`)
+  and the site hides them with `SHOW_RAIL_ONTIME` in `src/lib/config.ts`.
+  Stripping them waits for issue #157, because that decision may turn rail
+  on-time back on, and a strip needs a schema change and regenerated types.
 
 ## Not done yet
 
