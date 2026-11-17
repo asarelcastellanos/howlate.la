@@ -140,8 +140,10 @@ it from `src/env.ts` and exposes it through `$app/env/public`, which
 `DEFAULT_DATA_BASE` in `src/env.ts`, which is `https://data.howlate.la`, the
 custom domain on the R2 bucket, so local development and every preview read the
 real published data. The r2.dev address of the bucket is rate limited and not for
-production, so nothing uses it. For offline work, set `PUBLIC_DATA_BASE=/data`
-and put a copy of the bucket's `site/` folder in `web/static/data/`.
+production, so nothing uses it. The Cloudflare Pages project must not set
+`PUBLIC_DATA_BASE` for production, because it overrides the default in
+`src/env.ts`. It did once, and it pointed at the old address. For offline work,
+set `PUBLIC_DATA_BASE=/data` and put a copy of the bucket's `site/` folder in `web/static/data/`.
 
 CORS on the data domain stays `*`. The data is public and read-only, and preview
 deployments on pages.dev subdomains, which change with every branch, must be
