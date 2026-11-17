@@ -21,11 +21,20 @@ npm run types        # regenerate src/lib/data/types.ts from pipeline/schemas
 npm test             # contrast, generated types, data loader and chart tests
 npm run build        # writes the static site to build/
 npm run preview      # serves build/ on http://localhost:4173
+npm run e2e          # Playwright and axe, against a running preview
+npm run lighthouse   # Lighthouse on mobile, against a running preview
 ```
 
 To run against local data, set `PUBLIC_DATA_BASE=/data` when you build or start
 the dev server. Put a copy of the bucket's `site/` folder in `web/static/data/`,
 which git ignores.
+
+## Browser checks
+
+`e2e/` holds the Playwright, axe and Lighthouse checks that the `browser` job
+runs in CI. They read a small committed copy of the data in `e2e/fixture/`, not
+the live bucket. `e2e/README.md` says how to run them and how the fixture was
+made.
 
 ## Decisions
 

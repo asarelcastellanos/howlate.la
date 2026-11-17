@@ -1,0 +1,2 @@
+# The repo ignores site/ for pipeline output. This folder is committed data.
+!site/
