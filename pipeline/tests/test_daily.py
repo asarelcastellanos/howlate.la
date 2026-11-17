@@ -307,9 +307,148 @@ def test_the_fail_ping_stays_under_1000_characters_with_many_failures(monkeypatc
     assert run() == 1
     body = run.summaries[0]
     assert len(body) < 1000
-    assert body.endswith("...")
     assert "errors 60" in body  # the counts come first, so truncation never drops them
     assert f"{days[0]} failed: ValueError: xxx" in body
+    shown = body.count(" failed: ValueError")
+    assert body.endswith(f"and {len(days) - shown} more days")
+
+
+def test_seven_failed_days_with_long_first_lines_say_how_many_were_left_out(monkeypatch, tmp_path):
+    days = backfill.days_between("20261101", "20261107")
+    raises = {day: ValueError("y" * 400) for day in days}
+    run = Run(monkeypatch, tmp_path, raises=raises)
+    assert run() == 1
+    body = run.summaries[0]
+    lines = body.splitlines()
+    assert len(body) < 1000
+    assert all(len(line) <= 160 for line in lines[1:])
+    named = [line for line in lines if " failed: ValueError: y" in line]
+    assert all(line.endswith("...") for line in named)
+    assert 0 < len(named) < 7
+    assert lines[-1] == f"and {7 - len(named)} more days"
+
+
+def test_a_day_that_only_failed_its_checks_is_named(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path, codes={"20261105": 2})
+    assert run() == 2
+    assert "20261105 failed its checks" in run.summaries[0]
+    assert "20261104" not in run.summaries[0]
+
+
+def test_a_day_whose_cleanup_failed_is_named(monkeypatch, tmp_path):
+    def cleanup(cache, day):
+        if day == "20261106":
+            raise OSError("disk")
+
+    monkeypatch.setattr(cli.backfill, "prune_cache", cleanup)
+    run = Run(monkeypatch, tmp_path)
+    assert run() == 1
+    assert "20261106 cleanup failed" in run.summaries[0]
+
+
+def test_an_error_that_starts_with_a_newline_keeps_its_text(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path, raises={"20261103": ValueError("\n\n  real cause\nmore")})
+    assert run() == 1
+    assert "20261103 failed: ValueError: real cause" in run.summaries[0]
+    assert "more" not in run.summaries[0]
+
+
+RESULT = {"skipped": [], "passed": [], "checks_failed": [], "errors": [], "cleanup_failed": []}
+
+
+def test_a_day_named_with_its_error_is_not_named_again():
+    result = {**RESULT, "errors": ["20261103"], "cleanup_failed": ["20261103", "20261104"]}
+    body = cli.ping_body("head", {"20261103": ValueError("boom")}, result)
+    assert body.count("20261103") == 1
+    assert body.splitlines() == [
+        "head",
+        "20261103 failed: ValueError: boom",
+        "20261104 cleanup failed",
+    ]
+
+
+def test_a_day_in_two_buckets_without_an_error_text_is_named_once_with_both():
+    result = {**RESULT, "checks_failed": ["20261103"], "cleanup_failed": ["20261103"]}
+    body = cli.ping_body("head", {}, result)
+    assert body.splitlines() == ["head", "20261103 failed its checks and cleanup failed"]
+
+
+def test_one_day_left_out_says_day_not_days():
+    result = {**RESULT, "checks_failed": ["20261101", "20261102"]}
+    body = cli.ping_body("h", {}, result, limit=50)
+    assert body == "h\n20261101 failed its checks\nand 1 more day"
+
+
+def test_a_ping_with_no_failed_days_is_just_the_head():
+    assert cli.ping_body("passed 7", {}, RESULT) == "passed 7"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "see HTTPS://Example.com/a now",
+        "see Https://example.com/a?x=1 now",
+        "GS://bucket/key denied",
+        "Gs://Bucket/key/dt=2026-11-03/a denied",
+        "s3://bucket/key denied",
+        "S3://Bucket/key denied",
+    ],
+)
+def test_redaction_covers_uppercase_schemes_and_s3_paths(text):
+    out = cli.redact(text)
+    assert "ample" not in out and "bucket" not in out.lower()
+    assert "://" not in out
+
+
+def test_redaction_uses_the_same_placeholders_for_every_case():
+    assert cli.redact("HTTPS://Example.com/a") == "<url>"
+    assert cli.redact("GS://bucket/key") == "<gs-path>"
+    assert cli.redact("s3://bucket/key") == "<s3-path>"
+    assert cli.redact("S3://bucket/key.") == "<s3-path>."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/a",
+        "no raw files found for 20261103",
+        "connection to example.com refused",
+        "the s3 bucket is gs-like and http is a protocol",
+        "",
+    ],
+)
+def test_redaction_leaves_ordinary_text_alone_or_redacts_only_the_address(text):
+    expected = {"https://example.com/a": "<url>"}.get(text, text)
+    assert cli.redact(text) == expected
+
+
+def test_a_config_error_reaches_the_ping_with_its_reason(monkeypatch, tmp_path):
+    # from_env's messages name variables and nothing else, so the ping may show
+    # them. As a ValueError the ping said only "ValueError".
+    run = Run(monkeypatch, tmp_path, real=("r2",))
+    monkeypatch.setenv("R2_ENDPOINT", "https://acct.r2.cloudflarestorage.com")
+    assert run() == 1
+    assert run.pings == [False]
+    summary = run.summaries[0]
+    assert "R2 is partly configured; missing R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY" in summary
+    assert "ValueError" not in summary
+
+
+def test_an_invalid_endpoint_reaches_the_ping_without_the_endpoint(monkeypatch, tmp_path):
+    run = Run(monkeypatch, tmp_path, real=("r2",))
+    for name, value in {**r2_env(), "R2_ENDPOINT": "http://acct.example"}.items():
+        monkeypatch.setenv(name, value)
+    assert run() == 1
+    assert "R2_ENDPOINT is not a valid https address" in run.summaries[0]
+    assert "acct" not in run.summaries[0]
+
+
+def r2_env():
+    return {
+        "R2_ENDPOINT": "https://acct.r2.cloudflarestorage.com",
+        "R2_ACCESS_KEY_ID": "id-1",
+        "R2_SECRET_ACCESS_KEY": "s3cret",
+    }
 
 
 def test_a_failed_day_is_named_when_the_r2_copy_fails_too(monkeypatch, tmp_path):
