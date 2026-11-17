@@ -13,13 +13,13 @@
 # site reads. That needs an R2 access key id and secret, stored in two more
 # secrets the same way, and two values that are not secret and are set on the
 # job as plain variables: the R2 endpoint, and R2_PUBLIC_URL, the address the
-# public reads the data from, as https://<domain> with no path. The script asks
-# for all four once, and Enter at the endpoint prompt skips R2. The public URL
-# prompt has no skip, because R2 without it is refused. A rerun reads both
-# values back from the job, so it asks again for nothing. Both addresses must be
-# exactly https://<hostname>, with no port, path, query, fragment, user, comma or
-# space, the same rule as `is_https_address` in r2.py; anything else would deploy
-# and then fail every daily run after the copy.
+# public reads the data from, which is https://data.howlate.la, with no path.
+# The script asks for all four once, and Enter at the endpoint prompt skips R2.
+# The public URL prompt has no skip, because R2 without it is refused. A rerun
+# reads both values back from the job, so it asks again for nothing. Both
+# addresses must be exactly https://<hostname>, with no port, path, query,
+# fragment, user, comma or space, the same rule as `is_https_address` in r2.py;
+# anything else would deploy and then fail every daily run after the copy.
 # `R2_ENDPOINT=https://... R2_PUBLIC_URL=https://... bash daily.sh` sets them
 # without a prompt.
 #
@@ -185,7 +185,7 @@ if [ -z "$R2_ENDPOINT" ] && [ -t 0 ]; then
     R2_ENDPOINT
 fi
 if [ -n "$R2_ENDPOINT" ] && [ -z "$R2_PUBLIC_URL" ] && [ -t 0 ]; then
-  read -rp "    public data URL, https://<domain> with no path (required when R2 is configured): " \
+  read -rp "    public data URL, https://data.howlate.la with no path (required when R2 is configured): " \
     R2_PUBLIC_URL
 fi
 
@@ -221,7 +221,7 @@ if [ -n "$R2_ENDPOINT" ]; then
   if [ -z "$R2_PUBLIC_URL" ]; then
     echo "    R2 is configured but the job has no public data URL, so the freshness" >&2
     echo "    check would be off; rerun from a terminal or with" >&2
-    echo "    R2_PUBLIC_URL=https://<domain>" >&2
+    echo "    R2_PUBLIC_URL=https://data.howlate.la" >&2
     exit 1
   fi
   if ! is_https_address "$R2_PUBLIC_URL"; then
@@ -244,7 +244,7 @@ elif [ -n "$R2_ID_VERSIONS$R2_KEY_VERSIONS" ]; then
   # Deploying now would drop the copy and leave the public site stale.
   echo "    R2 secrets exist but the job has no R2 endpoint; rerun from a terminal" >&2
   echo "    or with R2_ENDPOINT=https://<account>.r2.cloudflarestorage.com and" >&2
-  echo "    R2_PUBLIC_URL=https://<domain>" >&2
+  echo "    R2_PUBLIC_URL=https://data.howlate.la" >&2
   exit 1
 else
   echo "    no R2 settings; the job will not copy to R2"
