@@ -13,11 +13,13 @@
 	import { SHOW_RAIL_ONTIME } from '#lib/config.ts';
 	import ErrorState from '#lib/charts/ErrorState.svelte';
 	import LoadingState from '#lib/charts/LoadingState.svelte';
+	import { LINE_LIST } from '#lib/data/lines.ts';
 	import type { LineFile } from '#lib/data/types.ts';
 	import Headline from '#lib/design/Headline.svelte';
 	import Kicker from '#lib/design/Kicker.svelte';
 	import LineBullet from '#lib/design/LineBullet.svelte';
 	import Rule from '#lib/design/Rule.svelte';
+	import { findListed, lineHead, listEntryOfFile } from '#lib/lineHead.ts';
 	import PageHead from '#lib/PageHead.svelte';
 	import {
 		ONTIME_WINDOW,
@@ -26,7 +28,6 @@
 		hasDirectionSwitch,
 		headline,
 		lineName,
-		pageDescription,
 		shortVia,
 		showsOntime,
 		sourceNote
@@ -45,6 +46,11 @@
 	const direction = $derived(line.directions[selected]);
 	const name = $derived(lineName(line));
 	const ontime = $derived(showsOntime(line.mode, showRailOntime));
+	// A listed line gets the head its prerendered file has, so the title does not change when
+	// the data arrives. A line the list lacks is described from the file it just loaded.
+	const head = $derived(
+		lineHead(findListed(LINE_LIST, line.line) ?? listEntryOfFile(line), line.line)
+	);
 
 	// The charts are 97 KB with Observable Plot in it, and the headline needs none of
 	// it. Lighthouse counts every request that finishes before the headline paints
@@ -78,8 +84,8 @@
 </script>
 
 <PageHead
-	title={name}
-	description={pageDescription(line)}
+	title={head.title}
+	description={head.description}
 	path="/lines/{encodeURIComponent(line.line)}"
 />
 

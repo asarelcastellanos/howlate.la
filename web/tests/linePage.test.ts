@@ -186,12 +186,36 @@ test('two directions get a switch and one direction does not', () => {
 	assert.equal(radios(lineFile('bus', one)), 0);
 });
 
-test('the page has one h1 and names the line in its title and description', () => {
+test('the page has one h1, and a listed line keeps the head its prerendered file has', () => {
 	const { head, body } = render(LineView, { props: { line: lineFile('bus', two) } });
 	assert.equal(body.match(/<h1[\s>]/g)?.length, 1);
-	assert.match(head, /<title>Route 720 · HowLate<\/title>/);
-	assert.match(head, /<meta name="description" content="How late Route 720 runs/);
+	assert.match(head, /<title>Line 720 · HowLate<\/title>/);
+	assert.match(
+		head,
+		/<meta name="description" content="Line 720 \(bus line to Downtown LA - 6th - Central and Santa Monica \(Rapid\)\): how late it runs by hour of the week and by stop, against the timetable\."/
+	);
 	assert.doesNotMatch(head + body, /[—–]/);
+});
+
+test('a line missing from the list gets a head built from the loaded file, with the corridor dropped when it does not fit', () => {
+	const line = { ...lineFile('bus', two), line: '999', label: '999' };
+	const { head } = render(LineView, { props: { line } });
+	assert.match(head, /<title>Line 999 · HowLate<\/title>/);
+	assert.match(
+		head,
+		/<meta name="description" content="Line 999 \(bus line to Downtown LA and Santa Monica\): how late it runs by hour of the week and by stop, against the timetable\."/
+	);
+	assert.match(head, /<link rel="canonical" href="https:\/\/howlate\.la\/lines\/999"/);
+});
+
+test('a rail line keeps its own name as the title and has no on-time wording in its head', () => {
+	const { head } = render(LineView, { props: { line: lineFile('rail', two) } });
+	assert.match(head, /<title>Metro A Line · HowLate<\/title>/);
+	assert.match(
+		head,
+		/content="Metro A Line \(rail line to Pomona Station and Downtown Long Beach Station\): /
+	);
+	assert.doesNotMatch(head, /on.time/i);
 });
 
 test('names and bullets follow the index', () => {

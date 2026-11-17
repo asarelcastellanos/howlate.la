@@ -6,6 +6,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, test } from 'node:test';
 import { parseHTML } from 'linkedom';
+import { LINE_LIST } from '../src/lib/data/lines.ts';
+import { lineHead } from '../src/lib/lineHead.ts';
 
 const BUILD = new URL('../build', import.meta.url).pathname;
 const SITE_URL = (await import('../src/lib/config.ts')).SITE_URL;
@@ -88,6 +90,35 @@ describe('each prerendered page', () => {
 			assert.deepEqual(robots, page.file === 'design.html' ? ['noindex'] : []);
 		});
 	}
+});
+
+// A crawler or a link preview that skips JavaScript reads only these files. Cloudflare
+// serves one only if its _redirects rule does not shadow it (see web/README.md).
+describe('each line page in lines.json', () => {
+	for (const entry of LINE_LIST) {
+		test(entry.line, () => {
+			const file = `lines/${entry.line}.html`;
+			const page = pages.find((p) => p.file === file);
+			assert.ok(page, `${file} was not prerendered`);
+			const head = lineHead(entry, entry.line);
+			assert.deepEqual(page.title, [`${head.title} · HowLate`]);
+			assert.deepEqual(page.description, [head.description]);
+			const length = page.description[0]!.length;
+			assert.ok(length >= 40 && length <= 160, `description is ${length} characters`);
+			assert.deepEqual(
+				[...page.document.querySelectorAll('link[rel="canonical"]')].map((el) =>
+					el.getAttribute('href')
+				),
+				[`${SITE_URL}/lines/${entry.line}`]
+			);
+			assert.deepEqual(page.meta('meta[property="og:image"]'), [`${SITE_URL}/og.png`]);
+		});
+	}
+
+	test('an id outside the list is not prerendered and the shell serves it', () => {
+		assert.ok(!existsSync(join(BUILD, 'lines', 'zzz.html')));
+		assert.ok(existsSync(join(BUILD, '200.html')));
+	});
 });
 
 test('no two pages share a title or a description', () => {

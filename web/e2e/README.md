@@ -45,9 +45,11 @@ because `vite preview` serves that folder and not `build/`. A fresh `npm run
 build` removes it, so stage again after every build. The reports go to
 `reports/`, which git ignores.
 
-`/lines/<id>` is not prerendered. In production Cloudflare Pages answers it with
-`200.html`, and `vite preview` renders it on the server instead. The browser
-loads the data the same way in both.
+`/lines/<id>` is prerendered for every line in `src/lib/data/lines.json`. A line
+outside that list has no file, and in production Cloudflare Pages answers it with
+`200.html`. `vite preview` answers 404 for it, so the not-found test serves
+`build/200.html` for `/lines/zzz` through `page.route`. Every line in the fixture
+index must also be in `lines.json`, or its test gets a 404.
 
 ## The fixture
 
