@@ -15,6 +15,7 @@ import { weekLines } from '../src/lib/charts/lineChart.ts';
 import { stopStrip } from '../src/lib/charts/strip.ts';
 import { MIN_ARRIVALS, RAMP } from '../src/lib/charts/theme.ts';
 import type { Hour } from '../src/lib/data/types.ts';
+import { collisions, textBoxes } from './svgText.ts';
 
 const { document } = parseHTML('<!doctype html><html><body></body></html>');
 const draw = { width: 800, document };
@@ -278,14 +279,16 @@ test('a loaded result renders the chart and a pending one renders loading', () =
 });
 
 test('an empty profile renders the empty message, not a chart', () => {
-	const { body } = render(Heatmap, { props: { profile: [], caption: 'c', source: 's' } });
+	const { body } = render(Heatmap, {
+		props: { profile: [], caption: 'c', source: 's', showOntime: true }
+	});
 	assert.match(body, /Not enough measured arrivals yet\./);
 	assert.doesNotMatch(body, /role="img"/);
 });
 
 test('the heatmap has a table fallback with one row per day', () => {
 	const { body } = render(Heatmap, {
-		props: { profile: fixtureProfile(), caption: 'c', source: 's' }
+		props: { profile: fixtureProfile(), caption: 'c', source: 's', showOntime: true }
 	});
 	assert.equal(body.match(/<tr>/g)?.length, 8);
 	assert.match(body, /too few arrivals: 2 of 5 needed/);
@@ -294,7 +297,7 @@ test('the heatmap has a table fallback with one row per day', () => {
 
 test('the key shows the hatch and the dotted outline in words, drawn from the same paint', () => {
 	const { body } = render(Heatmap, {
-		props: { profile: fixtureProfile(), caption: 'c', source: 's' }
+		props: { profile: fixtureProfile(), caption: 'c', source: 's', showOntime: true }
 	});
 	assert.match(body, /too few arrivals/);
 	assert.match(body, /none measured/);
@@ -315,7 +318,7 @@ test('the heatmap label says how many hours are hatched', () => {
 
 test('the line chart note explains gaps only when hours are missing', () => {
 	const note = /Gaps are hours with too few arrivals or none measured\./;
-	const props = { caption: 'c', source: 's' };
+	const props = { caption: 'c', source: 's', showOntime: true };
 	assert.match(render(WeekLines, { props: { ...props, profile: fixtureProfile() } }).body, note);
 	const full = fixtureProfile().map((h) => ({ ...h, n: 400 }));
 	const all = Array.from({ length: 168 }, (_, h) => ({ ...full[0], h }));
@@ -335,4 +338,19 @@ test('a shape error says the site needs newer data, with a retry button', () => 
 	);
 	assert.match(body, /Try again<\/button>/);
 	assert.doesNotMatch(body, /chart/);
+});
+
+test('the week chart axis label clears the top tick label, at the top of the plot', () => {
+	// The top tick sits at the plot's top edge when the largest delay is a tick value,
+	// which is the case for the fixture and for any line with large delays.
+	const cases = [fixtureProfile(), fixtureProfile().map((h) => ({ ...h, p90: 1500 }))];
+	for (const profile of cases) {
+		for (const width of [343, 800]) {
+			const boxes = textBoxes(weekLines(profile, { width, document }));
+			const label = boxes.find((b) => b.text.includes('Minutes late'))!;
+			assert.ok(label, 'the axis label is drawn');
+			assert.ok(label.top >= 0, `the label starts at ${label.top}`);
+			assert.deepEqual(collisions(boxes), [], `${width}`);
+		}
+	}
 });

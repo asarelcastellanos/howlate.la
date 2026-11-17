@@ -72,6 +72,7 @@
 		{name}
 		to={direction.to}
 		profile={direction.profile}
+		showOntime={ontime}
 		stops={direction.stops}
 		source={sourceNote(line)}
 	/>

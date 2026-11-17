@@ -102,6 +102,7 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 	const present = new Set(profile.map((hour) => hour.h));
 	const absent = Array.from({ length: 168 }, (_, h) => ({ h })).filter(({ h }) => !present.has(h));
 	const when = (h: number) => `${DAY_NAMES[day(h)]} ${hourLabel(hourOfDay(h))}`;
+	const thin = profile.filter((hour) => hour.n < MIN_ARRIVALS);
 	const marks: Plot.Markish[] = [
 		Plot.cell(trusted(profile), {
 			...pos,
@@ -110,15 +111,12 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 			title: (d) => `${when(d.h)}, ${delayLabel(d.med)}, ${d.n} arrivals`
 		}),
 		// Too few arrivals to judge. Hatch, never a ramp color.
-		Plot.cell(
-			profile.filter((hour) => hour.n < MIN_ARRIVALS),
-			{
-				...pos,
-				fill: `url(#${HATCH.id})`,
-				inset: 0.5,
-				title: (d) => `${when(d.h)}. Too few arrivals: ${d.n} of ${MIN_ARRIVALS} needed`
-			}
-		),
+		Plot.cell(thin, {
+			...pos,
+			fill: `url(#${HATCH.id})`,
+			inset: 0.5,
+			title: (d) => `${when(d.h)}. Too few arrivals: ${d.n} of ${MIN_ARRIVALS} needed`
+		}),
 		// No profile entry at all, so no service or nothing measured. Outline only.
 		Plot.cell(absent, {
 			...pos,
@@ -126,6 +124,8 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 			stroke: QUIET,
 			strokeDasharray: DOTTED,
 			strokeWidth: DOTTED_WIDTH,
+			// A cell with no fill takes no tap on its inside unless it says so.
+			pointerEvents: 'all',
 			inset: 0.5,
 			title: (d) => `${when(d.h)}. No service or nothing measured`
 		}),
@@ -144,7 +144,14 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 		const above = day(worst.h) > 0;
 		const late = hourOfDay(worst.h) > 12;
 		marks.push(
-			Plot.cell([worst], { ...pos, fill: 'none', stroke: INK, strokeWidth: 2 }),
+			// The outline and its label are drawn over cells, so a tap must go through them.
+			Plot.cell([worst], {
+				...pos,
+				fill: 'none',
+				stroke: INK,
+				strokeWidth: 2,
+				pointerEvents: 'none'
+			}),
 			Plot.text([worst], {
 				...pos,
 				text: () => `Worst: ${delayLabel(worst.med)}`,
@@ -154,7 +161,8 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 				fill: ANNOTATION,
 				stroke: PAPER,
 				strokeWidth: 4,
-				fontWeight: 600
+				fontWeight: 600,
+				pointerEvents: 'none'
 			})
 		);
 	}
@@ -173,5 +181,46 @@ export function heatmap(profile: Hour[], { width, document }: DrawOptions) {
 		marks
 	});
 	svg.insertBefore(hatchDefs(document ?? globalThis.document), svg.firstChild);
+	// Plot draws each cell mark as one group, in the order of the marks above, and
+	// leaves out a group whose data is empty. So the groups line up with the
+	// non-empty lists, and each rect is in the order of its list.
+	const lists = [trusted(profile), thin, absent].filter((list) => list.length > 0);
+	const groups = [...svg.querySelectorAll('g[aria-label="cell"]')];
+	lists.forEach((list, i) => {
+		[...(groups[i]?.children ?? [])].forEach((rect, j) => {
+			if (list[j]) rect.setAttribute('data-hour', String(list[j].h));
+		});
+	});
 	return svg;
+}
+
+export const SELECTED_CLASS = 'howlate-selected';
+
+/**
+ * Outlines one hour. The outline is a thick ink line with a paper keyline
+ * inside it, so it stands out from a ramp color and from the thinner outline on
+ * the worst hour without relying on a hue. It never takes a tap or a hover.
+ */
+export function selectHour(svg: Element, h: number): void {
+	svg.querySelector(`.${SELECTED_CLASS}`)?.remove();
+	const cell = svg.querySelector(`[data-hour="${h}"]`);
+	if (!cell) return;
+	const doc = svg.ownerDocument;
+	const rect = (extra: number, stroke: string, width: number) => {
+		const el = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+		const grow = (name: string, by: number) => Number(cell.getAttribute(name)) + by;
+		el.setAttribute('x', String(grow('x', -extra)));
+		el.setAttribute('y', String(grow('y', -extra)));
+		el.setAttribute('width', String(grow('width', 2 * extra)));
+		el.setAttribute('height', String(grow('height', 2 * extra)));
+		el.setAttribute('fill', 'none');
+		el.setAttribute('stroke', stroke);
+		el.setAttribute('stroke-width', String(width));
+		return el;
+	};
+	const mark = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+	mark.setAttribute('class', SELECTED_CLASS);
+	mark.setAttribute('pointer-events', 'none');
+	mark.append(rect(1.5, INK, 3), rect(0, PAPER, 1));
+	svg.append(mark);
 }

@@ -135,6 +135,30 @@ test('a rail page shows the share once the gate is open', () => {
 	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
 });
 
+test('a line page has four figures, and the route chart is the last one', () => {
+	const { body } = render(LineView, { props: { line: lineFile('bus', two) } });
+	assert.equal(body.match(/<figure/g)?.length, 4);
+	const captions = [...body.matchAll(/<figcaption[\s\S]*?<\/figcaption>/g)].map((m) => text(m[0]));
+	assert.match(
+		captions[3],
+		/^ Median delay at each stop in route order, Route 720 toward Downtown LA\. Stops are evenly spaced, not to distance\./
+	);
+	// The one-direction case draws the same four, without the switch.
+	assert.equal(
+		render(LineView, { props: { line: lineFile('bus', one) } }).body.match(/<figure/g)?.length,
+		4
+	);
+});
+
+test('a rail page hands the heatmap no on-time share and a bus page does', () => {
+	const readout = (line: LineFile) =>
+		text(render(LineView, { props: { line } }).body).match(
+			/Friday 5 pm\. Median[^.]*\.[^.]*\.[^.]*\./
+		)?.[0];
+	assert.match(readout(lineFile('bus', two))!, /percent on time/);
+	assert.doesNotMatch(readout(lineFile('rail', two))!, /percent on time/);
+});
+
 test('two directions get a switch and one direction does not', () => {
 	assert.equal(hasDirectionSwitch(lineFile('bus', two)), true);
 	assert.equal(hasDirectionSwitch(lineFile('bus', one)), false);
