@@ -375,7 +375,7 @@ def build_site(
     biggest = max(written, key=lambda row: row[2])
     total = sum(row[1] for row in written)
 
-    print(f"\n  wrote {len(written)} line files + index.json + status.json to {out}")
+    print(f"\n  wrote {len(written)} line files + index.json + status.json + network.json to {out}")
     print(
         f"  {total / 1e6:.2f} MB total, largest is line {biggest[0]} at "
         f"{biggest[1] / 1e3:.0f} KB ({biggest[2] / 1e3:.0f} KB gzipped)"

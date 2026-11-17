@@ -39,6 +39,12 @@ instead of counting a day twice.
 Rerunning either is safe: `arrivals` replaces one date and touches no other, and
 `aggregate` is byte-identical over unchanged input.
 
+`aggregate --no-upload` writes the site to a local folder and uploads nothing,
+but it still reads Cloud Storage unless the inputs are local. `--from-bucket`
+reads the arrivals from `gs://howlate-derived`, and without `--gtfs-dir` it
+reads the timetables from `gs://howlate-raw`. Both are read-only, and the
+timetables are what name the lines and give each line its mode.
+
 Nothing is published yet. Roughly a month of collection is where patterns
 separate from noise, so there is no hurry.
 
@@ -84,6 +90,7 @@ stops gives ~300 per cell, and pooling into six dayparts gives ~46.
 site/status.json        days, coverage, totals
 site/index.json         every line with headline numbers
 site/lines/720.json     hour-of-week profile + per-stop dayparts
+site/network.json       hour-of-week profile for the network, bus and rail
 ```
 
 In the bucket each run goes under `site/runs/<UTC time>/`, and
@@ -92,8 +99,39 @@ is complete, so a reader never gets a mix of two runs.
 
 Every cell carries what was measured *and* what was scheduled, because only
 about half of all scheduled stops can be observed and a cell resting on three
-sightings must not look like one resting on three hundred. Largest line file is
-**19 KB gzipped**.
+sightings must not look like one resting on three hundred.
+
+Each profile hour, each stop's `all`, each direction's `all`, each entry in
+`index.json` and each network profile hour also carries `ontime`, the percent of
+measured arrivals from 60 seconds early to 300 seconds late, both included.
+That is Metro's window, from its 2025 Transit Service Policies and Standards,
+and bus and rail use the same one. It is not Metro's published on-time
+performance. Metro scores bus at timepoints and rail at terminals, and HowLate
+scores the arrival at every scheduled stop, so the two figures differ. A
+daypart cell has no `ontime`, because the cells are most of a line file's size
+and the pages read `med` from them.
+
+Three more levels carry the same numbers over every measured arrival on every
+day and hour.
+
+- Each stop has `all` with `med`, `p90`, `pct5` and `ontime`. Its `cells` split
+  the same arrivals by daypart and leave out a daypart with none, so `all` is
+  the one number per stop. The count is the stop's own `n`. A stop with nothing
+  measured has an `n` of 0 and nulls in `all`.
+- Each direction in a line file has `all` with `n`, `med`, `p90`, `pct5` and
+  `ontime`, and each entry in `index.json` has the same five numbers for the
+  whole line.
+- `network.json` has `network`, `bus` and `rail`, each with `all` and an
+  hour-of-week `profile` of up to 168 entries. A mode with nothing measured is
+  still there, with an `n` of 0 and an empty profile. A line counts in the mode
+  its `index.json` entry shows.
+
+Measured on the data through 2026-11-15, which is 90 service days, the largest
+line file is line 92. Gzipped, it was 55,793 bytes (324,249 raw) before the
+on-time work and is 59,733 bytes (342,297 raw) now. This section used to say
+19 KB. The cells are most of the weight. Line 92 has 4,167 of them, and the file
+gzips to about 16 KB without them. Adding `ontime` to every cell and an `n` to
+every stop's `all` took it to 70,022 bytes, so both were dropped.
 
 ## The data contract
 
@@ -104,6 +142,7 @@ has a JSON Schema (draft 2020-12) in `pipeline/schemas/`:
 index.schema.json     site/index.json
 status.schema.json    site/status.json
 line.schema.json      site/lines/<line>.json
+network.schema.json   site/network.json
 current.schema.json   site/current.json, the pointer to the latest run
 ```
 

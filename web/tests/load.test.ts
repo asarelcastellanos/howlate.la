@@ -2,7 +2,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openRun, type Result } from '../src/lib/data/load.ts';
-import type { CurrentPointer, LineFile, SiteIndex, SiteStatus } from '../src/lib/data/types.ts';
+import { readNetwork } from '../src/lib/data/read.ts';
+import type {
+	CurrentPointer,
+	LineFile,
+	NetworkFile,
+	SiteIndex,
+	SiteStatus
+} from '../src/lib/data/types.ts';
 
 const BASE = 'https://data.example/';
 const PREFIX = 'site/runs/20261115T100000Z-a1b2c3/';
@@ -10,7 +17,7 @@ const PREFIX = 'site/runs/20261115T100000Z-a1b2c3/';
 const pointer: CurrentPointer = {
 	run: '20261115T100000Z-a1b2c3',
 	prefix: PREFIX,
-	files: 3,
+	files: 4,
 	previous: ['20261114T100000Z-d4e5f6']
 };
 const index: SiteIndex = {
@@ -29,6 +36,7 @@ const index: SiteIndex = {
 			med: 90,
 			p90: 540,
 			pct5: 21.4,
+			ontime: 61.2,
 			to: ['Santa Monica', 'Commerce']
 		}
 	]
@@ -58,7 +66,8 @@ const line: LineFile = {
 			to: 'Santa Monica',
 			n: 600,
 			sched: 1000,
-			profile: [{ h: 8, n: 50, sched: 80, med: 60, p90: 400, pct5: 12.5 }],
+			all: { n: 600, med: 80, p90: 420, pct5: 14.2, ontime: 70.5 },
+			profile: [{ h: 8, n: 50, sched: 80, med: 60, p90: 400, pct5: 12.5, ontime: 75 }],
 			stops: [
 				{
 					id: '100',
@@ -68,11 +77,26 @@ const line: LineFile = {
 					seq: 1,
 					n: 10,
 					sched: 20,
+					all: { med: 30, p90: 300, pct5: 5, ontime: 80 },
 					cells: [{ d: 'wk-am', n: 10, sched: 20, med: 30, p90: 300, pct5: 5 }]
 				}
 			]
 		}
 	]
+};
+
+// Rail has no measured arrival here, which is how the file shows an empty mode.
+const empty = { n: 0, med: null, p90: null, pct5: null, ontime: null };
+const network: NetworkFile = {
+	network: {
+		all: { n: 1200, med: 90, p90: 540, pct5: 21.4, ontime: 61.2 },
+		profile: [{ h: 8, n: 50, sched: 80, med: 60, p90: 400, pct5: 12.5, ontime: 75 }]
+	},
+	bus: {
+		all: { n: 1200, med: 90, p90: 540, pct5: 21.4, ontime: 61.2 },
+		profile: [{ h: 8, n: 50, sched: 80, med: 60, p90: 400, pct5: 12.5, ontime: 75 }]
+	},
+	rail: { all: empty, profile: [] }
 };
 
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -87,7 +111,8 @@ const published = (): Record<string, Response> => ({
 	'https://data.example/site/current.json': json(pointer),
 	[`https://data.example/${PREFIX}index.json`]: json(index),
 	[`https://data.example/${PREFIX}status.json`]: json(status),
-	[`https://data.example/${PREFIX}lines/720.json`]: json(line)
+	[`https://data.example/${PREFIX}lines/720.json`]: json(line),
+	[`https://data.example/${PREFIX}network.json`]: json(network)
 });
 
 function unwrap<T>(result: Result<T>): T {
@@ -107,11 +132,13 @@ test('reads the pointer first, then every file from the run it names', async () 
 	assert.deepEqual(unwrap(await run.index()), index);
 	assert.deepEqual(unwrap(await run.status()), status);
 	assert.deepEqual(unwrap(await run.line('720')), line);
+	assert.deepEqual(unwrap(await run.network()), network);
 	assert.deepEqual(urls, [
 		'https://data.example/site/current.json',
 		`https://data.example/${PREFIX}index.json`,
 		`https://data.example/${PREFIX}status.json`,
-		`https://data.example/${PREFIX}lines/720.json`
+		`https://data.example/${PREFIX}lines/720.json`,
+		`https://data.example/${PREFIX}network.json`
 	]);
 });
 
@@ -155,4 +182,26 @@ test('a pointer that is not JSON is an error result', async () => {
 	files['https://data.example/site/current.json'] = new Response('', { status: 200 });
 	const result = await openRun(BASE, stub(files));
 	assert.ok(!result.ok && result.error.kind === 'json');
+});
+
+test('network.json errors are values too', async () => {
+	const files = published();
+	delete files[`https://data.example/${PREFIX}network.json`];
+	const run = unwrap(await openRun(BASE, stub(files)));
+	const missing = await run.network();
+	assert.ok(!missing.ok && missing.error.kind === 'status' && missing.error.status === 404);
+
+	files[`https://data.example/${PREFIX}network.json`] = new Response('<html>', { status: 200 });
+	const broken = await unwrap(await openRun(BASE, stub(files))).network();
+	assert.ok(!broken.ok && broken.error.kind === 'json');
+});
+
+test('readNetwork opens the run, then reads network.json from it', async () => {
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = stub(published()) as typeof fetch;
+	try {
+		assert.deepEqual(unwrap(await readNetwork(BASE)), network);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
 });

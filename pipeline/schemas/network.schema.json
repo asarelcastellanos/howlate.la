@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://howlate.la/schemas/network.schema.json",
+  "title": "Network profile",
+  "description": "network.json. The whole network's delay numbers and hour-of-week shape, for the network as a whole and for bus and rail alone. network holds every line, bus holds the lines that index.json gives the mode bus, and rail holds the lines with the mode rail. The hour profile pools every line and stop, so it cannot be built from the line files. Trip origins are left out of every count, because they measure a departure and not an arrival.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["network", "bus", "rail"],
+  "properties": {
+    "network": {"$ref": "#/$defs/scope"},
+    "bus": {"$ref": "#/$defs/scope"},
+    "rail": {"$ref": "#/$defs/scope"}
+  },
+  "$defs": {
+    "scope": {
+      "description": "The delay numbers and hour-of-week shape for one part of the network. A mode with no measured arrival is still present, with an n of 0 and an empty profile.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all", "profile"],
+      "properties": {
+        "all": {"$ref": "#/$defs/scopeDelays"},
+        "profile": {"type": "array", "maxItems": 168, "items": {"$ref": "#/$defs/scopeHour"}, "description": "The hour-of-week shape, pooled over every line and stop in this scope. Hours with nothing measured are left out, so there are up to 168 entries, sorted by h. The array is empty when nothing was measured."}
+      }
+    },
+    "scopeDelays": {
+      "description": "The delay numbers over every measured arrival in this scope, on every day and hour.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n", "med", "p90", "pct5", "ontime"],
+      "properties": {
+        "n": {"type": "integer", "minimum": 0, "description": "Arrivals with a measured delay. It is 0 when nothing was measured in this scope, and then every other field is null."},
+        "med": {"type": ["integer", "null"], "description": "Median delay in seconds. Positive means late and negative means early. Null when n is 0."},
+        "p90": {"type": ["integer", "null"], "description": "90th percentile delay in seconds. One measured arrival in ten was later than this. Null when n is 0."},
+        "pct5": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place. Null when n is 0."},
+        "ontime": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. Null when n is 0. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance."}
+      }
+    },
+    "scopeHour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["h", "n", "sched", "med", "p90", "pct5", "ontime"],
+      "properties": {
+        "h": {"type": "integer", "minimum": 0, "maximum": 167, "description": "Hour of the week in Los Angeles time, from the scheduled time. 0 is Monday 00:00 to 00:59, 24 is Tuesday 00:00, and 167 is Sunday 23:00."},
+        "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay in this hour, over all days, lines and stops."},
+        "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops in this hour, measured or not."},
+        "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
+        "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
+        "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."},
+        "ontime": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals from 60 seconds early to 300 seconds late, both included, to one decimal place. HowLate scores the arrival at every scheduled stop. Metro scores timepoints and rail terminals only, so this is not Metro's published on-time performance."}
+      }
+    }
+  }
+}

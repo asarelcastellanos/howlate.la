@@ -25,7 +25,8 @@ export function fixtureProfile(): Hour[] {
 		const med = h === HOT_HOUR ? 720 : thin ? 1500 : 20 + rush * 35 + (h % 7) * 3;
 		const p90 = h === HOT_HOUR ? 1500 : thin ? 2400 : med * 4 + 90;
 		const n = thin ? 2 : 400 + rush * 200;
-		profile.push({ h, n, sched: n + 90, med, p90, pct5: h === HOT_HOUR ? 62.5 : 4 + rush * 6 });
+		const pct5 = h === HOT_HOUR ? 62.5 : 4 + rush * 6;
+		profile.push({ h, n, sched: n + 90, med, p90, pct5, ontime: 90 - pct5 });
 	}
 	return profile;
 }
@@ -49,6 +50,7 @@ export function fixtureStops(): Stop[] {
 			seq: i + 1,
 			n,
 			sched: n + 40,
+			all: { med, p90: med * 3, pct5: 10, ontime: 80 },
 			cells: i === 7 || i === 20 ? [] : [cell]
 		};
 	});
