@@ -54,6 +54,7 @@ class Run:
         # replaced by a recorder, raising `r2_error` when one is given; with
         # `real` holding "r2" it runs for real, with no R2 settings.
         self.graded, self.pings, self.built, self.fetched, self.published = [], [], [], [], []
+        self.fetched_reports = []
         self.copied, self.summaries, self.copy_kwargs = [], [], []
         for name in (*r2.REQUIRED, "R2_REQUIRED", "R2_PUBLIC_URL"):
             monkeypatch.delenv(name, raising=False)
@@ -77,8 +78,9 @@ class Run:
         if "r2" not in real:
             monkeypatch.setattr(cli.r2, "copy_if_configured", copy)
 
-        def fetch(client, dest):
+        def fetch(client, dest, reports=None):
             self.fetched.append(dest)
+            self.fetched_reports.append(reports)
             return fetched
 
         monkeypatch.setattr(cli.aggregate, "fetch_arrivals", fetch)
@@ -133,6 +135,8 @@ def test_a_clean_run_summarises_every_graded_day_and_publishes(monkeypatch, tmp_
     run()
     assert run.fetched == run.built
     assert run.published == [True]
+    # health.json reads the reports the fetch downloaded, in a folder of their own.
+    assert run.fetched_reports == [tmp_path / "cache" / "reports" / arrivals.VERSION]
 
 
 def test_the_site_is_copied_to_r2_after_it_is_published_and_the_run_reports_ok(
@@ -400,6 +404,26 @@ def test_redaction_covers_uppercase_schemes_and_s3_paths(text):
     assert "://" not in out
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Forbidden('GET https://x.com/a(b)?X-Goog-Signature=SECRET')", "Forbidden('GET <url>"),
+        ("see https://x.com/a]b?sig=SECRET", "see <url>"),
+        ("https://x.com/a'b?sig=SECRET end", "<url> end"),
+        ('https://x.com/a"b?sig=SECRET end', "<url> end"),
+        ("https://x.com/a>b?sig=SECRET end", "<url> end"),
+        ("HTTPS://X.COM/a(b)?sig=SECRET end", "<url> end"),
+        ("Https://x.com/a)b?sig=SECRET end", "<url> end"),
+        ("HTTP://x.com/a]b?sig=SECRET", "<url>"),
+        ("first https://x.com/a(b)?sig=SECRET then gs://bucket/key", "first <url> then <gs-path>"),
+    ],
+)
+def test_a_url_is_redacted_to_the_next_whitespace_whatever_punctuation_it_holds(text, expected):
+    out = cli.redact(text)
+    assert "SECRET" not in out
+    assert out == expected
+
+
 def test_redaction_uses_the_same_placeholders_for_every_case():
     assert cli.redact("HTTPS://Example.com/a") == "<url>"
     assert cli.redact("GS://bucket/key") == "<gs-path>"
@@ -414,6 +438,7 @@ def test_redaction_uses_the_same_placeholders_for_every_case():
         "no raw files found for 20261103",
         "connection to example.com refused",
         "the s3 bucket is gs-like and http is a protocol",
+        "Forbidden('GET denied') [x] (y) > z \"q\"",
         "",
     ],
 )
@@ -516,7 +541,7 @@ def test_a_crash_before_the_upload_leaves_the_published_run_alone(
     # Issue #98: the site must keep serving the last complete run, and the
     # alarm must still go off, wherever the job dies before it uploads.
     client = Derived([])
-    aggregate.upload(client, test_write.site(tmp_path / "seed"), run="20261106T130000Z")
+    test_write.publish(client, test_write.site(tmp_path / "seed"), run="20261106T130000Z")
 
     def site_objects():
         return {key: data for key, data in client.store.items() if key[1].startswith("site/")}

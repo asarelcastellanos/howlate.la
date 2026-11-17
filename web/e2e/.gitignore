@@ -1,0 +1,3 @@
+# Playwright results and Lighthouse reports from a local run.
+reports/
+.lighthouseci/

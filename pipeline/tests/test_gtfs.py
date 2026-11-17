@@ -529,3 +529,30 @@ def test_an_interrupted_extraction_is_not_trusted(tmp_path, monkeypatch):
     directory = gtfs.ensure_local(blob, cache)
     for path in source.iterdir():
         assert (directory / path.name).read_bytes() == path.read_bytes(), path.name
+
+
+def test_only_a_service_whose_start_date_is_after_the_day_is_later_start(tmp_path):
+    directory = tmp_path / "gtfs"
+    directory.mkdir()
+    days = ["1"] * 7
+    write_csv(
+        directory / "calendar.txt",
+        ["service_id", *gtfs.DOW, "start_date", "end_date"],
+        [
+            ["LATER", *days, "20260819", "20261231"],
+            ["TODAY", *days, SERVICE_DATE, "20261231"],
+            ["EXPIRED", *days, "20260101", "20260630"],
+            ["BLANK", *days, "", "20261231"],
+            ["GARBAGE", *days, "soon", "20261231"],
+            # Two rows for one service count as later only when both are.
+            ["SPLIT", *days, "20260901", "20261231"],
+            ["SPLIT", *days, "20260101", "20260630"],
+        ],
+    )
+    # An override naming a service with no calendar row does not make it later.
+    write_csv(
+        directory / "calendar_dates.txt",
+        ["service_id", "date", "exception_type"],
+        [["ADDED", SERVICE_DATE, "1"]],
+    )
+    assert gtfs.later_start_services(directory, SERVICE_DATE) == {"LATER"}

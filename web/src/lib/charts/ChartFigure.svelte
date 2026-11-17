@@ -8,6 +8,7 @@
 		empty,
 		render,
 		label,
+		onrender,
 		caption,
 		source,
 		extra
@@ -15,6 +16,7 @@
 		empty: boolean;
 		render: (width: number) => Element;
 		label: string;
+		onrender?: (svg: Element) => void | (() => void);
 		caption: string;
 		source: string;
 		extra?: Snippet;
@@ -28,7 +30,7 @@
 	{#if empty}
 		<Notice><p>Not enough measured arrivals yet.</p></Notice>
 	{:else}
-		<Chart {render} {label} />
+		<Chart {render} {label} {onrender} />
 		{@render extra?.()}
 	{/if}
 </Figure>

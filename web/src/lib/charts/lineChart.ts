@@ -2,6 +2,7 @@ import * as Plot from '@observablehq/plot';
 import type { Hour } from '../data/types';
 import {
 	ANNOTATION,
+	AXIS,
 	DAYS,
 	DAY_NAMES,
 	GRID,
@@ -35,6 +36,37 @@ export function weekLinesLabel(profile: Hour[]): string {
 	);
 }
 
+const HEIGHT = 260;
+const MARGIN_LEFT = 52;
+/**
+ * Room above the plot for the axis label. The top tick label is centered on the
+ * plot's top edge, so it starts 17 px from the top of the chart. The 14 px axis
+ * label hangs from 2 px and ends at 16 px.
+ */
+const MARGIN_TOP = 24;
+/** Text height in pixels, and the space kept between a label and its line. */
+const LABEL = 14;
+const GAP = 4;
+
+/**
+ * Vertical offsets, in pixels, for the two labels at the end of the lines. `medY`
+ * and `p90Y` are the line ends in pixels from the top, and `bottom` is the plot's
+ * bottom edge, above which the x axis labels start. A label sits above its line.
+ * The median label goes below its line when the 90th percentile line is too
+ * close above it, and stays above the plot's bottom edge. The 90th percentile
+ * label moves up when it would touch the median label. The old fixed offsets put
+ * "Median" on top of "Sun" whenever the median ran near zero.
+ */
+export function endLabelOffsets(medY: number, p90Y: number, bottom: number) {
+	const up = -(LABEL / 2 + GAP);
+	const fitsAbove = medY + up - LABEL / 2 > p90Y + 2;
+	const fitsBelow = medY - up + LABEL / 2 <= bottom;
+	const med = fitsAbove || !fitsBelow ? up : -up;
+	// A label above the median line needs the 90th percentile label to clear it.
+	const p90 = med < 0 ? Math.min(up, medY + med - LABEL - 1 - p90Y) : up;
+	return { med, p90 };
+}
+
 export function weekLines(profile: Hour[], { width, document }: DrawOptions) {
 	const byHour = new Map(trusted(profile).map((row) => [row.h, row]));
 	// One slot per hour of the week. A missing hour is NaN, which Plot draws as a
@@ -53,41 +85,57 @@ export function weekLines(profile: Hour[], { width, document }: DrawOptions) {
 			strokeWidth: 4,
 			fontWeight: 600
 		});
-	return Plot.plot({
-		document,
-		width,
-		height: 260,
-		marginTop: 8,
-		marginLeft: 52,
-		marginRight: 8,
-		style: PLOT_STYLE,
-		x: {
-			domain: [0, 167],
-			ticks: DAYS.map((_, i) => i * 24 + 12),
-			tickFormat: (h: number) => DAYS[Math.floor(h / 24)],
-			tickSize: 0,
-			label: null
-		},
-		y: {
-			label: 'Minutes late',
-			labelAnchor: 'top',
-			labelArrow: 'up',
-			// The zero line is the timetable, so the axis says so.
-			tickFormat: (m: number) => (m === 0 ? 'on time' : String(m))
-		},
-		marks: [
-			Plot.gridY({ stroke: GRID, strokeOpacity: 1 }),
-			Plot.ruleX([24, 48, 72, 96, 120, 144], { stroke: GRID }),
-			Plot.ruleY([0], { stroke: INK }),
-			Plot.lineY(WEEK, {
-				x: (h: number) => h,
-				y: series('p90'),
-				stroke: ANNOTATION,
-				strokeWidth: 2
-			}),
-			Plot.lineY(WEEK, { x: (h: number) => h, y: series('med'), stroke: INK, strokeWidth: 2 }),
-			label('90th percentile', 'p90', ANNOTATION, -8),
-			label('Median', 'med', INK, 16)
-		]
-	});
+	const draw = (dy: { med: number; p90: number }) =>
+		Plot.plot({
+			document,
+			width,
+			height: HEIGHT,
+			marginTop: MARGIN_TOP,
+			marginLeft: MARGIN_LEFT,
+			marginRight: 8,
+			style: PLOT_STYLE,
+			x: {
+				domain: [0, 167],
+				ticks: DAYS.map((_, i) => i * 24 + 12),
+				tickFormat: (h: number) => DAYS[Math.floor(h / 24)],
+				tickSize: 0,
+				label: null
+			},
+			y: {
+				label: null,
+				// The zero line is the timetable, so the axis says so.
+				tickFormat: (m: number) => (m === 0 ? 'on time' : String(m))
+			},
+			marks: [
+				// Plot's own y label sits on the top tick label whenever a tick lands on
+				// the top edge, so the label is a text mark in the margin above it.
+				Plot.text(['↑ Minutes late'], {
+					frameAnchor: 'top-left',
+					textAnchor: 'start',
+					dx: 3 - MARGIN_LEFT,
+					dy: 2 - MARGIN_TOP,
+					fill: AXIS
+				}),
+				Plot.gridY({ stroke: GRID, strokeOpacity: 1 }),
+				Plot.ruleX([24, 48, 72, 96, 120, 144], { stroke: GRID }),
+				Plot.ruleY([0], { stroke: INK }),
+				Plot.lineY(WEEK, {
+					x: (h: number) => h,
+					y: series('p90'),
+					stroke: ANNOTATION,
+					strokeWidth: 2
+				}),
+				Plot.lineY(WEEK, { x: (h: number) => h, y: series('med'), stroke: INK, strokeWidth: 2 }),
+				label('90th percentile', 'p90', ANNOTATION, dy.p90),
+				label('Median', 'med', INK, dy.med)
+			]
+		});
+	// The labels do not change the scales, so one draw gives the pixel positions
+	// that the second draw needs.
+	const first = draw({ med: -(LABEL / 2 + GAP), p90: -(LABEL / 2 + GAP) });
+	if (!last) return first;
+	const y = (
+		first as unknown as { scale(name: 'y'): { range: number[]; apply(v: number): number } }
+	).scale('y');
+	return draw(endLabelOffsets(y.apply(last.med / 60), y.apply(last.p90 / 60), y.range[0]));
 }

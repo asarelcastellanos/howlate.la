@@ -15,6 +15,7 @@ import { weekLines } from '../src/lib/charts/lineChart.ts';
 import { stopStrip } from '../src/lib/charts/strip.ts';
 import { MIN_ARRIVALS, RAMP } from '../src/lib/charts/theme.ts';
 import type { Hour } from '../src/lib/data/types.ts';
+import { collisions, textBoxes } from './svgText.ts';
 
 const { document } = parseHTML('<!doctype html><html><body></body></html>');
 const draw = { width: 800, document };
@@ -140,6 +141,56 @@ test('the line chart draws two series of at most 168 points', () => {
 	}
 });
 
+// The two end labels as [top, bottom] pixel spans. Plot puts the offset on the
+// group and the data position on the text, and the x axis labels start 9 px
+// under the plot's bottom edge.
+function endLabels(svg: Element) {
+	const groups = [...svg.querySelectorAll('g[aria-label="text"]')];
+	const span = (name: string) => {
+		const group = groups.find((g) => g.textContent === name)!;
+		const dy = Number(
+			/translate\(-?[\d.]+,(-?[\d.]+)\)/.exec(group.getAttribute('transform')!)![1]
+		);
+		const y = Number(/,(-?[\d.]+)\)/.exec(group.children[0].getAttribute('transform')!)![1]);
+		return [y + dy - 7, y + dy + 7];
+	};
+	return { median: span('Median'), p90: span('90th percentile') };
+}
+const hoursOf = (rows: [number, number, number][]): Hour[] =>
+	rows.map(([h, med, p90]) => ({ h, n: 40, sched: 50, med, p90, pct5: 10, ontime: 80 }));
+
+test('the end labels never overlap each other or the axis labels', () => {
+	const bottom = 230;
+	const cases: Record<string, Hour[]> = {
+		'full week': fixtureProfile(),
+		// A line with little data, such as the 697. The last trusted hour is Sunday noon.
+		'little data': hoursOf([
+			[7, 60, 840],
+			[8, 90, 900],
+			[130, 60, 400],
+			[156, 85, 280]
+		]),
+		// The median is on the zero line and the 90th percentile is close above it.
+		'both near zero': hoursOf([
+			[7, 60, 840],
+			[156, 5, 20]
+		]),
+		'median under zero': hoursOf([
+			[7, 60, 840],
+			[156, -90, -20]
+		])
+	};
+	for (const [name, profile] of Object.entries(cases)) {
+		for (const width of [343, 800]) {
+			const { median, p90 } = endLabels(weekLines(profile, { width, document }));
+			assert.ok(median[1] <= bottom, `${name} ${width}: the median label ends at ${median[1]}`);
+			assert.ok(p90[1] <= bottom, `${name} ${width}: the 90th percentile label ends at ${p90[1]}`);
+			const apart = median[0] >= p90[1] || p90[0] >= median[1];
+			assert.ok(apart, `${name} ${width}: labels overlap, ${median} and ${p90}`);
+		}
+	}
+});
+
 test('the strip draws a dot per stop with data, and hollow dots for thin stops', () => {
 	const stops = fixtureStops();
 	const withData = stops.filter((stop) => stop.cells.length > 0);
@@ -228,14 +279,16 @@ test('a loaded result renders the chart and a pending one renders loading', () =
 });
 
 test('an empty profile renders the empty message, not a chart', () => {
-	const { body } = render(Heatmap, { props: { profile: [], caption: 'c', source: 's' } });
+	const { body } = render(Heatmap, {
+		props: { profile: [], caption: 'c', source: 's', showOntime: true }
+	});
 	assert.match(body, /Not enough measured arrivals yet\./);
 	assert.doesNotMatch(body, /role="img"/);
 });
 
 test('the heatmap has a table fallback with one row per day', () => {
 	const { body } = render(Heatmap, {
-		props: { profile: fixtureProfile(), caption: 'c', source: 's' }
+		props: { profile: fixtureProfile(), caption: 'c', source: 's', showOntime: true }
 	});
 	assert.equal(body.match(/<tr>/g)?.length, 8);
 	assert.match(body, /too few arrivals: 2 of 5 needed/);
@@ -244,7 +297,7 @@ test('the heatmap has a table fallback with one row per day', () => {
 
 test('the key shows the hatch and the dotted outline in words, drawn from the same paint', () => {
 	const { body } = render(Heatmap, {
-		props: { profile: fixtureProfile(), caption: 'c', source: 's' }
+		props: { profile: fixtureProfile(), caption: 'c', source: 's', showOntime: true }
 	});
 	assert.match(body, /too few arrivals/);
 	assert.match(body, /none measured/);
@@ -265,9 +318,39 @@ test('the heatmap label says how many hours are hatched', () => {
 
 test('the line chart note explains gaps only when hours are missing', () => {
 	const note = /Gaps are hours with too few arrivals or none measured\./;
-	const props = { caption: 'c', source: 's' };
+	const props = { caption: 'c', source: 's', showOntime: true };
 	assert.match(render(WeekLines, { props: { ...props, profile: fixtureProfile() } }).body, note);
 	const full = fixtureProfile().map((h) => ({ ...h, n: 400 }));
 	const all = Array.from({ length: 168 }, (_, h) => ({ ...full[0], h }));
 	assert.doesNotMatch(render(WeekLines, { props: { ...props, profile: all } }).body, note);
+});
+
+test('a shape error says the site needs newer data, with a retry button', () => {
+	const children = createRawSnippet(() => ({ render: () => '<p>chart</p>' }));
+	const error = { kind: 'shape', url: 'x/lines/720.json' } as const;
+	const { body } = render(ResultView, {
+		props: { result: { ok: false, error }, onretry: () => {}, children }
+	});
+	assert.match(body, /role="alert"/);
+	assert.match(
+		body,
+		/This page needs newer data than the site has yet\. Try again in a few minutes\./
+	);
+	assert.match(body, /Try again<\/button>/);
+	assert.doesNotMatch(body, /chart/);
+});
+
+test('the week chart axis label clears the top tick label, at the top of the plot', () => {
+	// The top tick sits at the plot's top edge when the largest delay is a tick value,
+	// which is the case for the fixture and for any line with large delays.
+	const cases = [fixtureProfile(), fixtureProfile().map((h) => ({ ...h, p90: 1500 }))];
+	for (const profile of cases) {
+		for (const width of [343, 800]) {
+			const boxes = textBoxes(weekLines(profile, { width, document }));
+			const label = boxes.find((b) => b.text.includes('Minutes late'))!;
+			assert.ok(label, 'the axis label is drawn');
+			assert.ok(label.top >= 0, `the label starts at ${label.top}`);
+			assert.deepEqual(collisions(boxes), [], `${width}`);
+		}
+	}
 });

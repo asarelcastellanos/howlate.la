@@ -8,14 +8,15 @@ import argparse
 import io
 import json
 import urllib.error
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
 import test_write
 from botocore.exceptions import ClientError
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, r2
+import howlate_pipeline
+from howlate_pipeline import DERIVED_BUCKET, r2
 from howlate_pipeline import __main__ as cli
 
 POINTER = "site/current.json"
@@ -55,7 +56,7 @@ class Derived(test_write.FakeClient):
 def publish_runs(tmp_path, *runs) -> Derived:
     client = Derived()
     for days, run in enumerate(runs, start=1):
-        aggregate.upload(client, test_write.site(tmp_path / run, days=days), run=run)
+        test_write.publish(client, test_write.site(tmp_path / run, days=days), run=run)
     return client
 
 
@@ -136,6 +137,37 @@ def test_a_run_missing_files_is_not_copied(tmp_path):
     assert s3.puts == []
 
 
+def test_a_run_with_more_files_than_its_pointer_counts_is_not_copied(tmp_path):
+    # The count must match, not only reach the pointer's. A stray file under the
+    # run's prefix means the listing is not the run the pointer describes.
+    derived = publish_runs(tmp_path, NEW)
+    derived.store[(DERIVED_BUCKET, f"site/runs/{NEW}/stray.json")] = b"{}"
+    s3 = FakeS3()
+    with pytest.raises(RuntimeError, match="lists 5 files but its pointer says 4"):
+        r2.publish(derived, s3, "howlate")
+    assert s3.puts == []
+
+
+def test_a_run_that_finishes_mid_copy_with_extra_files_keeps_the_pointer_back(tmp_path):
+    # The same count check at the second read, which only runs when the first
+    # read named another run.
+    derived = publish_runs(tmp_path, OLD)
+    full = publish_runs(tmp_path / "full", NEW)
+    for name in run_files(full, NEW):
+        derived.store[(DERIVED_BUCKET, name)] = full.store[(DERIVED_BUCKET, name)]
+    derived.store[(DERIVED_BUCKET, f"site/runs/{NEW}/stray.json")] = b"{}"
+
+    def upload_finishes(puts):
+        if puts == 1:
+            derived.store[(DERIVED_BUCKET, POINTER)] = full.store[(DERIVED_BUCKET, POINTER)]
+
+    s3 = FakeS3(after_put=upload_finishes, objects=[POINTER])
+    with pytest.raises(RuntimeError, match="lists 5 files but its pointer says 4"):
+        r2.publish(derived, s3, "howlate", run=NEW)
+    assert POINTER not in s3.puts
+    assert s3.objects[POINTER][0] == b"old"
+
+
 def test_a_run_that_finishes_mid_copy_with_a_partial_listing_keeps_the_pointer_back(tmp_path):
     # The derived pointer names OLD while NEW is still uploading, so the first
     # read cannot check NEW's file count. NEW's upload then finishes during the
@@ -185,7 +217,7 @@ def test_a_newer_run_published_during_the_copy_keeps_its_pointer(tmp_path):
 
     def newer_run_lands(puts):
         if puts == 2:
-            aggregate.upload(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
+            test_write.publish(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
 
     s3 = FakeS3(after_put=newer_run_lands)
     assert r2.publish(derived, s3, "howlate") == (4, False)
@@ -413,6 +445,15 @@ def test_the_probe_fails_and_says_which_check_failed(web, message):
     assert "data.howlate.la" not in str(seen.value)
 
 
+def test_the_probe_refuses_a_pointer_whose_prefix_names_a_different_run():
+    # Both runs have a readable status, so only the prefix check can fail this.
+    other = {"run": NEW, "prefix": f"site/runs/{OLD}/"}
+    web = Web(pointer=(200, json.dumps(other)))
+    web.pages[f"site/runs/{OLD}/status.json"] = (200, json.dumps({"last_day": "2026-11-07"}))
+    with pytest.raises(r2.Notice, match="site/current.json has no usable run and prefix"):
+        r2.probe(PUBLIC, NEW, TODAY, web)
+
+
 @pytest.mark.parametrize("last_day", ["2026-11-07", "2026-11-05"])
 def test_the_probe_allows_a_last_day_two_and_four_days_before_today(last_day):
     r2.probe(PUBLIC, NEW, TODAY, Web(last_day=last_day))
@@ -503,21 +544,20 @@ def test_a_stale_public_site_fails_the_copy(tmp_path):
 
 
 def test_the_copy_judges_the_public_site_by_today_in_los_angeles(tmp_path, monkeypatch):
-    # The default `today` is the Pacific calendar date, not the machine's.
-    derived, web = publish_runs(tmp_path, NEW), Web(last_day="2026-11-07")
-    clock = []
+    # The clock reads 2026-11-10 07:30 UTC, which is 2026-11-09 23:30 Pacific. A
+    # last_day of 2026-11-05 is 4 days behind the Pacific date and 5 behind the
+    # UTC one, so only the Pacific date passes.
+    derived, web = publish_runs(tmp_path, NEW), Web(last_day="2026-11-05")
 
-    class Clock(r2.datetime):
+    class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
-            clock.append(tz)
-            return cls(2026, 11, 9, 23, 30, tzinfo=tz)
+            return cls(2026, 11, 10, 7, 30, tzinfo=UTC).astimezone(tz)
 
-    monkeypatch.setattr(r2, "datetime", Clock)
+    monkeypatch.setattr(howlate_pipeline, "datetime", Clock)
     assert r2.copy_if_configured(
         derived, env=WEB_ENV, s3=FakeS3(), site_dir=local_site(tmp_path), fetch=web
     )
-    assert [str(tz) for tz in clock] == ["America/Los_Angeles"]
 
 
 def test_the_probe_does_not_depend_on_the_local_site_file(tmp_path):
@@ -558,7 +598,7 @@ def test_a_missing_or_bad_public_address_is_a_notice_even_when_the_pointer_would
 
     def newer_run_lands(puts):
         if puts == 2:
-            aggregate.upload(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
+            test_write.publish(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
 
     s3 = FakeS3(after_put=newer_run_lands)
     with pytest.raises(r2.Notice, match="R2_PUBLIC_URL") as seen:
@@ -649,7 +689,7 @@ def test_a_newer_run_landing_during_the_copy_is_not_a_failure(tmp_path, capsys):
 
     def newer_run_lands(puts):
         if puts == 2:
-            aggregate.upload(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
+            test_write.publish(derived, test_write.site(tmp_path / NEW, days=9), run=NEW)
 
     web = Web(run=OLD)
     s3 = FakeS3(after_put=newer_run_lands)

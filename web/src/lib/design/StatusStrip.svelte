@@ -1,18 +1,10 @@
 <script lang="ts">
 	import type { SiteStatus } from '#lib/data/types.ts';
+	import { longDate } from '#lib/date.ts';
 
 	let { status }: { status: SiteStatus } = $props();
 
-	// Parsed as UTC and formatted as UTC, so the service day never shifts with the
-	// reader's time zone.
-	const through = $derived(
-		new Date(`${status.last_day}T00:00:00Z`).toLocaleDateString('en-US', {
-			month: 'long',
-			day: 'numeric',
-			year: 'numeric',
-			timeZone: 'UTC'
-		})
-	);
+	const through = $derived(longDate(status.last_day));
 	const count = (n: number) => n.toLocaleString('en-US');
 	const stats = $derived([
 		{ value: count(status.days), label: 'days of data' },

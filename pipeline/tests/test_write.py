@@ -304,6 +304,12 @@ def site(tmp_path, lines=("720", "754"), days=2):
     return out
 
 
+def publish(client, out, run=None):
+    """Upload every file in a hand-made site directory, which has no build to name them."""
+    names = [path.relative_to(out).as_posix() for path in out.rglob("*.json")]
+    return aggregate.upload(client, out, names, run)
+
+
 def published(client):
     """The run site/current.json names, and its files with their contents."""
     pointer = json.loads(client.store[(DERIVED_BUCKET, "site/current.json")])
@@ -337,7 +343,7 @@ def test_publishing_writes_a_run_then_points_at_it(tmp_path):
     # The flat layout from before runs existed is cleared out.
     old = [(DERIVED_BUCKET, "site/index.json"), (DERIVED_BUCKET, "site/lines/1.json")]
     client = FakeClient(old)
-    count, where = aggregate.upload(client, site(tmp_path), run="20261110T130000Z")
+    count, where = publish(client, site(tmp_path), run="20261110T130000Z")
     assert (count, where) == (4, f"gs://{DERIVED_BUCKET}/site/runs/20261110T130000Z/")
     run, files = published(client)
     assert run == "20261110T130000Z"
@@ -353,11 +359,11 @@ def test_a_publish_that_dies_partway_leaves_the_last_run_published(tmp_path):
     # the published run would show.
     client = FailsOn([], dies_on="lines/754.json")
     client.dies_on = "never"
-    aggregate.upload(client, site(tmp_path / "a", days=2), run="20261110T130000Z")
+    publish(client, site(tmp_path / "a", days=2), run="20261110T130000Z")
     before = published(client)
     client.dies_on = "lines/754.json"
     with pytest.raises(ConnectionError):
-        aggregate.upload(client, site(tmp_path / "b", days=3), run="20261111T130000Z")
+        publish(client, site(tmp_path / "b", days=3), run="20261111T130000Z")
     assert published(client) == before
     assert {json.loads(data)["days"] for data in before[1].values()} == {2}
 
@@ -367,7 +373,7 @@ def test_the_last_three_published_runs_and_any_newer_stay(tmp_path):
     point(client, "20261104T1", previous=["20261103T1", "20261102T1"])
     # A run named after the one being published may still be uploading.
     client.store.write((DERIVED_BUCKET, "site/runs/20261106T1/index.json"), b"{}")
-    aggregate.upload(client, site(tmp_path), run="20261105T1")
+    publish(client, site(tmp_path), run="20261105T1")
     assert runs_in(client) == {"20261103T1", "20261104T1", "20261105T1", "20261106T1"}
 
 
@@ -377,7 +383,7 @@ def test_runs_that_were_never_current_do_not_take_a_place(tmp_path):
     # reader may still be copying it.
     client = FakeClient(runs("20261101T1", "20261102T1", "20261103T1"))
     point(client, "20261101T1")
-    aggregate.upload(client, site(tmp_path), run="20261104T1")
+    publish(client, site(tmp_path), run="20261104T1")
     assert runs_in(client) == {"20261101T1", "20261104T1"}
     assert json.loads(client.store[(DERIVED_BUCKET, "site/current.json")])["previous"] == [
         "20261101T1"
@@ -387,7 +393,7 @@ def test_runs_that_were_never_current_do_not_take_a_place(tmp_path):
 def test_a_slower_older_run_does_not_move_the_pointer_back(tmp_path, capsys):
     client = FakeClient(runs("20261110T130020Z"))
     point(client, "20261110T130020Z")
-    aggregate.upload(client, site(tmp_path), run="20261110T130000Z")
+    publish(client, site(tmp_path), run="20261110T130000Z")
     assert pointer(client) == "20261110T130020Z"
     assert "already names 20261110T130020Z" in capsys.readouterr().out
 
@@ -408,7 +414,7 @@ def test_a_pointer_moved_before_it_is_written_is_read_again(tmp_path, monkeypatc
         write(self, data, content_type, if_generation_match)
 
     monkeypatch.setattr(FakeBlob, "upload_from_string", another_run_publishes_first)
-    aggregate.upload(client, site(tmp_path), run="20261110T130000Z")
+    publish(client, site(tmp_path), run="20261110T130000Z")
     assert cut_in
     assert pointer(client) == "20261110T140000Z"
 
@@ -418,7 +424,7 @@ def test_a_pointer_moved_before_it_is_read_is_read_again(tmp_path):
     client = FakeClient(runs("20261110T120000Z"))
     point(client, "20261110T120000Z")
     client.store.after_get = lambda: point(client, "20261110T125000Z", ["20261110T120000Z"])
-    aggregate.upload(client, site(tmp_path), run="20261110T130000Z")
+    publish(client, site(tmp_path), run="20261110T130000Z")
     assert pointer(client) == "20261110T130000Z"
 
 
@@ -438,15 +444,15 @@ def test_a_pointer_write_that_landed_but_reported_failure_keeps_the_history(tmp_
             raise PreconditionFailed("retry found the generation moved")
 
     monkeypatch.setattr(FakeBlob, "upload_from_string", answer_lost)
-    aggregate.upload(client, site(tmp_path), run="20261104T1")
+    publish(client, site(tmp_path), run="20261104T1")
     assert lost
     assert runs_in(client) == {"20261102T1", "20261103T1", "20261104T1"}
 
 
 def test_two_runs_started_in_the_same_second_get_their_own_prefix(tmp_path):
     client = FakeClient([])
-    _, first = aggregate.upload(client, site(tmp_path / "a"))
-    _, second = aggregate.upload(client, site(tmp_path / "b"))
+    _, first = publish(client, site(tmp_path / "a"))
+    _, second = publish(client, site(tmp_path / "b"))
     assert first != second
 
 
@@ -457,7 +463,7 @@ def test_a_failed_delete_does_not_fail_the_publish(tmp_path, capsys, monkeypatch
         raise ConnectionError("delete refused")
 
     monkeypatch.setattr(FakeBlob, "delete", stuck)
-    aggregate.upload(client, site(tmp_path), run="20261110T130000Z")
+    publish(client, site(tmp_path), run="20261110T130000Z")
     assert published(client)[0] == "20261110T130000Z"
     assert "could not delete" in capsys.readouterr().out
 
@@ -469,6 +475,6 @@ def test_a_failed_listing_does_not_fail_the_publish(tmp_path, capsys, monkeypatc
         raise ConnectionError("503")
 
     monkeypatch.setattr(client, "list_blobs", unreachable)
-    aggregate.upload(client, site(tmp_path), run="20261110T130000Z")
+    publish(client, site(tmp_path), run="20261110T130000Z")
     assert published(client)[0] == "20261110T130000Z"
     assert "could not prune" in capsys.readouterr().out

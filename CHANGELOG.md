@@ -4,6 +4,219 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## 0.5.0 - 2026-11-17
+
+The first launch. howlate.la shows a page for every line, a reliability
+ranking, a methodology page and a behind-the-scenes page with live status. The
+pipeline adds an on-time share and the files those pages read. CI now opens
+the home page, every fixture line page, the ranking, the methodology page and the
+behind-the-scenes page in a browser.
+
+### Added
+
+- Line search on the home page. It finds `720`, `720 rapid`, `e line` and
+  `expo`, works from the keyboard alone, and shows a message when nothing
+  matches.
+- A page for every line at `/lines/<line>`. Each direction shows the median
+  delay, the 90th percentile, the measured arrivals and the on-time share. A
+  direction switch appears when a line has two. An unknown line shows a
+  not-found message.
+- The line page has four charts. The heatmap, the week chart and the stop strip
+  from 0.4.0 are joined by a route chart. It shows each stop's all-day median
+  delay in route order, with the 90th percentile as a lighter line, and it
+  breaks the line at a stop that was never measured, not at zero. A hidden table
+  lists every stop for screen readers.
+- Each heatmap cell can be read by tap, hover or keyboard. A readout under the
+  heatmap gives the day and hour, the median delay, the on-time share and the
+  arrivals measured. The grid is one tab stop. Arrow keys move the selection,
+  and Home and End go to the first and last hour of the day. A thin hour says
+  there are too few arrivals to judge, and an empty hour says nothing was
+  measured.
+- A reliability ranking at `/ranking`. Bus lines are ranked by on-time share.
+  The page lists the five most and five least reliable lines, and a table that
+  sorts by on-time share, median delay or 90th percentile from the keyboard. A
+  line needs 500 measured arrivals to be ranked. In the data at the time, only
+  line 697, the SoFi shuttle, fell below, with 202 arrivals. The next smallest
+  line had 18,078. Lines under the floor are listed with their counts. Rail
+  lines are in a separate table with median and 90th percentile only.
+- A methodology page at `/methods`. It explains how a delay is measured, what
+  counts as on time, why some stops have no number, how the daily checks work
+  and what HowLate does not know. Coverage gaps are explained there and nowhere
+  else. It gives Metro's own on-time window and its bus figure of 78.2 percent
+  for July to September 2025, and says that figure is measured at timepoints, so
+  it is not comparable.
+- A behind-the-scenes page at `/behind-the-scenes`. A status panel reads
+  `health.json` and shows the newest graded day, whether its checks passed, its
+  coverage and a 14-day strip. The strip uses a check, a cross or a dashed
+  outline, not color alone. The panel turns to a warning when the newest graded
+  day is more than 3 days old in Los Angeles. The daily job runs at 5 am Pacific
+  and grades 2 days back, so the newest day is 3 days old for about 5 hours
+  every night, and exactly 3 days is not a warning.
+  If `health.json` is missing or in the old shape, the page says the status is
+  not published yet. An inline diagram with a text list shows the path from
+  Metro's feeds to the site, and six problems solved come from this changelog,
+  `LESSONS.md` and the git history. The cost is labelled an estimate, with the
+  budget figure and no breakdown.
+- A main navigation on every page, with a skip link first in tab order. Every
+  prerendered page has its own title and description, a canonical link, and Open
+  Graph and Twitter tags in its HTML. Line pages are drawn in the browser, so
+  they set these when the page loads, and the served HTML has none. The design page is marked `noindex`. A 1200 by 630 social
+  preview image is 60 KB. A build test checks every prerendered page for one
+  `h1`, a unique title and description, the tags and the navigation.
+- An on-time share in the pipeline. On time means a delay from -60 to +300
+  seconds, inclusive at both edges. That is Metro's published window, 1 minute
+  early to 5 minutes late. The field is called `ontime`, and its description
+  says it is not Metro's published figure, because HowLate scores every stop and
+  Metro scores timepoints and rail terminals. The profile hours, each stop's
+  all-day numbers, the directions, the lines and the index entries carry it.
+  The index also carries each line's `n`, `med`, `p90` and `pct5`, so the
+  ranking page sorts without opening 115 files.
+- `network.json`, the hour-of-week profile for the whole network, split into bus
+  and rail, with all-day headline numbers.
+- `health.json`, built from the newest 14 saved daily reports. It holds the
+  pipeline version, the newest graded day, one entry per recent day and the
+  newest day's checks with their labels. Each field is picked by name, so the
+  rest of a report cannot reach the public file. A test puts a `gs://` path, an
+  endpoint, an email address and a host in a report and checks that none
+  appears. It reads every report shape in the bucket, including 0.3.0 reports
+  with the old `join_rate` name. A day with no report is left out, and an
+  unreadable report is skipped with a log line. The daily job now downloads 14
+  reports, about 42 KB, each run, and `aggregate` takes a `--reports` folder for
+  local runs.
+- A strict JSON Schema, a generated type and a loader with a shape check for
+  `network.json` and `health.json`. The schemas for the profile, the stops, the
+  lines and the index gain the on-time fields.
+- A `browser` CI job that `all-checks` waits on. It builds the site against a
+  committed fixture of eight lines in the current data shape. They cover two
+  directions, one direction, little data, a rail line, a Rapid line and a
+  busway, each cut to 10 stops per direction. A pipeline test checks the fixture
+  against the strict schemas.
+  - Playwright opens every fixture line at 375 px. It fails on a console error,
+    a missing or second `h1`, an error state or a sideways scroll. It also
+    checks the not-found message, search, the ranking, the Friday 5 pm readout,
+    that rail pages show no on-time sentence, and that the behind-the-scenes
+    page shows the newest day, a 14-day strip with its failed day marked, and
+    a warning when the newest day is 4 days old.
+  - axe fails on any serious or critical issue on the home page, a line page,
+    the ranking, the methodology page and the behind-the-scenes page, in light
+    and dark.
+  - Lighthouse on mobile, with the median of 3 runs, must score 90 for
+    performance and 95 for accessibility on the home page, a line page and the
+    ranking.
+  - Playwright 1.64.1, axe-core/playwright 4.14.0 and Lighthouse CI 0.16.1 are
+    pinned exactly, and the actions are pinned by commit SHA. The job uses no
+    secrets and has read-only permissions.
+- The site is served at https://howlate.la, and `www.howlate.la` redirects to
+  it. The data is served at https://data.howlate.la, a custom domain on the R2
+  bucket.
+
+### Changed
+
+- A trip counts as explained only when every timetable copy compared lists it
+  under a service that starts after the day. That was the one cause measured on
+  2026-11-07, 11-13 and 11-14. A service that expired, a service that a
+  `calendar_dates` row removed and a service with no calendar row stay
+  unexplained and fail `matched_rate` again.
+- A new check, `explained_lines`, fails when a line has at least 5 observed
+  trips and every one is explained. The 5 percent cap on `explained_pct` is
+  network-wide, so it could not see one small line hidden whole. The floor of 5
+  is a judgment, and the code says so. Regrading 2026-11-14, 11-13, 11-12,
+  11-07 and 10-31 locally gives the same counts as before, 338, 244, 0, 214 and
+  0 explained trips, and every check passes.
+- The default data address in `web/src/env.ts` is `https://data.howlate.la`, and
+  the site's canonical and preview links use `https://howlate.la`. A test pins
+  both. The pipeline and web docs, the `daily.sh` prompt and the release plan
+  name the new addresses. The validation rules for the public address do not
+  change.
+- CORS on the data stays open. The data is public and read only, and the
+  `pages.dev` preview deployments need it. This differs from #121, which asked
+  to tighten it, and both READMEs record why.
+- `upload` publishes only the site files a run built, and `build` returns their
+  names. Before, `upload` published every `.json` file in the directory. A line
+  Metro had dropped could come back from an old file on a reused disk, and a
+  test shows the old code did it. Stray files in the directory are neither
+  uploaded nor deleted.
+- `yesterday()` and the R2 freshness check read the calendar day from the
+  Pacific clock through one helper, `pacific_today`. Before, `yesterday()` read
+  the machine clock, which is UTC on Cloud Run. A run started between 16:00 and
+  24:00 Pacific, such as a manual run, saw the next UTC date. The scheduled
+  05:00 Pacific run is unchanged. The run-name timestamp stays UTC, because it
+  names no calendar day.
+- Rail on-time share stays hidden. The decision on #133 is that HowLate does not
+  show one yet, because it measures 64.4 percent for rail against Metro's 99.4
+  percent, and times the last stop of 84 percent of rail trips from the last
+  report before the train arrived. Rail lines show the median and 90th
+  percentile delay. One constant, `SHOW_RAIL_ONTIME`, turns the share on later,
+  and the ranking and the line pages follow it. The methodology page says this
+  in plain words and no longer quotes Metro's rail figure.
+
+### Fixed
+
+- Chart labels failed axe with 13 serious `aria-prohibited-attr` nodes on a line
+  page, in light and dark. Observable Plot puts an `aria-label` on inner groups
+  that have no role. `Chart.svelte` removes those labels after each render, and
+  the labels on the chart container and on groups with a role stay. After the
+  change axe finds none. The heatmap found its cells by those labels, so it now
+  sets its own `howlate-cell` class. A test draws the four charts, fails if a
+  group with no role keeps a label and checks that all 168 heatmap cells are
+  still found.
+- The arrivals docstring said the last stop of a trip is never observed. The
+  rail analysis in #133 found it is timed from the last approach report in 84
+  percent of rail trips and 64 percent of bus trips, an estimate with almost no
+  stopped reports. The docstring says that now, and so does the comment in
+  `report.py` on the `terminus_stopped` check, which now says the check found
+  none on the days checked.
+- The week chart's axis label no longer overlaps its top tick, and the design
+  page no longer calls route 4 a local route.
+
+### Checked
+
+- The pipeline's 441 tests, the collector's 5, ruff lint and ruff format pass.
+  The pipeline had 385 tests in 0.4.1.
+- The web type check, lint and build pass, and so do 210 web tests. Five more
+  tests read a git-ignored local data folder and skip when it is absent. The web
+  had 28 tests in 0.4.0. `npm run types` leaves no diff.
+- Three lines (801, 720 and 4) and the network match an independent DuckDB query
+  on 90 days of real data, 51.6 million arrivals. Changing the on-time window to
+  +299 or -59 seconds fails 6 tests. The edge tests cover -61, -60, +300 and
+  +301 seconds.
+- All 115 lines in the index load at 375 px with no console errors, one `h1` and
+  no sideways scroll, against local data in the new shape. From the home page,
+  tapping the search box, the 720 result and the Friday 5 pm cell shows the
+  readout in three taps at 375 px.
+- Locally, 26 Playwright tests pass. Lighthouse performance is 1 on the home
+  page, 0.96 to 1 on a line page, 1 on the ranking and 1 on the
+  behind-the-scenes page, and accessibility is 1 on all four. A deleted line
+  file, a renamed field, a raised threshold and a wide element each fail the
+  right check.
+- Built from the real reports through 2026-11-15, `health.json` is 3.9 KB. The
+  newest 14 days all pass, including 2026-11-07, 11-13 and 11-14 under the new
+  checks. The three failing days in the bucket are older.
+
+### Known gaps
+
+- The live daily job still has the old `R2_PUBLIC_URL`. It is updated by running
+  `pipeline/deploy/daily.sh` again after the owner approves. The `r2.dev`
+  address stays on until the new site is live, then gets turned off.
+- The data on R2 keeps the old shape until the first daily run after the
+  deploy. Until then the ranking page shows a needs-newer-data message and the
+  behind-the-scenes page says the status is not published yet, because the
+  bucket has no `health.json`. The line pages and the home page were checked
+  only against local data in the new shape.
+- Lighthouse performance on a line page is 0.96 to 1 locally against a
+  threshold of 0.9. The first CI run scored 0.89 before the chart code loaded
+  after the headline, so a slow runner can still land a few points below a local
+  run.
+- Rail on-time share is hidden, as described under Changed.
+- Line pages have no title, description, canonical link or Open Graph tags in
+  the served HTML, because the browser draws them. A link preview or a crawler
+  that does not run JavaScript sees none of them for `/lines/<line>`.
+- The Artifact Registry cleanup (#124) is not done.
+
+### Not changed
+
+- The collector stays at 0.1.0, and the VM is not redeployed.
+
 ## 0.4.1 - 2026-11-16
 
 The daily job now alarms when the public site data goes stale. It fails when the

@@ -1,3 +1,8 @@
 .svelte-kit/
 build/
 package-lock.json
+static/data/
+.playwright-cli/
+e2e/fixture/
+e2e/reports/
+e2e/.lighthouseci/

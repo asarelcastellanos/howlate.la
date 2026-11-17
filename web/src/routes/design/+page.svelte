@@ -11,8 +11,10 @@
 	import LineBullet from '#lib/design/LineBullet.svelte';
 	import LineChip from '#lib/design/LineChip.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 	import Rule from '#lib/design/Rule.svelte';
-	import { BUS_SERVICES, LINES, type BusService } from '#lib/design/lines.ts';
+	import { LINES, type BusService } from '#lib/design/lines.ts';
+	import { showsOntime } from '#lib/linePage.ts';
 	import css from '../layout.css?raw';
 
 	// The same pair list the contrast test checks, one row per pair.
@@ -34,22 +36,25 @@
 	];
 	const swatches = ['paper', 'ink', 'ink-muted', 'rule', 'sunk', 'focus'];
 	const ramp = ['On time', '', '', '', 'Very late'];
-	const buses: [BusService, string][] = [
-		['local', '4'],
+	// Route 4 has no service word in Metro's timetable, so its bullet is neutral.
+	const buses: [BusService | undefined, string][] = [
+		[undefined, '4'],
 		['rapid', '720'],
 		['limited', '344'],
 		['express', '487/489']
 	];
 </script>
 
-<svelte:head>
-	<title>Design specimen · HowLate</title>
-	<meta name="robots" content="noindex" />
-</svelte:head>
+<PageHead
+	title="Design specimen"
+	description="The HowLate design system on one page: type, color, rules, line bullets and charts, drawn with sample data."
+	path="/design"
+	noindex
+/>
 
 <Masthead dateline="Specimen, not data" />
 
-<main class="page pb-16">
+<main id="main" class="page pb-16">
 	<section class="pt-10 pb-6">
 		<Kicker>Design system</Kicker>
 		<Headline dek="Every piece of the visual foundation, in the theme your device is using.">
@@ -112,6 +117,7 @@
 			to="Example Station 36"
 			profile={fixtureProfile()}
 			stops={fixtureStops()}
+			showOntime={true}
 			source="Source: made-up sample data, not Metro's."
 		/>
 	</section>
@@ -130,6 +136,7 @@
 					to={direction.to}
 					profile={direction.profile}
 					stops={direction.stops}
+					showOntime={showsOntime(line.mode)}
 					source="Source: Metro's real-time feeds and timetable, graded by HowLate. {line.days} days, through {line.last_day}."
 				/>
 			{/snippet}
@@ -146,13 +153,14 @@
 			{#each LINES as line (line.id)}<LineBullet line={line.id} size="sm" />{/each}
 		</div>
 		<div class="mb-4 flex flex-wrap items-center gap-3">
-			{#each buses as [service, route] (service)}
+			{#each buses as [service, route] (route)}
 				<LineBullet {service} {route} size="lg" />
 			{/each}
 		</div>
 		<p class="caption text-ink-muted mb-4">
-			{buses.map(([service]) => BUS_SERVICES[service].name).join(', ')} bus routes. Metro's feed gives
-			no color to Local, Express or Limited routes, so these bullets are neutral.
+			The timetable names routes 720, 344 and 487 Rapid, Limited and Express, so their bullets say
+			so. Route 4 has no service word, so its bullet is neutral and reads "Route 4". Metro's feed
+			gives no color to bus routes other than Rapid.
 		</p>
 		<p>
 			Inline, <LineChip line="a" /> and <LineChip line="e" /> share a platform at 7th Street/Metro Center.
@@ -188,7 +196,11 @@
 	<Rule />
 	<article class="my-8">
 		<Kicker>Sample article</Kicker>
-		<Headline size="md" dek="The answer comes first, in plain words. The figure comes second.">
+		<Headline
+			level={2}
+			size="md"
+			dek="The answer comes first, in plain words. The figure comes second."
+		>
 			A headline states the finding
 		</Headline>
 		<p class="caption text-ink-muted mt-3">Placeholder text. Nothing here is measured.</p>

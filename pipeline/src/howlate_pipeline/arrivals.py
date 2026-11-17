@@ -18,9 +18,12 @@ That is a bus parked at its terminal announcing the trip it has not started. The
 first STOPPED_AT there is when it arrived to wait; the last one is when it left.
 So the origin is measured as a departure and marked as one.
 
-**The last stop of a trip is never observed.** Not once in 14,340 trips. Vehicles
-stop reporting a trip before finishing it. Nothing here can fix that; the rows
-exist, unobserved, and the report asserts the count stays at zero so that a
+**The last stop of a trip is timed from an approach report, not a stop.** A
+vehicle stops reporting a trip before it finishes, so a stopped report at the
+final stop is almost never there. The #133 analysis of the arrivals through
+2026-11-15 found the final stop timed from the last approach report in 84% of
+rail trips and 64% of bus trips. That time is an estimate. The report expects no
+stopped records at the final stop and fails its check if one appears, so a
 change in the feed's behaviour shows up as a surprise rather than as data.
 """
 
@@ -176,19 +179,25 @@ def observed_trip_ids(con: duckdb.DuckDBPyConnection) -> dict[str, set[str]]:
 def list_trips(
     con: duckdb.DuckDBPyConnection, agency: str, directory: Path, service_date: str
 ) -> None:
-    """Record every trip_id one timetable copy lists, and whether its service runs today.
+    """Record every trip_id one timetable copy lists, with its route and service state.
 
-    Reads trips.txt only, never stop_times.txt, so a feed that lists thousands of
-    future trips costs one small scan.
+    `service_active` is whether the service runs today. `service_later` is
+    whether its calendar start_date is after today, which is the only reason
+    for a trip with no running service that the report treats as explained.
+    Reads trips.txt only, never stop_times.txt, so a feed that lists thousands
+    of future trips costs one small scan.
     """
-    services = sorted(gtfs.active_services(directory, service_date))
+    active = sorted(gtfs.active_services(directory, service_date))
+    later = sorted(gtfs.later_start_services(directory, service_date))
     con.execute(
         """
         INSERT INTO listed_trips
-        SELECT ?, trip_id, bool_or(list_contains(?::VARCHAR[], service_id))
+        SELECT ?, trip_id, min(route_id),
+               bool_or(list_contains(?::VARCHAR[], service_id)),
+               bool_or(list_contains(?::VARCHAR[], service_id))
         FROM read_csv(?, all_varchar = true) GROUP BY trip_id
     """,
-        [agency, services, str(directory / "trips.txt")],
+        [agency, active, later, str(directory / "trips.txt")],
     )
 
 
@@ -204,7 +213,9 @@ def load_schedule(
     `listed_trips`, for the chosen copy and for the other copies in `also_read`.
     A trip under a service that is not running today gets no scheduled stops, so
     without that record an observation on it is indistinguishable from one on a
-    trip no timetable has ever heard of. Only the chosen copy is graded against.
+    trip no timetable has ever heard of. The record also says whether the
+    service starts after today, which the report needs to tell a later-start
+    trip from an expired one. Only the chosen copy is graded against.
     """
     base = gtfs.day_base(service_date)
 
@@ -216,7 +227,8 @@ def load_schedule(
     )
     con.execute(
         "CREATE OR REPLACE TABLE listed_trips "
-        "(agency VARCHAR, trip_id VARCHAR, service_active BOOLEAN)"
+        "(agency VARCHAR, trip_id VARCHAR, route_id VARCHAR, "
+        "service_active BOOLEAN, service_later BOOLEAN)"
     )
 
     for agency, directory in directories.items():
