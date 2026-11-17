@@ -7,6 +7,7 @@
 	import Kicker from '#lib/design/Kicker.svelte';
 	import LineBullet from '#lib/design/LineBullet.svelte';
 	import Rule from '#lib/design/Rule.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 	import {
 		ONTIME_WINDOW,
 		RAIL_HOLD_NOTE,
@@ -15,7 +16,6 @@
 		headline,
 		lineName,
 		pageDescription,
-		pageTitle,
 		shortVia,
 		showsOntime,
 		sourceNote
@@ -32,10 +32,11 @@
 	const ontime = $derived(showsOntime(line.mode, showRailOntime));
 </script>
 
-<svelte:head>
-	<title>{pageTitle(line)}</title>
-	<meta name="description" content={pageDescription(line)} />
-</svelte:head>
+<PageHead
+	title={name}
+	description={pageDescription(line)}
+	path="/lines/{encodeURIComponent(line.line)}"
+/>
 
 <section class="pt-10 pb-6">
 	<div class="mb-4"><LineBullet {...bulletProps(line)} size="lg" /></div>

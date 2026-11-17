@@ -1,6 +1,6 @@
 // Renders the methodology page on the server and checks what a reader and a
 // search engine get. The Masthead imports $app/paths, which exists only inside
-// SvelteKit, so this test stands in a one-line replacement for it.
+// SvelteKit, so this test stands in a short replacement for each one.
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { before, test } from 'node:test';
@@ -8,11 +8,12 @@ import { render } from 'svelte/server';
 
 registerHooks({
 	resolve(specifier, context, nextResolve) {
-		if (specifier !== '$app/paths') return nextResolve(specifier, context);
-		return {
-			url: 'data:text/javascript,export const resolve = (path) => path;',
-			shortCircuit: true
+		const stubs: Record<string, string> = {
+			'$app/paths': 'export const resolve = (path) => path;',
+			'$app/state': 'export const page = { route: { id: "/methods" } };'
 		};
+		if (!(specifier in stubs)) return nextResolve(specifier, context);
+		return { url: `data:text/javascript,${stubs[specifier]}`, shortCircuit: true };
 	}
 });
 

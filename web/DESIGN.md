@@ -36,8 +36,9 @@ are 16 px on a phone. For 12 columns, use `grid md:grid-cols-12` inside a
 
 ## Components
 
-`Masthead` (takes a `dateline` prop, because a build date would go stale),
-`Kicker`, `Headline` (with an optional `dek`), `Figure` (children, `caption` and
+`Masthead` (takes a `dateline` prop, because a build date would go stale, and
+draws the skip link and `Nav`), `Nav` (the main navigation, from `NAV` in
+`src/lib/nav.ts`), `Kicker`, `Headline` (with an optional `dek`), `Figure` (children, `caption` and
 `source` snippets), `Rule`, `LineBullet`, `LineChip` and `StatusStrip` (the
 network totals from `status.json`).
 

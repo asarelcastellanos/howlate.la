@@ -7,20 +7,19 @@
 	import Kicker from '#lib/design/Kicker.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
 	import Rule from '#lib/design/Rule.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 	import RankingBody from './RankingBody.svelte';
 </script>
 
-<svelte:head>
-	<title>Line reliability ranking · HowLate</title>
-	<meta
-		name="description"
-		content="LA Metro bus lines in order of the share of measured arrivals that came from 1 minute early to 5 minutes late, with median delay and 90th percentile."
-	/>
-</svelte:head>
+<PageHead
+	title="Line reliability ranking"
+	description="LA Metro bus lines in order of how often they arrive from 1 minute early to 5 minutes late, with median delay and 90th percentile."
+	path="/ranking"
+/>
 
 <Masthead dateline="Ranking" />
 
-<main class="page pb-16">
+<main id="main" class="page pb-16">
 	<section class="pt-10 pb-6">
 		<Kicker>Ranking</Kicker>
 		<Headline dek="Metro bus lines in order of the share of measured arrivals that were on time.">

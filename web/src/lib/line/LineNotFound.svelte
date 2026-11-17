@@ -2,14 +2,17 @@
 	import { resolve } from '$app/paths';
 	import Headline from '#lib/design/Headline.svelte';
 	import Kicker from '#lib/design/Kicker.svelte';
+	import PageHead from '#lib/PageHead.svelte';
 
 	let { id }: { id: string } = $props();
 </script>
 
-<svelte:head>
-	<title>Line not found · HowLate</title>
-	<meta name="robots" content="noindex" />
-</svelte:head>
+<PageHead
+	title="Line not found"
+	description="HowLate has no line with this name. Search for a line by its number or its name to find the page you wanted."
+	path="/lines/{encodeURIComponent(id)}"
+	noindex
+/>
 
 <!-- The site is static, so the server answers 200 for any /lines/ path and this
      message cannot change that. The robots tag keeps the page out of search

@@ -64,10 +64,6 @@ export function headline(
 export const hasDirectionSwitch = (line: Pick<LineFile, 'directions'>) =>
 	line.directions.length > 1;
 
-export function pageTitle(line: Pick<IndexEntry, 'label' | 'mode'>): string {
-	return `${lineName(line)} · HowLate`;
-}
-
 export function sourceNote(line: Pick<LineFile, 'days' | 'last_day'>): string {
 	return `Source: Metro's real-time feeds and timetable, graded by HowLate. ${line.days} days of data, through ${longDate(line.last_day)}.`;
 }
