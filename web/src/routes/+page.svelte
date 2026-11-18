@@ -30,19 +30,20 @@
 	<!-- One Remote reads the status and the index from one run, so the strip and the
 	     search list never come from two different daily runs. Each file has its own
 	     result, so a failed status file shows its error and the search box still
-	     renders. The "Find a line" links point at #search, so the loading and error
+	     renders, and each one gets its own Try again button that reruns the whole load.
+	     The "Find a line" links point at #search, so the loading and error
 	     states carry an empty anchor and the prerendered page has the id before the
 	     data arrives. -->
 	<Remote load={() => loadHome(DATA_BASE)}>
 		{#snippet heading()}<div id="search" class="mt-10 scroll-mt-6"></div>{/snippet}
-		{#snippet children({ status, index })}
+		{#snippet children({ status, index }, retry)}
 			<div class="wide mt-10">
-				<ResultView result={status}>
+				<ResultView result={status} onretry={retry}>
 					{#snippet children(data)}<StatusStrip status={data} />{/snippet}
 				</ResultView>
 			</div>
 			<div id="search" class="mt-10 scroll-mt-6">
-				<ResultView result={index}>
+				<ResultView result={index} onretry={retry}>
 					{#snippet children(data)}<SearchBox entries={data.lines} />{/snippet}
 				</ResultView>
 			</div>
