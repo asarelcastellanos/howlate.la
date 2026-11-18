@@ -74,6 +74,28 @@ test('typing 720 in the search lists it and Enter opens its page', async ({ page
 	await expect(page).toHaveURL(`/lines/${entry.line}`);
 });
 
+// Each file on the home page has its own error state. Both must offer Try again,
+// and the retry must load the file that failed.
+for (const file of ['status.json', 'index.json']) {
+	test(`a failed ${file} on the home page shows Try again, and the retry loads it`, async ({
+		page
+	}) => {
+		let failures = 0;
+		await page.route(`**/${file}`, (route) => {
+			if (failures++ === 0) return route.fulfill({ status: 500, body: '' });
+			return route.continue();
+		});
+		await page.goto('/');
+		const retry = page.getByRole('button', { name: 'Try again' });
+		await expect(page.getByRole('alert')).toContainText("We couldn't load this data");
+		await expect(retry).toHaveCount(1);
+		await retry.click();
+		await expect(retry).toHaveCount(0);
+		await expect(page.getByRole('alert')).toHaveCount(0);
+		await expect(page.getByRole('combobox', { name: 'Find a line' })).toBeVisible();
+	});
+}
+
 test('the ranking links every ranked bus line and the unranked and rail lines', async ({
 	page
 }) => {
