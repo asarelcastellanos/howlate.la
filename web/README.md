@@ -75,7 +75,8 @@ The data does not need a server either. Per the release plan, the browser
 fetches JSON from R2 at runtime, so a new day of data needs no rebuild.
 
 The adapter also writes `build/200.html`, the app shell, so the client router
-can handle a path that was not prerendered, such as `/lines/720`. Pages does not
+can handle a path that was not prerendered, such as a line missing from
+`src/lib/data/lines.json`. Pages does not
 pick that file by itself for an unknown path. The rule in `static/_redirects`
 (`/lines/* /200 200`) sends every line path to it. The Lines section has the
 details.
@@ -181,7 +182,8 @@ The home page loads `status.json` and `index.json` with `loadHome`
 (`src/lib/home.ts`), which opens one run and reads both from it. It shows the
 status strip and a search box (`SearchBox.svelte`, ranked by `searchLines` in
 `src/lib/search.ts`). Choosing a result opens
-`/lines/<line>`. That route is client rendered (`prerender = false`). It reads
+`/lines/<line>`. That route renders in the browser, and the build also prerenders
+a page for each line in `src/lib/data/lines.json` (see "Line page head" below). It reads
 `index.json` and `lines/<line>.json` from one run, then shows a headline for each
 direction, a switch between directions, and the three charts. An id that is not
 in the index, or a line file that returns 404, shows a "We could not find that
@@ -204,6 +206,39 @@ a `.html` target to the clean URL, which changes the address and breaks the
 route. Without it, Cloudflare Pages serves the prerendered home
 page for a path it did not build. A rail line page hides the on-time share while
 `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+
+### Line page head
+
+`src/routes/lines/[line]/+page.ts` sets `prerender = true`, and `entries()` returns
+every id in `src/lib/data/lines.json`. `Remote` renders its loading state at build
+time, so each `build/lines/<id>.html` holds the title, a description, the canonical
+link and `og:image` without JavaScript. `lineHead` (`src/lib/lineHead.ts`) builds
+the title and a description that is different for every line, from the line's label,
+mode, ends and corridor, and the page and the prerendered file both call it, so the
+browser's head matches the served one. An id that is not in the list is not built.
+Pages serves `200.html` for it, and the page shows the not-found message.
+
+The build does not fetch the index, so an unreachable index cannot fail it. The list
+is committed instead. It keeps `line`, `label`, `mode`, `to` and `via` for each line
+and no metric. Run `npm run lines:refresh` when Metro adds a line, then commit
+`lines.json`. The script reads the index from `PUBLIC_DATA_BASE` (default
+`https://data.howlate.la`). A line missing from the list gets no title or preview in
+the served HTML until the list is refreshed, and it still works in the browser.
+`tests/built.test.ts` checks that every id in the list has a built file with a title,
+a description of 40 to 160 characters, a canonical link and `og:image`.
+
+`lines:refresh` also rewrites the block between the `# BEGIN line pages` and
+`# END line pages` lines in `static/_redirects`, one rule per id
+(`/lines/720 /lines/720 200`). Do not edit that block by hand. Pages follows a
+redirect rule even when a file matches the path, and the first matching rule wins, so
+the wildcard `/lines/* /200 200` alone sends every line to the app shell. A preview
+served `/lines/720` and `/lines/zzz` as the same 1,508 bytes with no title. The
+per-line rules sit before the wildcard so the prerendered files are served. Each rule
+rewrites the path to itself and has no `.html` target. A preview with `.html` targets
+answered `/lines/720` with 308 and `location: /lines/720`, an endless loop, because
+Pages redirects a `.html` target to the clean URL and that URL matched the rule again.
+`tests/lineRedirects.test.ts` fails when the committed file no longer matches
+`lines.json`.
 
 ## Ranking
 

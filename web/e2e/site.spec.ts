@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { MIN_RANKED_ARRIVALS } from '../src/lib/ranking.ts';
 import { longDate } from '../src/lib/date.ts';
@@ -50,7 +51,15 @@ for (const entry of entries) {
 	});
 }
 
+// A line outside src/lib/data/lines.json is not prerendered, so `vite preview` answers 404 for
+// it. Cloudflare Pages answers with the app shell instead, and this route does the same.
 test('an unknown line shows the not-found message', async ({ page }) => {
+	const shell = readFileSync(new URL('../build/200.html', import.meta.url), 'utf8');
+	await page.route('**/lines/zzz', (route) =>
+		route.request().resourceType() === 'document'
+			? route.fulfill({ status: 200, contentType: 'text/html', body: shell })
+			: route.continue()
+	);
 	await page.goto('/lines/zzz');
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText('We could not find that line');
 });
