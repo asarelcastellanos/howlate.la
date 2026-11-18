@@ -39,15 +39,29 @@ def test_pacific_today_follows_the_pacific_calendar(now, day, utc_day):
     assert pacific_today(now) == day
 
 
-def test_the_default_day_is_two_days_before_the_pacific_day():
-    assert cli.yesterday(pacific(2026, 11, 16, 17, 0)) == "20261114"
+def test_the_default_day_is_one_day_before_the_pacific_day_from_07_00():
+    # The scheduled run is at 08:00. Grading at 05:00 missed bus arrivals, because
+    # the timetable runs buses until 05:45 and the last report came at 06:12.
+    assert cli.yesterday(pacific(2026, 11, 16, 8, 0)) == "20261115"
+    assert cli.yesterday(pacific(2026, 11, 16, 7, 0)) == "20261115"
+    assert cli.yesterday(pacific(2026, 11, 16, 17, 0)) == "20261115"
+    assert cli.yesterday(pacific(2026, 11, 16, 23, 59)) == "20261115"
+
+
+def test_before_07_00_the_default_day_is_two_days_back_because_yesterday_is_still_running():
+    assert cli.yesterday(pacific(2026, 11, 16, 6, 59)) == "20261114"
     assert cli.yesterday(pacific(2026, 11, 16, 5, 0)) == "20261114"
-    assert cli.yesterday(pacific(2026, 11, 16, 23, 59)) == "20261114"
+    assert cli.yesterday(pacific(2026, 11, 16, 0, 0)) == "20261114"
 
 
 def test_the_default_day_counts_calendar_days_across_daylight_saving():
-    assert cli.yesterday(pacific(2026, 3, 9, 17, 0)) == "20260307"
-    assert cli.yesterday(pacific(2026, 11, 2, 17, 0)) == "20261031"
+    assert cli.yesterday(pacific(2026, 3, 9, 17, 0)) == "20260308"
+    assert cli.yesterday(pacific(2026, 11, 2, 17, 0)) == "20261101"
+    # 07:00 is local time on the days the clocks change, not seven elapsed hours.
+    assert cli.yesterday(pacific(2026, 3, 8, 7, 0)) == "20260307"
+    assert cli.yesterday(pacific(2026, 3, 8, 6, 59)) == "20260306"
+    assert cli.yesterday(pacific(2026, 11, 1, 7, 0)) == "20261031"
+    assert cli.yesterday(pacific(2026, 11, 1, 6, 59)) == "20261030"
 
 
 def test_with_no_clock_given_the_helper_reads_the_utc_clock(monkeypatch):
@@ -61,21 +75,20 @@ def test_with_no_clock_given_the_helper_reads_the_utc_clock(monkeypatch):
 
 
 @pytest.fixture
-def pacific_day_is_nov_9(monkeypatch):
-    """The real yesterday() on 2026-11-09 Pacific, so the latest complete day is 2026-11-07."""
-    monkeypatch.setattr(cli, "pacific_today", lambda now=None: date(2026, 11, 9))
-    assert cli.yesterday() == "20261107"
+def latest_complete_day_is_nov_7(monkeypatch):
+    """The latest complete day is 2026-11-07, as at 09:00 Pacific on 2026-11-08."""
+    monkeypatch.setattr(cli, "yesterday", lambda now=None: "20261107")
 
 
 @pytest.mark.parametrize("text", ["2026-11-07", "20261107", "2026-11-06"])
-def test_the_latest_complete_day_and_earlier_days_are_accepted(pacific_day_is_nov_9, text):
+def test_the_latest_complete_day_and_earlier_days_are_accepted(latest_complete_day_is_nov_7, text):
     # The latest day is the one the default grades, so it must be allowed.
     assert cli.require_complete(text) == text.replace("-", "")
 
 
 @pytest.mark.parametrize("text", ["2026-11-08", "20261109", "2026-11-10"])
 def test_a_day_after_the_latest_complete_one_is_refused_with_that_day_named(
-    pacific_day_is_nov_9, text
+    latest_complete_day_is_nov_7, text
 ):
     with pytest.raises(SystemExit, match="is not complete yet; the latest is 2026-11-07"):
         cli.require_complete(text)

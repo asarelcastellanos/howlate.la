@@ -50,7 +50,7 @@
 		],
 		[
 			'Daily pipeline',
-			'A Cloud Run job starts at 5 am Pacific. It grades each scheduled stop against the timetable in force that day, then runs its checks.'
+			'A Cloud Run job starts at 8 am Pacific. It grades each scheduled stop against the timetable in force that day, then runs its checks.'
 		],
 		[
 			'Derived data',

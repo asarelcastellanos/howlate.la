@@ -343,13 +343,16 @@ done
 # Again, because a backfill could have started during the build.
 no_backfill
 
-echo "==> Schedule: 05:00 America/Los_Angeles"
-# By 05:00 the service day two days back is complete, which is the last day
-# `daily` grades. No retries: the run call returns at once, and a retry after
-# a run that did start would grade the same days twice at the same time.
+echo "==> Schedule: 08:00 America/Los_Angeles"
+# At 08:00 yesterday's service day is complete, which is the last day `daily`
+# grades. Bus service runs to 05:45 and the last bus report of four measured
+# days came at 06:12, so 08:00 leaves about 1h45. At 05:00 the run missed 283
+# and 472 bus arrivals on the two days compared. No retries: the run call
+# returns at once, and a retry after a run that did start would grade the same
+# days twice at the same time.
 # A run that never starts is caught by healthchecks.io's silence alarm.
 SCHEDULE=(--project "$PROJECT" --location "$REGION"
-  --schedule "0 5 * * *" --time-zone America/Los_Angeles
+  --schedule "0 8 * * *" --time-zone America/Los_Angeles
   --uri "https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/$JOB:run"
   --http-method POST --oauth-service-account-email "$INVOKER"
   --max-retry-attempts 0)
@@ -359,9 +362,9 @@ else
   gcloud scheduler jobs create http "$JOB" "${SCHEDULE[@]}"
 fi
 
-# By hand, keep clear of 05:00 and of any backfill: a first run grades all
+# By hand, keep clear of 08:00 and of any backfill: a first run grades all
 # seven days, and nothing else may grade them while it is still going.
-echo "==> Deployed $TAG. Run it once by hand, not near 05:00 Pacific and never"
+echo "==> Deployed $TAG. Run it once by hand, not near 08:00 Pacific and never"
 echo "    while the backfill VM is running, and watch it:"
 echo "    gcloud run jobs execute $JOB --project $PROJECT --region $REGION --wait"
 echo "    gcloud storage cat gs://howlate-derived/site/current.json"

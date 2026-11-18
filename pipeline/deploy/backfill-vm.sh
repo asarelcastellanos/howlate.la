@@ -31,9 +31,12 @@ set -euo pipefail
 
 REF=${1:?git ref to run, e.g. release/v0.3.0}
 FIRST=${2:?first service day, e.g. 2026-08-18}
-# Two days back in Los Angeles: a service day is complete only once the UTC
-# partition after it has closed.
-LAST=${3:-$(TZ=America/Los_Angeles date -v-2d +%F 2>/dev/null || TZ=America/Los_Angeles date -d "2 days ago" +%F)}
+# The latest complete service day in Los Angeles. Bus service runs to 05:45 the
+# next morning and the last bus report of four measured days came at 06:12, so
+# yesterday is complete from 07:00 and the day before it until then. This
+# matches `yesterday()` in pipeline/src/howlate_pipeline/__main__.py.
+if [ "$(TZ=America/Los_Angeles date +%H)" -ge 7 ]; then BACK=1; else BACK=2; fi
+LAST=${3:-$(TZ=America/Los_Angeles date -v-"$BACK"d +%F 2>/dev/null || TZ=America/Los_Angeles date -d "$BACK days ago" +%F)}
 
 PROJECT=howlate-la
 ZONE=us-west1-b

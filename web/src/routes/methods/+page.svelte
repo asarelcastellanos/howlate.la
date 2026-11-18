@@ -151,8 +151,8 @@
 		<p class="mt-4">
 			The data comes from Metro's real-time vehicle positions and Metro's timetable files. The code
 			is in the <a href={repository} rel="noreferrer">HowLate repository</a>
-			on GitHub. A daily job runs at 5 am Pacific, and the newest day on the site trails the calendar
-			by two days.
+			on GitHub. A daily job runs at 8 am Pacific and grades the day before. Until it runs, the newest
+			day on the site is two days old, and after it runs the newest day is yesterday.
 		</p>
 	</section>
 </main>

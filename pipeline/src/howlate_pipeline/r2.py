@@ -59,11 +59,16 @@ POINTER_CACHE = "public, max-age=60"
 # a typo such as "on" or "y" cannot turn the guard off.
 FALSE = {"0", "false", "no", "off", "none"}
 # The public status's `last_day` may trail today's date by this many days. The
-# daily job runs at 05:00 Pacific and grades up to two days back (see
-# `__main__.yesterday`), so right after a run the gap is 2. Allowing 4 forgives
-# a day or two of failed grading, and a larger gap means the job is no longer
-# keeping up.
-MAX_LAG_DAYS = 4
+# daily job runs at 08:00 Pacific and grades yesterday (see
+# `__main__.yesterday`), so when this check runs, right after the copy, the gap
+# is 1, or 2 for a manual run before 07:00. Allowing 3 forgives two days of
+# failed grading, as the old limit of 4 did when the normal gap was 2, and a
+# larger gap means the job is no longer keeping up. The check only runs inside
+# the daily job, so the hours from midnight to 08:00, when the newest day is
+# legitimately 2 days old, never reach it. The site's own limit is one less (see
+# STALE_AFTER_DAYS in web/src/lib/behind.ts), because a browser looks at any
+# hour.
+MAX_LAG_DAYS = 3
 FETCH_TIMEOUT = 10
 RETRY_PAUSE = 2
 RUN_PREFIX = re.compile(r"site/runs/[A-Za-z0-9._-]+/")
