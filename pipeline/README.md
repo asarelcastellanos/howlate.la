@@ -102,6 +102,15 @@ Every cell carries what was measured *and* what was scheduled, because only
 about half of all scheduled stops can be observed and a cell resting on three
 sightings must not look like one resting on three hundred.
 
+Bus stops that the vehicle feed never reported get a time from the reports on
+either side (`arrivals.interpolate`, source `interpolated`). Those delays are in
+`n`, the median and `ontime` like any other. Each entry in `index.json`, each
+direction's `all`, each stop and each scope's `all` in `network.json` carries
+`est`, how many of its `n` arrivals were estimated, and `status.json` carries
+`estimated_arrivals`. Hour and daypart cells do not, to keep the line files
+small. The estimate is bus only. `pipeline/scripts/hide_and_compare.py` checks
+it against stops that have a real report and prints the error by gap size.
+
 Each profile hour, each stop's `all`, each direction's `all`, each entry in
 `index.json` and each network profile hour also carries `ontime`, the percent of
 measured arrivals from 60 seconds early to 300 seconds late, both included.
@@ -116,7 +125,8 @@ and the pages read `med` from them.
 `last_day` and `days` from the run, `recent`, and `checks`. `recent` has one
 entry for each of the newest 14 service days that have a saved report, newest
 first, with `ok`, the names of the checks that `failed`, `coverage_pct`,
-`explained_trips`, `explained_pct` and `observations`. `checks` is the checks of the
+`estimated_pct` (the share of scheduled stops that were estimated, not in
+`coverage_pct`), `explained_trips`, `explained_pct` and `observations`. `checks` is the checks of the
 report for `last_day`, with the report's own labels, either a range (`value`,
 `low`, `high`) or a count (`value`, `expected`). It is empty when `last_day` has
 no readable report, even if `recent` lists older days. The file is public, so

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { MIN_RANKED_ARRIVALS } from '../src/lib/ranking.ts';
 import { longDate } from '../src/lib/date.ts';
+import { ESTIMATE_HREF, estimatedNote } from '../src/lib/estimated.ts';
 import { shareText } from '../src/lib/share.ts';
 import { health, index, network, readLine, status } from './fixture.ts';
 import { lineLoaded, watchConsole } from './helpers.ts';
@@ -164,6 +165,30 @@ test('a rail page shows the on-time sentence like a bus page', async ({ page }) 
 		await expect(page.locator('main')).toContainText(sentences);
 		await expect(page.locator('main')).not.toContainText('on hold');
 	}
+});
+
+// The counts are in the fixture, so the sentence under each direction's headline is built from
+// them here and a bus line says how much of it was estimated, while rail, never estimated, says nothing.
+test('a bus page says how much of each direction was estimated, and a rail page says nothing', async ({
+	page
+}) => {
+	const bus = entries.find((e) => e.line === '720')!;
+	await page.goto(`/lines/${bus.line}`);
+	await expect(lineLoaded(page)).toBeVisible();
+	for (const direction of readLine(bus.line).directions) {
+		const note = estimatedNote(direction.all.n, direction.all.est)!;
+		expect(note).toBeTruthy();
+		await expect(page.locator('main li', { hasText: note }).first()).toBeVisible();
+	}
+	await expect(page.getByRole('link', { name: 'How we estimate' }).first()).toHaveAttribute(
+		'href',
+		ESTIMATE_HREF
+	);
+
+	const rail = entries.find((e) => e.mode === 'rail')!;
+	await page.goto(`/lines/${rail.line}`);
+	await expect(lineLoaded(page)).toBeVisible();
+	await expect(page.locator('main')).not.toContainText('were estimated from where the bus was');
 });
 
 // The asterisk is hidden from a screen reader, so the tests find it by its test id.

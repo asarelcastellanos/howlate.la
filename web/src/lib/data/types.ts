@@ -74,9 +74,13 @@ export interface HealthDay {
 	 */
 	failed: string[];
 	/**
-	 * Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place.
+	 * Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place. It leaves out the stops in estimated_pct.
 	 */
 	coverage_pct: number;
+	/**
+	 * Percent of the day's scheduled stops that the feed never reported and the pipeline placed between two position reports of the same bus, to one decimal place. These have a delay but were not measured. 0 on days graded before the pipeline estimated them.
+	 */
+	estimated_pct: number;
 	/**
 	 * Trips that vehicles reported but that have no scheduled stops to grade against, because the timetable lists them only under a service that is not running that day. 0 on days graded before the pipeline counted them.
 	 */
@@ -202,6 +206,10 @@ export interface IndexEntry {
 	 */
 	n: number;
 	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival.
+	 */
+	est: number;
+	/**
 	 * Scheduled stops over all days, measured or not. Divide n by this for coverage.
 	 */
 	sched: number;
@@ -316,6 +324,10 @@ export interface Delays {
 	 */
 	n: number;
 	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival.
+	 */
+	est: number;
+	/**
 	 * Median delay in seconds. Positive means late and negative means early.
 	 */
 	med: number;
@@ -387,6 +399,10 @@ export interface Stop {
 	 * Arrivals with a measured delay at this stop, over all days. It counts every daypart and can be 0.
 	 */
 	n: number;
+	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival.
+	 */
+	est: number;
 	/**
 	 * Scheduled stops here, measured or not. It also counts dayparts missing from cells, so a gap in cells is not a gap in the timetable.
 	 */
@@ -476,6 +492,10 @@ export interface NetworkDelays {
 	 */
 	n: number;
 	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival. It is 0 when n is 0, and 0 for rail, which is never estimated this way.
+	 */
+	est: number;
+	/**
 	 * Median delay in seconds. Positive means late and negative means early. Null when n is 0.
 	 */
 	med: number | null;
@@ -550,7 +570,11 @@ export interface SiteStatus {
 	 */
 	measured_arrivals: number;
 	/**
-	 * measured_arrivals as a percent of scheduled_stops, to one decimal place.
+	 * Of measured_arrivals, the stops placed between two position reports of the same bus because the feed never reported them. The rest were seen at the stop or timed from an approach report.
+	 */
+	estimated_arrivals: number;
+	/**
+	 * measured_arrivals as a percent of scheduled_stops, to one decimal place. It includes estimated_arrivals.
 	 */
 	coverage_pct: number;
 	/**

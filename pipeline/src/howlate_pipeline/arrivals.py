@@ -36,7 +36,7 @@ from pathlib import Path
 import duckdb
 from google.cloud import storage
 
-from howlate_pipeline import DERIVED_BUCKET, RAW_BUCKET, gtfs
+from howlate_pipeline import BUS_AGENCY, DERIVED_BUCKET, RAW_BUCKET, gtfs
 
 POSITIONS = "vehicle_positions"
 
@@ -53,7 +53,9 @@ SELECT
   CAST(json_extract_string(j, '$.payload.vehicle.currentStopSequence') AS INTEGER) AS stop_sequence,
   json_extract_string(j, '$.payload.vehicle.stopId')           AS stop_id,
   json_extract_string(j, '$.payload.vehicle.vehicle.id')       AS vehicle_id,
-  CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts
+  CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts,
+  CAST(json_extract_string(j, '$.payload.vehicle.position.latitude') AS DOUBLE)  AS lat,
+  CAST(json_extract_string(j, '$.payload.vehicle.position.longitude') AS DOUBLE) AS lon
 FROM read_json_objects(?) t(j)
 """
 
@@ -223,7 +225,7 @@ def load_schedule(
         "CREATE OR REPLACE TABLE scheduled (agency VARCHAR, line VARCHAR, "
         "route_id VARCHAR, direction_id INTEGER, trip_id VARCHAR, stop_id VARCHAR, "
         "stop_sequence INTEGER, scheduled_arrival BIGINT, scheduled_departure BIGINT, "
-        "is_origin BOOLEAN, is_terminus BOOLEAN)"
+        "is_origin BOOLEAN, is_terminus BOOLEAN, stop_lat DOUBLE, stop_lon DOUBLE)"
     )
     con.execute(
         "CREATE OR REPLACE TABLE listed_trips "
@@ -253,10 +255,13 @@ def load_schedule(
                   st.stop_id,
                   CAST(st.stop_sequence AS INTEGER) AS stop_sequence,
                   {base} + epoch_offset(st.arrival_time)   AS scheduled_arrival,
-                  {base} + epoch_offset(st.departure_time) AS scheduled_departure
+                  {base} + epoch_offset(st.departure_time) AS scheduled_departure,
+                  TRY_CAST(p.stop_lat AS DOUBLE) AS stop_lat,
+                  TRY_CAST(p.stop_lon AS DOUBLE) AS stop_lon
                 FROM read_csv(?, all_varchar = true) st
                 JOIN read_csv(?, all_varchar = true) t USING (trip_id)
                 JOIN active a ON a.service_id = t.service_id
+                LEFT JOIN read_csv(?, all_varchar = true) p ON p.stop_id = st.stop_id
             )
             SELECT
               ? AS agency,
@@ -264,10 +269,16 @@ def load_schedule(
               route_id, direction_id, trip_id, stop_id, stop_sequence,
               scheduled_arrival, scheduled_departure,
               stop_sequence = min(stop_sequence) OVER (PARTITION BY trip_id) AS is_origin,
-              stop_sequence = max(stop_sequence) OVER (PARTITION BY trip_id) AS is_terminus
+              stop_sequence = max(stop_sequence) OVER (PARTITION BY trip_id) AS is_terminus,
+              stop_lat, stop_lon
             FROM stops
         """,
-            [str(directory / "stop_times.txt"), str(directory / "trips.txt"), agency],
+            [
+                str(directory / "stop_times.txt"),
+                str(directory / "trips.txt"),
+                str(directory / "stops.txt"),
+                agency,
+            ],
         )
 
 
@@ -404,6 +415,187 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
     """)
 
 
+# Metres in a degree at Los Angeles. Longitude shrinks with the cosine of the
+# latitude, and the bus network spans 33.7 to 34.8 degrees, where that moves it
+# by 1.4 percent, so each stop's own latitude is used.
+METRES_PER_DEGREE_LAT = 110574.0
+METRES_PER_DEGREE_LON = 111320.0
+
+# The most seconds allowed between the two reports around a skipped stop. Over
+# the seven days 2026-11-10 to 2026-11-16, each of the 3,108,520 bus stops with a
+# real STOPPED_AT report was hidden in turn and placed from the reports around it
+# (pipeline/scripts/hide_and_compare.py). The closest match to a stop the bus
+# never stopped at is one where it waited 10 seconds or less. With reports 300 s
+# apart or less, 1,180,150 such stops were placed at a median 2 s early, 90% of
+# errors were within 28 s, and 3.0% landed on the other side of the on-time
+# window, 18,535 falling out and 17,062 falling in. Allowing 450 s
+# raises that to 3.9% and 600 s to 4.0%. Reports 450 to 600 s apart flip 16% of
+# stops and past 600 s 23%. Those stops are left `none`. Gaps up to 300 s are 88%
+# of the skipped stops that have a report on each side, on 10, 12 and 14
+# November, so the limit gives up the rest.
+MAX_GAP = 300
+
+
+def interpolate(con: duckdb.DuckDBPyConnection, max_gap: int = MAX_GAP) -> None:
+    """Time the bus stops the feed never reported, from the reports either side.
+
+    A stop is skipped when the feed has no report at its stop_sequence, not even
+    an approach. The bus still passed it, and where it was in the report before
+    and the report after says when. Each report is placed on the trip's stops by
+    its latitude and longitude, and the stop is timed by how far along it sits
+    between the last report before it and the first one after.
+
+    Only bus. Rail trip ids and start times are not reliable enough to pair two
+    reports. Both reports must come from one vehicle and be at most `max_gap`
+    seconds apart, and the stop must lie between them along the route. A stop
+    with no report on one side, such as one before a vehicle's first report or
+    after its last, stays `none`, because there is nothing to place it between.
+
+    Rows that qualify get source `interpolated`, with the delay and the vehicle
+    of the two reports. Run after `match`. Distances are straight lines between
+    consecutive stops, which are consistent along one trip even where the road
+    bends, and only the share of the way matters here.
+    """
+    lat = METRES_PER_DEGREE_LAT
+    lon = METRES_PER_DEGREE_LON
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE trip_stops AS
+        WITH ordered AS (
+            SELECT trip_id, stop_sequence, stop_lat AS lat, stop_lon AS lon,
+                   row_number() OVER (PARTITION BY trip_id ORDER BY stop_sequence) AS idx
+            FROM scheduled
+            WHERE agency = ? AND stop_lat IS NOT NULL AND stop_lon IS NOT NULL
+        ),
+        stepped AS (
+            SELECT *, lag(lat) OVER w AS prev_lat, lag(lon) OVER w AS prev_lon
+            FROM ordered WINDOW w AS (PARTITION BY trip_id ORDER BY idx)
+        )
+        SELECT trip_id, stop_sequence, idx, lat, lon,
+               sum(CASE WHEN prev_lat IS NULL THEN 0 ELSE sqrt(
+                     power((lat - prev_lat) * {lat}, 2)
+                   + power((lon - prev_lon) * {lon} * cos(radians(lat)), 2)) END)
+                 OVER (PARTITION BY trip_id ORDER BY idx) AS along
+        FROM stepped
+    """,
+        [BUS_AGENCY],
+    )
+
+    # Every report, placed as a distance along its trip. The feed repeats a
+    # report on each poll until the vehicle sends a new one, so DISTINCT first.
+    # A report names the stop it is heading for or standing at, so it sits on
+    # one of the few segments around that stop. Searching only those keeps a
+    # route that doubles back from placing a report on its other pass.
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE placed AS
+        WITH reports AS (
+            SELECT DISTINCT trip_id, vehicle_id, ts, stop_sequence, lat, lon
+            FROM observations
+            WHERE agency = ? AND vehicle_id IS NOT NULL
+              AND lat IS NOT NULL AND lon IS NOT NULL
+        ),
+        candidates AS (
+            SELECT r.trip_id, r.vehicle_id, r.ts, r.lat AS rlat, r.lon AS rlon, k.idx AS idx_k,
+                   a.along AS a_along, b.along AS b_along,
+                   (r.lon - a.lon) * {lon} * cos(radians(a.lat)) AS px,
+                   (r.lat - a.lat) * {lat} AS py,
+                   (b.lon - a.lon) * {lon} * cos(radians(a.lat)) AS vx,
+                   (b.lat - a.lat) * {lat} AS vy
+            FROM reports r
+            JOIN trip_stops k ON k.trip_id = r.trip_id AND k.stop_sequence = r.stop_sequence
+            JOIN trip_stops a ON a.trip_id = r.trip_id AND a.idx BETWEEN k.idx - 3 AND k.idx + 1
+            JOIN trip_stops b ON b.trip_id = r.trip_id AND b.idx = a.idx + 1
+        ),
+        projected AS (
+            SELECT *,
+                   CASE WHEN vx * vx + vy * vy = 0 THEN 0
+                        ELSE least(1, greatest(0, (px * vx + py * vy) / (vx * vx + vy * vy)))
+                   END AS t
+            FROM candidates
+        )
+        SELECT trip_id, vehicle_id, ts, idx_k,
+               arg_min(a_along + t * (b_along - a_along),
+                       {{'miss': power(px - t * vx, 2) + power(py - t * vy, 2),
+                         'at': a_along + t * (b_along - a_along)}}) AS along
+        FROM projected
+        GROUP BY trip_id, vehicle_id, ts, idx_k, rlat, rlon
+    """,
+        [BUS_AGENCY],
+    )
+
+    # Per vehicle and stop index, the first and last report there. The running
+    # window then gives, for any stop, the latest report at a lower index and the
+    # earliest at a higher one.
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE per_stop AS
+        SELECT trip_id, vehicle_id, idx_k AS k,
+               min(ts) AS first_ts, arg_min(along, {'t': ts, 'a': along}) AS first_along,
+               max(ts) AS last_ts,  arg_max(along, {'t': ts, 'a': along}) AS last_along
+        FROM placed GROUP BY trip_id, vehicle_id, idx_k
+    """)
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE before_stop AS
+        SELECT trip_id, vehicle_id, k,
+               max(last_ts) OVER w AS ts, arg_max(last_along, {'t': last_ts, 'a': last_along}) OVER w AS along
+        FROM per_stop
+        WINDOW w AS (PARTITION BY trip_id, vehicle_id ORDER BY k
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)
+    """)
+    con.execute("""
+        CREATE OR REPLACE TEMP TABLE after_stop AS
+        SELECT trip_id, vehicle_id, k,
+               min(first_ts) OVER w AS ts, arg_min(first_along, {'t': first_ts, 'a': first_along}) OVER w AS along
+        FROM per_stop
+        WINDOW w AS (PARTITION BY trip_id, vehicle_id ORDER BY k
+                     ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+    """)
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP TABLE estimates AS
+        WITH skipped AS (
+            SELECT a.trip_id, a.stop_sequence, t.idx, t.along
+            FROM arrivals a JOIN trip_stops t USING (trip_id, stop_sequence)
+            WHERE a.agency = ? AND a.source = 'none' AND NOT a.is_origin
+        ),
+        bracketed AS (
+            SELECT s.trip_id, s.stop_sequence, v.vehicle_id, s.along AS stop_along,
+                   p.ts AS ts_before, p.along AS along_before,
+                   n.ts AS ts_after, n.along AS along_after
+            FROM skipped s
+            JOIN (SELECT DISTINCT trip_id, vehicle_id FROM per_stop) v USING (trip_id)
+            ASOF JOIN before_stop p
+              ON p.trip_id = s.trip_id AND p.vehicle_id = v.vehicle_id AND s.idx > p.k
+            ASOF JOIN after_stop n
+              ON n.trip_id = s.trip_id AND n.vehicle_id = v.vehicle_id AND s.idx < n.k
+        )
+        SELECT trip_id, stop_sequence,
+               arg_min(vehicle_id, {'gap': ts_after - ts_before, 'v': vehicle_id}) AS vehicle_id,
+               arg_min(CAST(round(ts_before + (stop_along - along_before)
+                                  / (along_after - along_before) * (ts_after - ts_before)) AS BIGINT),
+                       {'gap': ts_after - ts_before, 'v': vehicle_id}) AS actual
+        FROM bracketed
+        WHERE ts_before < ts_after AND ts_after - ts_before <= ?
+          AND along_before < along_after
+          AND along_before <= stop_along AND stop_along <= along_after
+        GROUP BY trip_id, stop_sequence
+    """,
+        [BUS_AGENCY, max_gap],
+    )
+    con.execute("""
+        UPDATE arrivals
+        SET actual_time = to_timestamp(e.actual),
+            delay_seconds = CAST(e.actual - epoch(arrivals.scheduled_time) AS INTEGER),
+            source = 'interpolated',
+            vehicle_id = e.vehicle_id
+        FROM estimates e
+        WHERE arrivals.trip_id = e.trip_id AND arrivals.stop_sequence = e.stop_sequence
+          AND arrivals.source = 'none'
+    """)
+    for name in ("trip_stops", "placed", "per_stop", "before_stop", "after_stop", "estimates"):
+        con.execute(f"DROP TABLE {name}")
+
+
 def trips(con: duckdb.DuckDBPyConnection) -> None:
     """One row per scheduled trip: whether it was seen, when, and by what.
 
@@ -435,7 +627,10 @@ def trips(con: duckdb.DuckDBPyConnection) -> None:
                    min(scheduled_time)                       AS scheduled_start,
                    max(scheduled_time)                       AS scheduled_end,
                    count(*)                                  AS stops_scheduled,
-                   count(*) FILTER (WHERE source <> 'none')  AS stops_observed
+                   -- Seen by a vehicle. A stop placed between two reports was
+                   -- not seen, so it is not counted here.
+                   count(*) FILTER (WHERE source NOT IN ('none', 'interpolated'))
+                                                             AS stops_observed
             FROM arrivals
             GROUP BY service_date, agency, line, route_id, direction_id, trip_id
         )

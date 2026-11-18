@@ -3,11 +3,13 @@
     python3 web/e2e/make_fixture.py <site folder with index.json, status.json,
         network.json and lines/> web/e2e/fixture
     python3 web/e2e/make_fixture.py --health web/e2e/fixture
+    python3 web/e2e/make_fixture.py --estimates web/e2e/fixture
     cd web && npx prettier --write e2e/fixture
 
 The result is trimmed, so its totals do not match the full data. See README.md.
 `--health` rewrites only health.json and the pointer's file count in a fixture
-that exists, for when the aggregate output is no longer at hand.
+that exists, for when the aggregate output is no longer at hand. `--estimates`
+adds the `est` counts to a fixture made from a run that predates them.
 """
 
 import json
@@ -44,7 +46,7 @@ def evenly(stops, count):
 # are counts, and feeds expects 2.
 CHECKS = [
     ("matched_rate", "range", "observations matching a scheduled stop, or a trip listed only under a later-start service", 99.98765, (99.9, 100.0)),
-    ("coverage", "range", "scheduled stops with a timed arrival", 71.9, (55.0, 90.0)),
+    ("coverage", "range", "scheduled stops with a timed arrival, not counting interpolated ones", 71.9, (55.0, 90.0)),
     ("absurd_pct", "range", "delays beyond an hour", 0.014781, (0.0, 0.5)),
     ("feeds", "count", "feeds contributing scheduled stops", 2, 2),
     ("silent_lines", "count", "lines scheduled today but never seen", 0, 0),
@@ -54,6 +56,17 @@ CHECKS = [
 MISSING_DAY = 3
 FAILED_DAY = 5
 STRIP_DAYS = 14
+# The source run predates the estimate, so it has no `est` counts. These are made
+# up, like the numbers in health.json: a fifth of every bus count, against the
+# 20 to 24 percent of weekday bus stops that were estimated on 10 to 14 November
+# 2026, and none for rail, which is never estimated. They give the browser tests
+# an estimated figure to look for.
+BUS_ESTIMATED_SHARE = 0.2
+ESTIMATED_PCT = 18.4  # of scheduled stops, on each day in health.json
+
+
+def estimated(n: int, mode: str) -> int:
+    return round(n * BUS_ESTIMATED_SHARE) if mode == "bus" else 0
 
 
 def report(day: str, age: int) -> dict:
@@ -75,6 +88,7 @@ def report(day: str, age: int) -> dict:
         "pipeline_version": health.__version__,
         "stats": {
             "coverage": 49.6 if failed else 71.9,
+            "interpolated_pct": ESTIMATED_PCT,
             "observations": 520000 + 3000 * age,
             "explained_trips": 338 if age == 1 else 0,
             "explained_pct": 1.0 if age == 1 else 0.0,
@@ -104,6 +118,45 @@ def write_health(out: Path):
     (run_dir / "health.json").write_text(json.dumps(document))
     pointer["files"] = sum(1 for path in run_dir.rglob("*") if path.is_file())
     pointer_path.write_text(json.dumps(pointer))
+
+
+def write_estimates(out: Path):
+    """Adds `est` beside every `n` in the run the pointer names, bus only."""
+    pointer = json.loads((out / "site" / "current.json").read_text())
+    run_dir = out / pointer["prefix"]
+
+    def edit(name: str, change):
+        path = run_dir / name
+        document = json.loads(path.read_text())
+        change(document)
+        path.write_text(json.dumps(document))
+
+    def index(document):
+        for entry in document["lines"]:
+            entry["est"] = estimated(entry["n"], entry["mode"])
+
+    def line(document):
+        for direction in document["directions"]:
+            direction["all"]["est"] = estimated(direction["all"]["n"], document["mode"])
+            for stop in direction["stops"]:
+                stop["est"] = estimated(stop["n"], document["mode"])
+
+    def network(document):
+        for scope in ("bus", "rail"):
+            all_ = document[scope]["all"]
+            all_["est"] = estimated(all_["n"], scope)
+        document["network"]["all"]["est"] = document["bus"]["all"]["est"]
+
+    def status(document):
+        document["estimated_arrivals"] = json.loads((run_dir / "network.json").read_text())[
+            "network"
+        ]["all"]["est"]
+
+    edit("index.json", index)
+    for path in sorted((run_dir / "lines").glob("*.json")):
+        edit(f"lines/{path.name}", line)
+    edit("network.json", network)
+    edit("status.json", status)
 
 
 def main(source: Path, out: Path):
@@ -144,11 +197,14 @@ def main(source: Path, out: Path):
         shutil.copy(source / name, run_dir / name)
     pointer = {"run": RUN, "prefix": f"site/runs/{RUN}/", "files": len(kept) + 4, "previous": []}
     (out / "site" / "current.json").write_text(json.dumps(pointer))
+    write_estimates(out)
     write_health(out)
 
 
 if __name__ == "__main__":
     if sys.argv[1] == "--health":
         write_health(Path(sys.argv[2]))
+    elif sys.argv[1] == "--estimates":
+        write_estimates(Path(sys.argv[2]))
     else:
         main(Path(sys.argv[1]), Path(sys.argv[2]))

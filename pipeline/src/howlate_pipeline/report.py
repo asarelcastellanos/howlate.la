@@ -19,6 +19,11 @@ import duckdb
 from howlate_pipeline import __version__
 from howlate_pipeline.gtfs import line_code
 
+# A stop a vehicle reported at, as opposed to one placed between two reports. The
+# coverage numbers and the silent-lines check count only these, so a bug that
+# stopped the feed reaching a line cannot be hidden by estimates around it.
+SEEN = "source NOT IN ('none', 'interpolated')"
+
 # Measured on 2026-08-18 across all 120 lines. Ranges, not points, because real
 # days differ: weekends run less service and holidays run almost none.
 EXPECTED = {
@@ -49,7 +54,11 @@ EXPECTED = {
         "observations on trips listed only under a later-start service",
     ),
     "stop_id_match": (99.9, 100.0, "reported stop_id agreeing with the timetable"),
-    "coverage": (55.0, 90.0, "scheduled stops with a timed arrival"),
+    "coverage": (
+        55.0,
+        90.0,
+        "scheduled stops with a timed arrival, not counting interpolated ones",
+    ),
     "stopped_pct": (35.0, 75.0, "of those, timed from a STOPPED_AT record"),
     "median_delay_min": (-1.0, 6.0, "median delay, mid-route"),
     "absurd_pct": (0.0, 0.5, "delays beyond an hour"),
@@ -85,10 +94,11 @@ EVENT_ONLY = frozenset({"9", "22"})
 
 def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     """Every headline number for the day, in one pass over the joined table."""
-    row = con.sql("""
+    row = con.sql(f"""
         SELECT
           count(*)                                                  AS scheduled_stops,
-          count(*) FILTER (WHERE source <> 'none')                  AS measured,
+          count(*) FILTER (WHERE {SEEN})                            AS measured,
+          count(*) FILTER (WHERE source = 'interpolated')           AS interpolated,
           count(*) FILTER (WHERE source = 'stopped_at')            AS stopped,
           count(*) FILTER (WHERE source = 'approach')              AS approached,
           count(*) FILTER (WHERE is_terminus AND source = 'stopped_at') AS terminus_stopped,
@@ -108,6 +118,7 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     keys = [
         "scheduled_stops",
         "measured",
+        "interpolated",
         "stopped",
         "approached",
         "terminus_stopped",
@@ -158,6 +169,7 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     stats["coverage"] = (
         100 * stats["measured"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
     )
+    stats["interpolated_pct"] = pct(stats["interpolated"], stats["scheduled_stops"])
     stats["stopped_pct"] = (
         100 * stats["stopped"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
     )
@@ -271,18 +283,19 @@ def by_agency(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     only the join rate dipped, which reads like a data problem rather than a
     missing feed.
     """
-    return con.sql("""
+    return con.sql(f"""
         SELECT agency, count(DISTINCT line) AS lines, count(*) AS scheduled_stops,
-               count(*) FILTER (WHERE source <> 'none') AS measured
+               count(*) FILTER (WHERE {SEEN}) AS measured,
+               count(*) FILTER (WHERE source = 'interpolated') AS interpolated
         FROM arrivals GROUP BY agency ORDER BY agency
     """).fetchall()
 
 
 def _never_seen(con: duckdb.DuckDBPyConnection) -> list[tuple]:
-    return con.sql("""
+    return con.sql(f"""
         SELECT agency, line, count(*) AS scheduled_stops
         FROM arrivals GROUP BY agency, line
-        HAVING count(*) FILTER (WHERE source <> 'none') = 0
+        HAVING count(*) FILTER (WHERE {SEEN}) = 0
         -- Ties broken by name, so the saved report is the same on every run.
         ORDER BY scheduled_stops DESC, agency, line
     """).fetchall()
@@ -335,15 +348,22 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
         f"{s['scheduled_stops'] - s['measured']:,} never seen"
     )
     print(
+        f"  of those never seen, {s['interpolated']:,} bus stops were placed between two "
+        f"reports ({s['interpolated_pct']:.1f}% of scheduled stops), so "
+        f"{s['measured'] + s['interpolated']:,} have a delay "
+        f"({pct(s['measured'] + s['interpolated'], s['scheduled_stops']):.1f}%)"
+    )
+    print(
         f"  delay mid-route: median {minutes(s['median_delay'])} | p75 {minutes(s['p75'])} "
         f"| p95 {minutes(s['p95'])} | p99 {minutes(s['p99'])} min"
     )
 
     print()
-    for agency, lines, stops, measured in by_agency(con):
+    for agency, lines, stops, measured, interpolated in by_agency(con):
         print(
             f"  {agency:<12} {lines:>4} lines  {stops:>8,} scheduled  "
-            f"{measured:>8,} measured ({pct(measured, stops):.1f}%)"
+            f"{measured:>8,} measured ({pct(measured, stops):.1f}%)  "
+            f"{interpolated:>8,} interpolated ({pct(interpolated, stops):.1f}%)"
         )
 
     if s["explained"]:
@@ -425,7 +445,7 @@ def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
             "label": "feeds contributing scheduled stops",
             "value": len(feeds),
             "expect": 2,
-            "ok": len(feeds) == 2 and all(stops > 0 for _, _, stops, _ in feeds),
+            "ok": len(feeds) == 2 and all(stops > 0 for _, _, stops, _, _ in feeds),
         }
     )
 
@@ -470,8 +490,14 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
         "pipeline_version": __version__,
         "stats": s,
         "agencies": [
-            {"agency": agency, "lines": lines, "scheduled_stops": stops, "measured": measured}
-            for agency, lines, stops, measured in by_agency(con)
+            {
+                "agency": agency,
+                "lines": lines,
+                "scheduled_stops": stops,
+                "measured": measured,
+                "interpolated": interpolated,
+            }
+            for agency, lines, stops, measured, interpolated in by_agency(con)
         ],
         "silent_lines": [
             {"agency": agency, "line": line, "scheduled_stops": stops}

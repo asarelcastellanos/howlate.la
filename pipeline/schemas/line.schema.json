@@ -36,9 +36,10 @@
       "description": "The delay numbers over every measured arrival in one direction, on every day and hour. n equals the direction's n.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["n", "med", "p90", "pct5", "ontime"],
+      "required": ["n", "est", "med", "p90", "pct5", "ontime"],
       "properties": {
         "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay."},
+        "est": {"type": "integer", "minimum": 0, "description": "Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival."},
         "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
         "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},
         "pct5": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place."},
@@ -74,7 +75,7 @@
     "stop": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "lat", "lon", "seq", "n", "sched", "all", "cells"],
+      "required": ["id", "name", "lat", "lon", "seq", "n", "est", "sched", "all", "cells"],
       "properties": {
         "id": {"type": "string", "minLength": 1, "description": "The stop id, as in Metro's timetable."},
         "name": {"type": "string", "description": "The stop's name. It falls back to the stop id when the timetable has no name for it."},
@@ -82,6 +83,7 @@
         "lon": {"type": ["number", "null"], "description": "Longitude in degrees. Null when the timetable has no coordinates for the stop."},
         "seq": {"type": "integer", "description": "Where the stop sits along the route. It is the median stop sequence over all trips, so sort by it and do not read it as a count of stops."},
         "n": {"type": "integer", "minimum": 0, "description": "Arrivals with a measured delay at this stop, over all days. It counts every daypart and can be 0."},
+        "est": {"type": "integer", "minimum": 0, "description": "Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival."},
         "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops here, measured or not. It also counts dayparts missing from cells, so a gap in cells is not a gap in the timetable."},
         "all": {"$ref": "#/$defs/stopDelays"},
         "cells": {"type": "array", "items": {"$ref": "#/$defs/cell"}, "description": "One entry per daypart with at least one measured arrival, sorted by d. Dayparts with none are left out."}

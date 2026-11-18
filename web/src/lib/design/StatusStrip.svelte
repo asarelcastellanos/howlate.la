@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { SiteStatus } from '#lib/data/types.ts';
 	import { longDate } from '#lib/date.ts';
+	import EstimatedNote from './EstimatedNote.svelte';
 
 	let { status }: { status: SiteStatus } = $props();
 
@@ -9,7 +10,7 @@
 	const stats = $derived([
 		{ value: count(status.days), label: 'days of data' },
 		{ value: count(status.measured_arrivals), label: 'stops graded' },
-		{ value: `${status.coverage_pct}%`, label: 'of scheduled stops measured' }
+		{ value: `${status.coverage_pct}%`, label: 'of scheduled stops graded' }
 	]);
 </script>
 
@@ -30,4 +31,10 @@
 		{/each}
 	</dl>
 	<hr class="rule" />
+	<EstimatedNote
+		n={status.measured_arrivals}
+		est={status.estimated_arrivals}
+		what="the stops graded"
+		class="mt-2"
+	/>
 </section>

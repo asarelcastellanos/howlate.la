@@ -341,6 +341,41 @@ the pipeline or the published data changed.
   in. `NetworkShares.svelte` reads them from `network.json` and `status.json`
   with `loadShares` after the page loads, and shows nothing if the load fails.
 
+## Estimated arrivals
+
+Since the pipeline places bus stops the feed skipped between two reports of the
+same bus (source `interpolated`, issue #165), a delay can be measured or
+estimated, and the site says how much of each figure is estimated. The
+estimates are in `n`, the median and the on-time share like any other arrival,
+because on 12 days checked, the on-time share of mid-route bus estimates was
+61.2 percent against 61.5 for stopped arrivals (issue #165). The published files carry the
+count beside `n`:
+
+- `est` on every index entry, on each direction's `all`, on each stop, and on
+  each scope's `all` in `network.json`. `estimated_arrivals` in `status.json`,
+  and `estimated_pct` on each recent day in `health.json`. Hour and daypart
+  cells carry no `est`, to keep the line files small, so a chart cell can hold
+  estimated arrivals without saying so. Rail is never estimated, so its `est`
+  is 0.
+- The sentence is made by `estimatedNote` in `src/lib/estimated.ts`: "23
+  percent of these arrivals were estimated from where the bus was between two
+  reports", with "Fewer than 1" for a share that rounds to 0 and nothing at
+  all for 0. `EstimatedNote` draws it with a "How we estimate" link. It sits
+  under each direction's headline on a line page, under the home page strip
+  (which now reads "of scheduled stops graded"), over the ranking table (summed
+  over the bus lines), in the live sentence on the methods page, and in the
+  newest day's coverage line on the behind-the-scenes page.
+- A published file from before the count has no `est`, and the bucket holds
+  that shape from a release until the next daily run. Every reader treats a
+  missing `est` as no sentence and never as 0 percent. The loader's checks do
+  not require it, so a page does not become an error state.
+- The link is `ESTIMATE_HREF`, and `ESTIMATE_ANCHOR` is the id of the methods
+  section "How an arrival is timed", which says how the estimate is made and how
+  it was checked.
+
+A new place that shows a delay figure with an `n` should render `EstimatedNote`
+with that `n` and its `est`.
+
 ## Behind the scenes
 
 `/behind-the-scenes` is prerendered. The browser loads `health.json` with

@@ -72,10 +72,19 @@ def test_recent_is_newest_first_with_ok_and_failed_from_the_report(tmp_path):
         "ok": True,
         "failed": [],
         "coverage_pct": 81.1,
+        "estimated_pct": 0,
         "explained_trips": 337,
         "explained_pct": 1.1,
         "observations": 526528,
     }
+
+
+def test_estimated_pct_is_the_interpolated_share_and_zero_for_older_reports(tmp_path):
+    newer = report("2026-08-18", extra={"stats": {
+        "coverage": 70.0, "observations": 1, "scheduled_stops": 2, "interpolated_pct": 22.46,
+    }})  # fmt: skip
+    out = health.document(write(tmp_path, newer, report("2026-08-17")), "2026-08-18", 2)
+    assert [day["estimated_pct"] for day in out["recent"]] == [22.5, 0]
 
 
 def test_a_report_from_before_the_explained_fields_gives_zeros(tmp_path):
