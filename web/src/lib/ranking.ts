@@ -39,7 +39,7 @@ export const MIN_RANKED_ARRIVALS = 500;
 
 export type RankedLine = {
 	entry: IndexEntry;
-	/** Lines with an equal value share a rank, so 1, 2, 2, 4. A tie never claims an order. */
+	/** Lines that tie on every sort key share a rank, so 1, 2, 2, 4. A tie never claims an order. */
 	rank: number;
 };
 
