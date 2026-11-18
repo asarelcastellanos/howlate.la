@@ -184,6 +184,7 @@ def grade_day(
     )
     arrivals.load_schedule(con, directories, service_date, read)
     arrivals.match(con, service_date)
+    arrivals.interpolate(con)
     arrivals.trips(con)
 
     # The old report goes first. Until the new one is saved, nothing on disk
