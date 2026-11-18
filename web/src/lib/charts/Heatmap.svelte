@@ -13,7 +13,7 @@
 	import { nextHour, readoutText, startHour } from './readout.ts';
 	import { DAY_NAMES, MIN_ARRIVALS, QUIET, RAMP, RAMP_STEPS, hourLabel, trusted } from './theme.ts';
 
-	// `showOntime` is false for a rail line while the on-time share is on hold.
+	// `showOntime` is false for a rail line when SHOW_RAIL_ONTIME is off.
 	let {
 		profile,
 		caption,

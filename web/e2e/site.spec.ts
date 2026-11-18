@@ -146,8 +146,8 @@ test('three taps from the home page reach the Friday 5 pm readout on line 720', 
 	await expect(readout).toHaveText(expected);
 });
 
-test('a rail page shows no on-time sentence and a bus page does', async ({ page }) => {
-	const sentences = /percent on time|On time means/;
+test('a rail page shows the on-time sentence like a bus page', async ({ page }) => {
+	const sentences = /percent of [\d,]+ measured arrivals were on time|On time means/;
 	const bus = entries.find((e) => e.mode === 'bus' && e.n >= MIN_RANKED_ARRIVALS)!;
 	await page.goto(`/lines/${bus.line}`);
 	await expect(lineLoaded(page)).toBeVisible();
@@ -159,7 +159,8 @@ test('a rail page shows no on-time sentence and a bus page does', async ({ page 
 		await page.goto(`/lines/${entry.line}`);
 		await expect(lineLoaded(page)).toBeVisible();
 		await expect(page.locator('figure').first()).toBeVisible();
-		await expect(page.locator('main')).not.toContainText(sentences);
+		await expect(page.locator('main')).toContainText(sentences);
+		await expect(page.locator('main')).not.toContainText('on hold');
 	}
 });
 

@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { createRawSnippet } from 'svelte';
 import { render } from 'svelte/server';
 import { fixtureProfile, fixtureStops } from '../src/lib/charts/fixtures.ts';
+import { SHOW_RAIL_ONTIME } from '../src/lib/config.ts';
 import type { Direction, LineFile } from '../src/lib/data/types.ts';
 import { longDate } from '../src/lib/date.ts';
 import {
@@ -103,17 +104,18 @@ test('a direction with no name and one arrival still reads as a sentence', () =>
 	);
 });
 
-test('the rail gate hides the on-time share when it is off and shows it when it is on', () => {
+test('the rail gate is open, and closing it hides the on-time share', () => {
 	const rail = direction(0, 'Pomona Station');
-	assert.equal(showsOntime('rail'), false);
-	assert.equal(showsOntime('rail', true), true);
+	assert.equal(SHOW_RAIL_ONTIME, true);
+	assert.equal(showsOntime('rail'), true);
+	assert.equal(showsOntime('rail', false), false);
 	assert.equal(showsOntime('bus'), true);
-	assert.doesNotMatch(headline(rail, 0, 'rail'), /on time|percent of/);
-	assert.match(headline(rail, 0, 'rail'), /across 345,123 measured arrivals\.$/);
 	assert.match(
-		headline(rail, 0, 'rail', true),
+		headline(rail, 0, 'rail'),
 		/56\.5 percent of 345,123 measured arrivals were on time\.$/
 	);
+	assert.doesNotMatch(headline(rail, 0, 'rail', false), /on time|percent of/);
+	assert.match(headline(rail, 0, 'rail', false), /across 345,123 measured arrivals\.$/);
 });
 
 test('a bus page shows the on-time share, its window and the small print', () => {
@@ -124,18 +126,20 @@ test('a bus page shows the on-time share, its window and the small print', () =>
 	assert.ok(!page.includes(RAIL_HOLD_NOTE));
 });
 
-test('a rail page holds the on-time share back and says why', () => {
+test('a rail page shows the on-time share the way a bus page does', () => {
 	const page = text(render(LineView, { props: { line: lineFile('rail', two) } }).body);
+	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
+	assert.match(page, /On time means 1 minute early to 5 minutes late, at every stop\./);
+	assert.match(page, /Not Metro's published figure\./);
+	assert.ok(!page.includes(RAIL_HOLD_NOTE));
+});
+
+test('a rail page holds the on-time share back and says why when the gate is closed', () => {
+	const props = { line: lineFile('rail', two), showRailOntime: false };
+	const page = text(render(LineView, { props }).body);
 	assert.ok(page.includes(RAIL_HOLD_NOTE));
 	assert.match(page, /the 90th percentile is 8 minutes late, across 345,123 measured arrivals\./);
 	assert.doesNotMatch(page, /percent of|on time means|Not Metro's published/i);
-});
-
-test('a rail page shows the share once the gate is open', () => {
-	const props = { line: lineFile('rail', two), showRailOntime: true };
-	const page = text(render(LineView, { props }).body);
-	assert.ok(!page.includes(RAIL_HOLD_NOTE));
-	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
 });
 
 // The page loads the chart code after the headline has painted, which a
@@ -168,13 +172,14 @@ test('a line page has four figures, and the route chart is the last one', () => 
 	);
 });
 
-test('a rail page hands the heatmap no on-time share and a bus page does', () => {
-	const readout = (line: LineFile) =>
-		text(render(LineView, { props: { line, charts: LineCharts } }).body).match(
+test('a rail page hands the heatmap an on-time share like a bus page, unless the gate is closed', () => {
+	const readout = (line: LineFile, showRailOntime?: boolean) =>
+		text(render(LineView, { props: { line, showRailOntime, charts: LineCharts } }).body).match(
 			/Friday 5 pm\. Median[^.]*\.[^.]*\.[^.]*\./
 		)?.[0];
 	assert.match(readout(lineFile('bus', two))!, /percent on time/);
-	assert.doesNotMatch(readout(lineFile('rail', two))!, /percent on time/);
+	assert.match(readout(lineFile('rail', two))!, /percent on time/);
+	assert.doesNotMatch(readout(lineFile('rail', two), false)!, /percent on time/);
 });
 
 test('two directions get a switch and one direction does not', () => {
