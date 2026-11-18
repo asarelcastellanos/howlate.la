@@ -38,7 +38,7 @@
 	const steps = [
 		[
 			"Metro's two live feeds",
-			'One carries bus positions and one carries rail. Each vehicle reports about every 6 seconds.'
+			"One carries bus positions and one carries rail. A vehicle's distinct reports are a median 5 to 6 seconds apart (8 to 14 November 2026)."
 		],
 		[
 			'Collector',
