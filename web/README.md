@@ -206,8 +206,9 @@ answers only a path with no rule, such as an unlisted id, with `200.html`, the
 app shell that adapter-static writes, and keeps the address. The target has no
 `.html` because Cloudflare Pages redirects a `.html` target to the clean URL,
 which changes the address and breaks the route. Without it, Cloudflare Pages serves the prerendered home
-page for a path it did not build. A rail line page hides the on-time share while
-`SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+page for a path it did not build. A rail line page shows the on-time share like a
+bus page, because `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is true (see "The
+on-time share and its note").
 
 ### Line page head
 
@@ -256,7 +257,7 @@ this stays as an accepted limit.
 
 `/ranking` is prerendered, and the browser loads `index.json` with
 `readRankingIndex`. The page ranks bus lines by the share of measured arrivals
-from 1 minute early to 5 minutes late, counted at every stop. It is not Metro's
+from 1 minute early to 5 minutes late, counted at every measured stop. It is not Metro's
 published figure, and the page says so. Two panels list the top and bottom five.
 The table below has every ranked line, and its three metric headers are buttons
 that sort it. Headers sort best first and a second click reverses. The on-time
@@ -275,9 +276,10 @@ checks the order against a plain sort on the real index when `static/data` exist
   was under it, line 697 at 202 arrivals, and the next smallest was 18,078. Below
   500 arrivals, five arrivals changing move a share by more than a point. The
   comment on the constant has the arithmetic.
-- Rail is never ranked. A small rail table shows median and 90th percentile
-  only, and `rankLines` also drops rail from an on-time ranking while
-  `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+- Rail is never ranked against buses. A small rail table lists its on-time
+  share, median and 90th percentile, and the page passes `rankLines` bus lines
+  only. `rankLines` also drops rail from an on-time ranking when its `railGate`
+  argument, which defaults to `SHOW_RAIL_ONTIME`, is false.
 - Until the daily run after a release, the live bucket's `index.json` has no
   `n`, `med`, `p90`, `pct5` or `ontime`. `checkRankingIndex` turns that into a
   `shape` error, and the page shows "This page needs newer data than the site has
@@ -299,6 +301,43 @@ Known limit of the ranking. It does not show in the 2026-11-16 run, which has
 - With 10 or fewer ranked lines, the "Least reliable" panel is short or empty,
   because the panel leaves out any line the "Most reliable" panel already shows.
   Its caption counts the lines it lists, so it does not promise five.
+
+## The on-time share and its note
+
+Since 0.5.1 rail shows its on-time share like a bus line. The owner decided that
+on 2026-11-18, after issue #133 found no cause for the gap with Metro. Nothing in
+the pipeline or the published data changed.
+
+- `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is true. `showsOntime`, `headline`,
+  `rankLines`, `LineView`, `sharesText` and the methods section
+  (`MeasureOnTime.svelte` and `NetworkShares.svelte`) read it, each through a
+  `railGate` argument or prop, so a test covers the closed gate too.
+  `RailTable` gets the gate through `showRailOntime`, which defaults to
+  `showsOntime('rail')`. Setting the constant to false brings the old rail hold
+  back.
+- The methods copy is written for the open gate. With the gate closed, the live
+  sentence and the section leave out every sentence that states a rail share,
+  and the rest still reads. Nothing else on the methods page states one. Reopen
+  the copy if the gate closes for good.
+- Every on-time share has a note, `OntimeNote`, and an asterisk, `OntimeMark`,
+  beside the figure. They appear under each direction's headline on a line page,
+  under the heatmap's hour readout, under the two ranking panels, over the
+  ranking table, and in the rail table. The home page shows no share. The live
+  sentence on the methods page sits inside the section the note links to, so it
+  has no note of its own. A new place that shows a share must render the note.
+- The asterisk is hidden from screen readers. The words and the "How we measure"
+  link carry the meaning. Under 640 px (`sm`) the note shortens to the window, the
+  Metro caveat and the link.
+- The link is `MEASURE_HREF` in `src/lib/ontimeNote.ts`, a plain path, because
+  the chart components import the note and their tests run outside SvelteKit.
+  `MeasureOnTime.svelte` uses `MEASURE_ANCHOR` as the id of the "How we
+  measure on-time" section, and `tests/methods.test.ts` checks that the page
+  renders it.
+- That section's figures for last stops (93,955 of 93,956, 53.7 percent, about
+  5 and 1 percent) come from the issue #133 analysis of 18 August to 15 November
+  2026 and say so. They are fixed. The current bus and rail shares are not typed
+  in. `NetworkShares.svelte` reads them from `network.json` and `status.json`
+  with `loadShares` after the page loads, and shows nothing if the load fails.
 
 ## Behind the scenes
 
@@ -344,11 +383,12 @@ Known issues from 0.5.0 that stay as they are, with the reason.
   `health.json` has no generation timestamp to compare against, and the miss
   affects only a device with a wrong clock. A test in `tests/behind.test.ts`
   records the current behavior.
-- The public line, index and network JSON still carry rail `ontime` values. The
-  pipeline writes them (`ONTIME` in `pipeline/src/howlate_pipeline/aggregate.py`)
-  and the site hides them with `SHOW_RAIL_ONTIME` in `src/lib/config.ts`.
-  Stripping them waits for issue #157, because that decision may turn rail
-  on-time back on, and a strip needs a schema change and regenerated types.
+- The site shows the rail on-time share although HowLate's 64.4 percent over 18
+  August to 15 November 2026 is far from Metro's 99.4 percent for July to
+  September 2025, and the cause is not known (issues #133 and #157).
+  The note beside each share and the methods section say so. The public JSON
+  carries the rail values, as the pipeline writes them (`ONTIME` in
+  `pipeline/src/howlate_pipeline/aggregate.py`).
 
 ## Not done yet
 

@@ -1,5 +1,12 @@
 import { readFileSync } from 'node:fs';
-import type { CurrentPointer, HealthFile, LineFile, SiteIndex } from '../src/lib/data/types.ts';
+import type {
+	CurrentPointer,
+	HealthFile,
+	LineFile,
+	NetworkFile,
+	SiteIndex,
+	SiteStatus
+} from '../src/lib/data/types.ts';
 
 // The fixture folder stands in for the bucket root, so the pointer's prefix is
 // read the way the site reads it. Tests take every expected value from here.
@@ -10,4 +17,6 @@ const pointer = read<CurrentPointer>('site/current.json');
 
 export const index = read<SiteIndex>(`${pointer.prefix}index.json`);
 export const readLine = (id: string) => read<LineFile>(`${pointer.prefix}lines/${id}.json`);
+export const network = read<NetworkFile>(`${pointer.prefix}network.json`);
+export const status = read<SiteStatus>(`${pointer.prefix}status.json`);
 export const health = read<HealthFile>(`${pointer.prefix}health.json`);
