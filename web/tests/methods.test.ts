@@ -136,6 +136,15 @@ test('no longer says the rail on-time share is not shown', () => {
 	assert.ok(section.includes('Last-stop arrivals are estimates, and many read early.'));
 });
 
+test('says lines B and D ran slow on 13 of 26 weekend days without naming a cause', () => {
+	const section = text.slice(text.indexOf('What we do not know'));
+	assert.ok(
+		section.includes(
+			'On 13 of the 26 weekend days from 18 August to 15 November 2026, their timetable allowed no more running time than on a weekday while the median trip took about 6 minutes longer, and we do not know why.'
+		)
+	);
+});
+
 test('keeps all three health-check examples and the timetable-change limit', () => {
 	assert.ok(text.includes('Three examples follow.'));
 	assert.ok(

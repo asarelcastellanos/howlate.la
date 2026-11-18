@@ -142,6 +142,11 @@
 				HowLate does not know how Metro times a rail terminal arrival. Last-stop arrivals are
 				estimates, and many read early.
 			</li>
+			<li>
+				Lines B and D show large delays on some weekends. On 13 of the 26 weekend days from 18
+				August to 15 November 2026, their timetable allowed no more running time than on a weekday
+				while the median trip took about 6 minutes longer, and we do not know why.
+			</li>
 		</ul>
 	</section>
 
