@@ -6,3 +6,5 @@ static/data/
 e2e/fixture/
 e2e/reports/
 e2e/.lighthouseci/
+# Rewritten by npm run lines:refresh, one key per line, which Prettier would collapse.
+src/lib/data/lines.json

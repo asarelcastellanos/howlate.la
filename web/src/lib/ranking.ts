@@ -1,6 +1,7 @@
 import { SHOW_RAIL_ONTIME } from './config.ts';
 import type { Result } from './data/load.ts';
 import type { IndexEntry, SiteIndex } from './data/types';
+import { shareText } from './share.ts';
 
 export type Metric = 'ontime' | 'med' | 'p90';
 
@@ -38,7 +39,7 @@ export const MIN_RANKED_ARRIVALS = 500;
 
 export type RankedLine = {
 	entry: IndexEntry;
-	/** Lines with an equal value share a rank, so 1, 2, 2, 4. A tie never claims an order. */
+	/** Lines that tie on every sort key share a rank, so 1, 2, 2, 4. A tie never claims an order. */
 	rank: number;
 };
 
@@ -61,26 +62,58 @@ export function compareIds(a: string, b: string): number {
 	return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Negative when `a` is the better line on this metric. */
+/**
+ * The on-time window in seconds of delay, negative for early: 1 minute early
+ * to 5 minutes late, the window the pipeline grades arrivals against.
+ */
+export const ONTIME_EARLY_SECONDS = -60;
+export const ONTIME_LATE_SECONDS = 300;
+
+/**
+ * Seconds outside the on-time window: 0 anywhere inside it, otherwise the
+ * distance to the nearer edge. A median of -120 is 60 from the window and a
+ * median of 10 is 0, so the line that runs on time ranks above the early one.
+ */
+export function distanceFromWindow(seconds: number): number {
+	if (seconds < ONTIME_EARLY_SECONDS) return ONTIME_EARLY_SECONDS - seconds;
+	if (seconds > ONTIME_LATE_SECONDS) return seconds - ONTIME_LATE_SECONDS;
+	return 0;
+}
+
+/**
+ * Negative when `a` is the better line on this metric. Distance from the window
+ * is the first key. It is 0 for every median inside the window, and the 2026-11-16
+ * bus medians (19 to 194 s) all are, so the size of the delay breaks that tie.
+ * Lines share a rank only when both keys are equal.
+ */
 function compareBest(metric: Metric, a: IndexEntry, b: IndexEntry): number {
-	return metric === 'ontime' ? b.ontime - a.ontime : a[metric] - b[metric];
+	if (metric === 'ontime') return b.ontime - a.ontime;
+	return (
+		distanceFromWindow(a[metric]) - distanceFromWindow(b[metric]) ||
+		Math.abs(a[metric]) - Math.abs(b[metric])
+	);
 }
 
 /**
  * Sorts lines by one metric and returns a new array, never the input. A higher
- * on-time share is better. A lower median or 90th percentile delay is better.
+ * on-time share is better. For the median and 90th percentile delay, the one
+ * closer to the on-time window is better, whether it is early or late, and
+ * inside the window the smaller delay is better.
  * Ties break by line id, in the same order for both `order` values, so reversing
  * a table never reshuffles lines that share a value.
  *
- * Rail never enters an on-time ranking while SHOW_RAIL_ONTIME is false, and it
- * is dropped, not listed as unranked, because the reason is not its arrivals.
+ * Rail never enters an on-time ranking while `railGate` (SHOW_RAIL_ONTIME) is
+ * false, and it is dropped, not listed as unranked, because the reason is not
+ * its arrivals. The ranking page passes only bus lines, so rail is shown in its
+ * own table and is not ranked against buses even with the gate open.
  */
 export function rankLines(
 	entries: readonly IndexEntry[],
 	metric: Metric,
-	order: Order = 'best'
+	order: Order = 'best',
+	railGate: boolean = SHOW_RAIL_ONTIME
 ): Ranking {
-	const gated = (e: IndexEntry) => metric === 'ontime' && e.mode === 'rail' && !SHOW_RAIL_ONTIME;
+	const gated = (e: IndexEntry) => metric === 'ontime' && e.mode === 'rail' && !railGate;
 	const candidates = entries.filter((e) => !gated(e));
 	const enough = candidates.filter((e) => e.n >= MIN_RANKED_ARRIVALS);
 	const unranked = candidates
@@ -136,7 +169,7 @@ export function ends(
 	};
 }
 
-export const percent = (value: number) => `${value.toFixed(1)}%`;
+export const percent = (value: number) => `${shareText(value)}%`;
 
 export const count = (n: number) => n.toLocaleString('en-US');
 

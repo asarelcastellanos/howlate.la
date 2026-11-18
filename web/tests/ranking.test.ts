@@ -7,18 +7,21 @@ import { registerHooks } from 'node:module';
 import { before, test } from 'node:test';
 import { render } from 'svelte/server';
 import type { IndexEntry, SiteIndex } from '../src/lib/data/types.ts';
-import { shortVia } from '../src/lib/linePage.ts';
+import { RAIL_HOLD_NOTE, headline, shortVia } from '../src/lib/linePage.ts';
 import {
 	MIN_RANKED_ARRIVALS,
 	ariaSort,
 	compareIds,
 	delayText,
+	distanceFromWindow,
 	ends,
 	nextSort,
+	percent,
 	rankLines,
 	type Metric,
 	type Sort
 } from '../src/lib/ranking.ts';
+import { shareText } from '../src/lib/share.ts';
 
 // The page imports $app modules that exist only inside SvelteKit.
 registerHooks({
@@ -66,7 +69,10 @@ function realIndex(): IndexEntry[] | undefined {
 }
 
 const better = (metric: Metric, a: IndexEntry, b: IndexEntry) =>
-	metric === 'ontime' ? b.ontime - a.ontime : a[metric] - b[metric];
+	metric === 'ontime'
+		? b.ontime - a.ontime
+		: distanceFromWindow(a[metric]) - distanceFromWindow(b[metric]) ||
+			Math.abs(a[metric]) - Math.abs(b[metric]);
 
 test('on the real index, every metric orders lines by its value, then by line id', (t) => {
 	const lines = realIndex();
@@ -89,10 +95,10 @@ test('on the real index, every metric orders lines by its value, then by line id
 	}
 });
 
-test('on the real index, rail never reaches the on-time ranking', (t) => {
+test('on the real index, rail stays out of the on-time ranking while the gate is closed', (t) => {
 	const lines = realIndex();
 	if (!lines) return t.skip('static/data is absent');
-	const { ranked, unranked } = rankLines(lines, 'ontime');
+	const { ranked, unranked } = rankLines(lines, 'ontime', 'best', false);
 	assert.ok(lines.some((l) => l.mode === 'rail'));
 	assert.ok([...ranked.map((r) => r.entry), ...unranked].every((l) => l.mode === 'bus'));
 });
@@ -133,16 +139,64 @@ test('equal values share a rank and the next rank skips', () => {
 	);
 });
 
-test('lower-is-better metrics sort ascending', () => {
+test('a delay farther outside the window sorts lower', () => {
+	// Distances from the window: median 600, 100, 300 and p90 1200, 1800, 500.
 	const lines = [
-		entry('1', { med: 90, p90: 300 }),
-		entry('2', { med: 10, p90: 900 }),
-		entry('3', { med: 50, p90: 100 })
+		entry('1', { med: 900, p90: 1500 }),
+		entry('2', { med: 400, p90: 2100 }),
+		entry('3', { med: 600, p90: 800 })
 	];
 	assert.deepEqual(ids(rankLines(lines, 'med').ranked), ['2', '3', '1']);
 	assert.deepEqual(ids(rankLines(lines, 'p90').ranked), ['3', '1', '2']);
 	assert.deepEqual(ids(rankLines(lines, 'med', 'worst').ranked), ['1', '3', '2']);
 	assert.deepEqual(ids(rankLines(lines, 'ontime').ranked), ['1', '2', '3']);
+});
+
+test('median and p90 rank by distance from the on-time window, early or late', () => {
+	// The window is -60 s to +300 s. -120 is 60 s outside it and 10 is inside.
+	assert.equal(distanceFromWindow(-120), 60);
+	assert.equal(distanceFromWindow(-60), 0);
+	assert.equal(distanceFromWindow(0), 0);
+	assert.equal(distanceFromWindow(10), 0);
+	assert.equal(distanceFromWindow(300), 0);
+	assert.equal(distanceFromWindow(301), 1);
+	assert.equal(distanceFromWindow(420), 120);
+	const lines = [
+		entry('1', { med: -120, p90: 700 }),
+		entry('2', { med: 10, p90: -200 }),
+		entry('3', { med: 400, p90: 310 })
+	];
+	// Median: line 2 is inside (0), line 1 is 60 out, line 3 is 100 out.
+	assert.deepEqual(ids(rankLines(lines, 'med').ranked), ['2', '1', '3']);
+	assert.deepEqual(ids(rankLines(lines, 'med', 'worst').ranked), ['3', '1', '2']);
+	// P90: line 3 is 10 out, line 2 is 140 out, line 1 is 400 out.
+	assert.deepEqual(ids(rankLines(lines, 'p90').ranked), ['3', '2', '1']);
+});
+
+test('inside the window the smaller delay ranks higher', () => {
+	const lines = [entry('1', { med: 194 }), entry('2', { med: 19 }), entry('3', { med: -45 })];
+	assert.deepEqual(ids(rankLines(lines, 'med').ranked), ['2', '3', '1']);
+	assert.deepEqual(ids(rankLines(lines, 'med', 'worst').ranked), ['1', '3', '2']);
+	const p90 = [entry('1', { p90: 280 }), entry('2', { p90: 15 })];
+	assert.deepEqual(ids(rankLines(p90, 'p90').ranked), ['2', '1']);
+});
+
+test('a tie on distance and on size shares a rank and sorts by line id', () => {
+	// -30 and 30 are both inside the window and both 30 s from on time.
+	const lines = [
+		entry('3', { med: 250 }),
+		entry('2', { med: 30 }),
+		entry('1', { med: -30 }),
+		entry('4', { med: 301 })
+	];
+	const { ranked } = rankLines(lines, 'med');
+	assert.deepEqual(ids(ranked), ['1', '2', '3', '4']);
+	assert.deepEqual(
+		ranked.map((r) => r.rank),
+		[1, 1, 3, 4]
+	);
+	// The same two lines keep id order when the table is reversed.
+	assert.deepEqual(ids(rankLines(lines, 'med', 'worst').ranked), ['4', '3', '1', '2']);
 });
 
 test('a line under the threshold is unranked with its n, and never ranked', () => {
@@ -189,15 +243,28 @@ test('the Not ranked copy says 500', async () => {
 	assert.ok(text.includes('202 arrivals measured'));
 });
 
-test('rail is left out of the on-time ranking and the unranked list, but not of median', () => {
+test('a closed rail gate leaves rail out of the on-time ranking and the unranked list, but not of median', () => {
 	const rail = entry('801', { mode: 'rail', ontime: 99, med: 1, n: 10 });
 	const lines = [rail, entry('1')];
-	const byOntime = rankLines(lines, 'ontime');
+	const byOntime = rankLines(lines, 'ontime', 'best', false);
 	assert.deepEqual(ids(byOntime.ranked), ['1']);
 	assert.deepEqual(byOntime.unranked, []);
 	assert.deepEqual(
-		ids(rankLines([entry('801', { mode: 'rail', med: 1 }), entry('1')], 'med').ranked),
+		ids(
+			rankLines([entry('801', { mode: 'rail', med: 1 }), entry('1', { med: 500 })], 'med').ranked
+		),
 		['801', '1']
+	);
+});
+
+test('an open rail gate, the default, ranks rail by on-time share like a bus line', () => {
+	const rail = entry('801', { mode: 'rail', ontime: 99 });
+	const lines = [rail, entry('1', { ontime: 60 })];
+	assert.deepEqual(ids(rankLines(lines, 'ontime').ranked), ['801', '1']);
+	const thin = entry('804', { mode: 'rail', n: 10 });
+	assert.deepEqual(
+		rankLines([thin], 'ontime').unranked.map((e) => e.line),
+		['804']
 	);
 });
 
@@ -245,6 +312,75 @@ test('the top and bottom lists never overlap and keep lines that tie at the edge
 	assert.deepEqual(ids(short.top), ['1', '2', '3']);
 	assert.deepEqual(ids(short.bottom), ['4']);
 	assert.deepEqual(ends([], 3), { top: [], bottom: [] });
+});
+
+// Line i has the share 90 - 5 * i, so every line has its own rank.
+function bodyText(lines: number): string {
+	const RankingBody = bodyComponent;
+	const index: SiteIndex = {
+		first_day: '2026-08-18',
+		last_day: '2026-11-15',
+		days: 90,
+		lines: Array.from({ length: lines }, (_, i) => entry(String(i + 1), { ontime: 90 - i * 5 }))
+	};
+	return render(RankingBody, { props: { index } })
+		.body.replace(/<!--.*?-->/g, '')
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/\s+/g, ' ');
+}
+
+let bodyComponent: typeof import('../src/routes/ranking/RankingBody.svelte').default;
+
+before(async () => {
+	bodyComponent = (await import('../src/routes/ranking/RankingBody.svelte')).default;
+});
+
+test('the Least reliable panel counts the lines it lists and hides when empty', () => {
+	// With N ranked lines the top block takes 5 and the bottom has N - 5.
+	const three = bodyText(3);
+	assert.ok(three.includes('The 3 bus lines with the highest on-time share.'), three);
+	assert.ok(!three.includes('Least reliable'));
+	assert.ok(!three.includes('lowest on-time share'));
+
+	const five = bodyText(5);
+	assert.ok(five.includes('The 5 bus lines with the highest on-time share.'), five);
+	assert.ok(!five.includes('Least reliable'));
+
+	const six = bodyText(6);
+	assert.ok(six.includes('The 5 bus lines with the highest on-time share.'), six);
+	assert.ok(six.includes('Least reliable'));
+	assert.ok(six.includes('The 1 bus line with the lowest on-time share.'), six);
+
+	const nine = bodyText(9);
+	assert.ok(nine.includes('The 4 bus lines with the lowest on-time share.'), nine);
+
+	const ten = bodyText(10);
+	assert.ok(ten.includes('The 5 bus lines with the highest on-time share.'), ten);
+	assert.ok(ten.includes('The 5 bus lines with the lowest on-time share.'), ten);
+	assert.ok(!ten.includes('The 5 bus lines with the lowest on-time share, plus'));
+});
+
+test('on-time share prints one decimal and says 100.0 only for exactly 100', () => {
+	assert.equal(shareText(99.96), '99.9');
+	assert.equal(shareText(99.95), '99.9');
+	assert.equal(shareText(99.94), '99.9');
+	assert.equal(shareText(100), '100.0');
+	assert.equal(shareText(85.25), '85.3');
+	assert.equal(shareText(85.24), '85.2');
+	assert.equal(shareText(0), '0.0');
+	assert.equal(percent(99.96), '99.9%');
+	assert.equal(percent(100), '100.0%');
+	assert.equal(percent(85.25), '85.3%');
+});
+
+test('the line headline never says 100.0 percent unless the share is exactly 100', () => {
+	const all = (ontime: number) => ({
+		to: 'Downtown',
+		all: { n: 1000, med: 30, p90: 200, ontime } as never
+	});
+	assert.match(headline(all(99.96), 0, 'bus'), /and 99\.9 percent of 1,000 measured arrivals/);
+	assert.match(headline(all(100), 0, 'bus'), /and 100\.0 percent of 1,000 measured arrivals/);
+	assert.match(headline(all(85.25), 0, 'bus'), /and 85\.3 percent of/);
 });
 
 test('text helpers', () => {
@@ -302,4 +438,21 @@ test('the static copy has no em dash, en dash or curly quote, and states the win
 	assert.ok(copy.includes("Not Metro's published figure"));
 	assert.ok(copy.includes('not only at timepoints'));
 	assert.match(body, /href="\/methods"/);
+});
+
+test('the rail table lists the on-time share by default and not when the gate is closed', async () => {
+	const RailTable = (await import('../src/routes/ranking/RailTable.svelte')).default;
+	const entries = [entry('801', { mode: 'rail', label: 'Metro A Line', ontime: 56.4 })];
+	const flat = (html: string) =>
+		html
+			.replace(/<!--.*?-->/g, '')
+			.replace(/<[^>]+>/g, ' ')
+			.replace(/\s+/g, ' ');
+	const open = flat(render(RailTable, { props: { entries } }).body);
+	assert.ok(open.includes('On time'));
+	assert.ok(open.includes('56.4%'));
+	assert.ok(!open.includes(RAIL_HOLD_NOTE));
+	const closed = flat(render(RailTable, { props: { entries, showRailOntime: false } }).body);
+	assert.ok(closed.includes(RAIL_HOLD_NOTE));
+	assert.ok(!closed.includes('56.4%'));
 });

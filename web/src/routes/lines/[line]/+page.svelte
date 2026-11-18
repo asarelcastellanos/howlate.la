@@ -2,14 +2,19 @@
 	import { page } from '$app/state';
 	import Remote from '#lib/charts/Remote.svelte';
 	import { DATA_BASE } from '#lib/data/base.ts';
+	import { LINE_LIST } from '#lib/data/lines.ts';
 	import Headline from '#lib/design/Headline.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
 	import LineNotFound from '#lib/line/LineNotFound.svelte';
 	import LineView from '#lib/line/LineView.svelte';
+	import { lineHead, findListed } from '#lib/lineHead.ts';
 	import PageHead from '#lib/PageHead.svelte';
 	import { loadLinePage } from '#lib/linePage.ts';
 
 	const id = $derived(page.params.line ?? '');
+	// The prerendered HTML and the first browser render both read the committed list,
+	// so they agree and hydration does not rewrite the head.
+	const head = $derived(lineHead(findListed(LINE_LIST, id), id));
 </script>
 
 <Masthead dateline="LA Metro bus and rail" />
@@ -23,8 +28,8 @@
 			     one covers loading and failed loads, so one title is in the head at a time. -->
 			{#snippet heading()}
 				<PageHead
-					title="Line {id}"
-					description="How late this LA Metro line runs by hour of the week and by stop, measured against the timetable."
+					title={head.title}
+					description={head.description}
 					path="/lines/{encodeURIComponent(id)}"
 				/>
 				<section class="pt-10 pb-6"><Headline>Line {id}</Headline></section>

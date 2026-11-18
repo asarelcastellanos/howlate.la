@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Headline from '#lib/design/Headline.svelte';
+	import OntimeMark from '#lib/design/OntimeMark.svelte';
 	import { percent, type RankedLine } from '#lib/ranking.ts';
 	import LineCell from './LineCell.svelte';
 
@@ -17,7 +18,7 @@
 				<span class="font-semibold">{rank}</span>
 				<span class="min-w-0"><LineCell {entry} /></span>
 				<span class="col-start-2 font-semibold whitespace-nowrap sm:col-start-3"
-					>{percent(entry.ontime)} on time</span
+					>{percent(entry.ontime)} on time<OntimeMark /></span
 				>
 			</li>
 		{/each}

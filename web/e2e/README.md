@@ -12,8 +12,12 @@ check it against a small committed copy of the data in `fixture/`. The CI job
   fewer than four figures, sideways scroll, or a direction switch that does not
   match the line's direction count. It also checks the not-found message, the
   home page search, the ranking links, the three-tap path from the home page to
-  the Friday 5 pm readout on line 720, and that a rail page shows no on-time
-  sentence. It also opens `/behind-the-scenes` at 375 px and checks one h1, the
+  the Friday 5 pm readout on line 720, that rail and bus pages show the on-time
+  sentence and its note, that the phone width shows the short note and 1024 px
+  the full one, that the note's link opens the methods section, that the
+  methods page shows the live shares from `network.json`, and that the headline
+  share, the Extremes rows and the On time column headings have an asterisk
+  (found by `data-testid="ontime-mark"`). It also opens `/behind-the-scenes` at 375 px and checks one h1, the
   newest graded day, the 14-day strip with its failed and missing days, the
   check list, no console error and no sideways scroll. A second test serves a
   copy of `health.json` through `page.route` and checks that a newest day 4 days
@@ -45,9 +49,11 @@ because `vite preview` serves that folder and not `build/`. A fresh `npm run
 build` removes it, so stage again after every build. The reports go to
 `reports/`, which git ignores.
 
-`/lines/<id>` is not prerendered. In production Cloudflare Pages answers it with
-`200.html`, and `vite preview` renders it on the server instead. The browser
-loads the data the same way in both.
+`/lines/<id>` is prerendered for every line in `src/lib/data/lines.json`. A line
+outside that list has no file, and in production Cloudflare Pages answers it with
+`200.html`. `vite preview` answers 404 for it, so the not-found test serves
+`build/200.html` for `/lines/zzz` through `page.route`. Every line in the fixture
+index must also be in `lines.json`, or its test gets a 404.
 
 ## The fixture
 
