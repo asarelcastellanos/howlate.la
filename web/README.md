@@ -249,7 +249,7 @@ line keeps its old title the same way. `scripts/refresh-lines.ts` rejects only a
 empty list or a duplicate id, so check the diff of `lines.json` before committing.
 
 A trailing slash, `/lines/720/`, does not match the per-line rule, so Pages
-answers it with the app shell and no title. A preview on 2026-11-18 measured
+answers it with the app shell and no title. A preview on 2026-11-17 measured
 1,506 bytes and no title tag. Nothing on the site links with a trailing slash, so
 this stays as an accepted limit.
 
@@ -305,7 +305,7 @@ Known limit of the ranking. It does not show in the 2026-11-16 run, which has
 ## The on-time share and its note
 
 Since 0.5.1 rail shows its on-time share like a bus line. The owner decided that
-on 2026-11-18, after issue #133 found no cause for the gap with Metro. Nothing in
+on 2026-11-17, after issue #133 found no cause for the gap with Metro. Nothing in
 the pipeline or the published data changed.
 
 - `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is true. `showsOntime`, `headline`,
