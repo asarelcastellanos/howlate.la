@@ -126,3 +126,37 @@ def test_the_public_url_prompt_does_not_promise_a_skip():
 
 def test_the_script_parses():
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
+
+
+# Each file states when the daily job runs. `yesterday()` assumes the run is
+# after the last bus report, which was 06:12 in the measured days, so a doc that
+# still says 05:00 describes a run that would grade an incomplete day.
+HOUR_STATEMENTS = [
+    "pipeline/README.md",
+    "pipeline/deploy/daily.sh",
+    "pipeline/src/howlate_pipeline/r2.py",
+    "docs/release-plan.md",
+    "web/README.md",
+    "web/src/lib/behind.ts",
+]
+SPOKEN_STATEMENTS = [
+    "web/src/routes/methods/+page.svelte",
+    "web/src/routes/behind-the-scenes/StatusPanel.svelte",
+    "web/src/routes/behind-the-scenes/Architecture.svelte",
+]
+
+
+def test_the_scheduled_hour_is_the_hour_every_doc_states():
+    root = SCRIPT.parents[2]
+    (minute, hour) = re.search(r'--schedule "(\d+) (\d+) \* \* \*"', SCRIPT.read_text()).groups()
+    assert (minute, hour) == ("0", "8")
+    if not (root / "web").is_dir():
+        pytest.skip("no web folder beside pipeline")
+    for name in HOUR_STATEMENTS:
+        found = re.findall(
+            r"\b(\d\d):00 (?:Pacific|America/Los_Angeles)", (root / name).read_text()
+        )
+        assert found and set(found) == {f"{int(hour):02d}"}, name
+    for name in SPOKEN_STATEMENTS:
+        found = re.findall(r"\b(\d+) am Pacific", (root / name).read_text())
+        assert found and set(found) == {hour}, name

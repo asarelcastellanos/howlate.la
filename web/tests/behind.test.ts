@@ -93,38 +93,38 @@ describe('the stale rule', () => {
 		assert.deepEqual(freshness('2026-11-16', today), { daysOld: 0, stale: false });
 		assert.deepEqual(freshness('2026-11-15', today), { daysOld: 1, stale: false });
 	});
-	test('2 and 3 days old are normal, so neither is a warning', () => {
+	test('2 days old is normal before the morning run, so it is not a warning', () => {
 		assert.deepEqual(freshness('2026-11-14', today), { daysOld: 2, stale: false });
-		assert.deepEqual(freshness('2026-11-13', today), { daysOld: 3, stale: false });
 	});
-	test('4 days old is a warning', () => {
-		assert.deepEqual(freshness('2026-11-12', today), { daysOld: 4, stale: true });
+	test('3 days old is a warning', () => {
+		assert.deepEqual(freshness('2026-11-13', today), { daysOld: 3, stale: true });
 	});
 	test('a day after today is not stale', () => {
 		assert.deepEqual(freshness('2026-11-17', today), { daysOld: -1, stale: false });
 	});
 	test('the count follows Pacific dates across a month end and a clock change', () => {
-		assert.equal(freshness('2026-10-31', '2026-11-04').stale, true);
-		assert.equal(freshness('2026-10-31', '2026-11-03').stale, false);
-		assert.equal(freshness('2026-03-07', '2026-03-11').stale, true);
-		assert.equal(freshness('2026-03-08', '2026-03-11').stale, false);
+		assert.equal(freshness('2026-10-31', '2026-11-03').stale, true);
+		assert.equal(freshness('2026-10-31', '2026-11-02').stale, false);
+		assert.equal(freshness('2026-03-07', '2026-03-10').stale, true);
+		assert.equal(freshness('2026-03-08', '2026-03-10').stale, false);
 	});
 
-	// The job runs at 05:00 Pacific and grades today minus 2. Between midnight
-	// and the end of the run, the newest graded day is 3 days old, so a normal
-	// night must never warn.
+	// The job runs at 08:00 Pacific and grades yesterday. Between midnight and
+	// the end of the run, the newest graded day is 2 days old, so a normal night
+	// must never warn.
 	test('a normal daily cycle never warns, and a missed run does', () => {
 		const at = (iso: string, lastDay: string) => freshness(lastDay, pacificToday(new Date(iso)));
-		// 2026-11-14 is the newest day after the run on the 16th at 05:00 Pacific.
+		// 2026-11-16 is the newest day after the run on the 17th at 08:00 Pacific.
 		for (const iso of [
-			'2026-11-16T14:00:00Z', // 06:00 on the 16th, after the run
-			'2026-11-17T07:59:00Z', // 23:59 on the 16th
-			'2026-11-17T08:00:00Z', // 00:00 on the 17th, gap 3 until the next run
-			'2026-11-17T12:30:00Z' // 04:30 on the 17th, the run has not finished
+			'2026-11-17T17:00:00Z', // 09:00 on the 17th, after the run
+			'2026-11-18T07:59:00Z', // 23:59 on the 17th
+			'2026-11-18T08:00:00Z', // 00:00 on the 18th, gap 2 until the next run
+			'2026-11-18T15:30:00Z' // 07:30 on the 18th, the run has not started
 		]) {
-			assert.equal(at(iso, '2026-11-14').stale, false, iso);
+			assert.equal(at(iso, '2026-11-16').stale, false, iso);
 		}
-		assert.deepEqual(at('2026-11-17T12:30:00Z', '2026-11-13'), { daysOld: 4, stale: true });
+		// The run on the 18th did not grade the 17th: at 00:00 on the 19th the gap is 3.
+		assert.deepEqual(at('2026-11-19T08:00:00Z', '2026-11-16'), { daysOld: 3, stale: true });
 	});
 });
 
@@ -317,15 +317,15 @@ describe('the status panel', () => {
 		assert.ok(!text.includes('All checks passed'));
 	});
 
-	test('3 days old shows no warning and 4 days old does', () => {
+	test('2 days old shows no warning and 3 days old does', () => {
 		const file = health([day('2026-11-15')]);
-		assert.doesNotMatch(show(ok(file), '2026-11-18'), /data-warning/);
-		const html = show(ok(file), '2026-11-19');
+		assert.doesNotMatch(show(ok(file), '2026-11-17'), /data-warning/);
+		const html = show(ok(file), '2026-11-18');
 		assert.match(html, /data-warning/);
 		const text = plain(html);
 		assert.ok(text.includes('Warning'));
-		assert.ok(text.includes('4 days before today'));
-		assert.ok(text.includes('A gap of 3 days is normal'));
+		assert.ok(text.includes('3 days before today'));
+		assert.ok(text.includes('A gap of 2 days is normal'));
 	});
 
 	test('a run with no reports says so and has no checks to list', () => {

@@ -352,10 +352,10 @@ its `<svelte:boundary>`, so a render error shows the error box.
 
 - The panel compares `last_day` with today's date in Los Angeles
   (`pacificToday` in `src/lib/date.ts`, read in the browser). It turns to a
-  warning when the gap is more than `STALE_AFTER_DAYS` (3). The daily job
-  runs at 05:00 Pacific and grades today minus 2, so from midnight until the run
-  finishes the newest day is 3 days old and a gap of 3 is normal. The
-  pipeline's own alarm allows 4 (`MAX_LAG_DAYS` in `r2.py`). A future date is
+  warning when the gap is more than `STALE_AFTER_DAYS` (2). The daily job
+  runs at 08:00 Pacific and grades yesterday, so from midnight until the run
+  finishes the newest day is 2 days old and a gap of 2 is normal. The
+  pipeline's own alarm allows 3 (`MAX_LAG_DAYS` in `r2.py`). A future date is
   not a warning.
 - The 14-day strip (`buildStrip`) has one cell per day ending on `last_day`.
   A day with no report is an empty dashed cell, not a failed one. Each cell

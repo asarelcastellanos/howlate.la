@@ -55,9 +55,9 @@
 				Warning. The newest graded day is {age.daysOld} days before today in Los Angeles.
 			</p>
 			<p class="caption text-ink-muted mt-1">
-				The daily job runs at 5 am Pacific and grades the day before yesterday, so for a few hours
-				each night the newest day is {STALE_AFTER_DAYS} days old. A gap of {STALE_AFTER_DAYS} days is
-				normal. A longer gap means the job has not finished lately.
+				The daily job runs at 8 am Pacific and grades yesterday, so from midnight until the run
+				finishes the newest day is {STALE_AFTER_DAYS} days old. A gap of {STALE_AFTER_DAYS} days is normal.
+				A longer gap means the job has not finished lately.
 			</p>
 		{/if}
 

@@ -398,7 +398,8 @@ the 0.5.1 entry of `CHANGELOG.md`.
 
 Goal: close the data gaps the 0.5.1 review found.
 
-- Grade yesterday at 05:00 Pacific, not two days back (#164).
+- Run the daily job at 08:00 Pacific and grade yesterday, not two days back (#164).
+  Bus service runs to 05:45, so 05:00 was too early.
 - Estimate the bus stops the feed skipped between two reports, to raise bus
   coverage from 71.35 percent (#165).
 - Account for ungraded rail trips (#166).

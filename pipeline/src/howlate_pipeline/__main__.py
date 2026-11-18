@@ -38,33 +38,48 @@ import re
 import sys
 import time
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from datetime import time as clock_time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from google.cloud import storage
 
 from howlate_pipeline import (
     DERIVED_BUCKET,
+    ZONE,
     aggregate,
     arrivals,
     backfill,
     gtfs,
     labels,
-    pacific_today,
     r2,
     report,
 )
 
+# Measured 2026-11-13 to 2026-11-16: the last bus report for a service day came
+# between 05:49 and 06:12 Pacific the next morning, because the timetable has
+# bus stops until 29:45 (05:45). Files reach the archive a median 17 s and at
+# most 36 s after their last record, and a vehicle's own timestamp can trail
+# the collector by about 610 s. The scheduled run at 08:00 therefore starts
+# about 1h45 after the last bus report. A manual run may start from 07:00, which
+# is still 47 minutes after the latest of those reports. Grading at 05:00 left
+# 283 and 472 bus arrivals ungraded on the two days compared (0.05 to 0.09
+# percent), and a saved report stops a day being graded again.
+DAY_COMPLETE_FROM = clock_time(7, 0)
+
 
 def yesterday(now: datetime | None = None) -> str:
-    """The default day to measure.
+    """The default day to measure: the latest service day that is complete.
 
-    Two days back, not one. A service day is not over until about 3am the
-    following morning, and the UTC partition holding its evening is only complete
-    once that morning has passed. The count starts from the Pacific date, because
-    a manual run after 16:00 Pacific sees tomorrow's date on a UTC machine.
+    That is one day back from 07:00 Pacific, and two days back before it, when
+    yesterday's buses may still be running. The scheduled run is at 08:00, so it
+    always gets one day back. The count starts from the Pacific date, because a
+    manual run after 16:00 Pacific sees tomorrow's date on a UTC machine.
     """
-    return (pacific_today(now) - timedelta(days=2)).strftime("%Y%m%d")
+    local = (now or datetime.now(UTC)).astimezone(ZoneInfo(ZONE))
+    back = 1 if local.time() >= DAY_COMPLETE_FROM else 2
+    return (local.date() - timedelta(days=back)).strftime("%Y%m%d")
 
 
 def require_complete(service_date: str) -> str:
@@ -540,7 +555,7 @@ def main() -> None:
     one.add_argument(
         "--service-date",
         default=yesterday(),
-        help="YYYY-MM-DD or YYYYMMDD. Defaults to two days ago.",
+        help="YYYY-MM-DD or YYYYMMDD. Defaults to the latest complete day, yesterday from 07:00 Pacific.",
     )
     one.add_argument("--out", type=Path, default=Path("out"), help="where the Parquet goes")
     one.add_argument(
@@ -587,7 +602,10 @@ def main() -> None:
     )
     many.add_argument("--from", dest="first", required=True, help="first service day, YYYY-MM-DD")
     many.add_argument(
-        "--to", dest="last", default=yesterday(), help="last service day. Defaults to two days ago."
+        "--to",
+        dest="last",
+        default=yesterday(),
+        help="last service day. Defaults to the latest complete day, yesterday from 07:00 Pacific.",
     )
     many.add_argument("--out", type=Path, default=Path("out"), help="where the Parquet goes")
     many.add_argument(

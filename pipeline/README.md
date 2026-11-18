@@ -223,9 +223,9 @@ After a copy that moves R2's pointer, `daily` checks the public address from
 outside. It fetches `site/current.json` with a changing query, to get past its 60
 second cache, then the `status.json` the pointer names. It fails the run when a
 fetch fails or is not 200, a body is not JSON, the pointer names an older run
-than the one copied, or `last_day` is more than 4 days before today's date in
-Los Angeles. The job grades up to two days back at 05:00 Pacific, so a gap of 2
-is normal. The check compares with the calendar, not with the site the job just
+than the one copied, or `last_day` is more than 3 days before today's date in
+Los Angeles. The job grades yesterday at 08:00 Pacific, so right after a run
+the gap is 1, and a gap of 2 is normal for a run started by hand before 07:00. The check compares with the calendar, not with the site the job just
 built, because the public file is that same build. A newer run passes. Each
 fetch has a 10 second timeout and one retry.
 
