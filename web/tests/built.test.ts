@@ -115,6 +115,17 @@ describe('each line page in lines.json', () => {
 		});
 	}
 
+	test('every proxy rule in _redirects points at a file in the build', () => {
+		const rules = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8')
+			.split('\n')
+			.filter((rule) => /^\/lines\/[^*\s]+ /.test(rule));
+		assert.equal(rules.length, LINE_LIST.length);
+		for (const rule of rules) {
+			const target = rule.split(' ')[1]!;
+			assert.ok(existsSync(join(BUILD, target)), `${rule} has no file in build/`);
+		}
+	});
+
 	test('an id outside the list is not prerendered and the shell serves it', () => {
 		assert.ok(!existsSync(join(BUILD, 'lines', 'zzz.html')));
 		assert.ok(existsSync(join(BUILD, '200.html')));

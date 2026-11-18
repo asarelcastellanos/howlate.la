@@ -227,6 +227,16 @@ the served HTML until the list is refreshed, and it still works in the browser.
 `tests/built.test.ts` checks that every id in the list has a built file with a title,
 a description of 40 to 160 characters, a canonical link and `og:image`.
 
+`lines:refresh` also rewrites the block between the `# BEGIN line pages` and
+`# END line pages` lines in `static/_redirects`, one rule per id
+(`/lines/720 /lines/720.html 200`). Do not edit that block by hand. Pages follows a
+redirect rule even when a file matches the path, and the first matching rule wins, so
+the wildcard `/lines/* /200 200` alone sends every line to the app shell. A preview
+served `/lines/720` and `/lines/zzz` as the same 1,508 bytes with no title. The
+per-line rules sit before the wildcard so the prerendered files are served.
+`tests/lineRedirects.test.ts` fails when the committed file no longer matches
+`lines.json`.
+
 ## Ranking
 
 `/ranking` is prerendered, and the browser loads `index.json` with
