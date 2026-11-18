@@ -5,14 +5,22 @@
 
 	// Loads in the browser only, because effects do not run during prerender. The
 	// static HTML therefore holds the loading state. A retry runs the load again.
+	// The children get that retry as a second argument, for a page that shows its
+	// own ResultView per part of the data and needs a Try again button on each.
 	let {
 		load,
 		heading,
-		children
-	}: { load: () => Promise<Result<T>>; heading?: Snippet; children: Snippet<[T]> } = $props();
+		children: render
+	}: {
+		load: () => Promise<Result<T>>;
+		heading?: Snippet;
+		children: Snippet<[T, () => void]>;
+	} = $props();
 
 	let result = $state<Result<T>>();
 	let attempt = $state(0);
+
+	const retry = () => attempt++;
 
 	$effect(() => {
 		void attempt;
@@ -31,4 +39,6 @@
 	});
 </script>
 
-<ResultView {result} onretry={() => attempt++} {heading} {children} />
+<ResultView {result} onretry={retry} {heading}>
+	{#snippet children(data)}{@render render(data, retry)}{/snippet}
+</ResultView>

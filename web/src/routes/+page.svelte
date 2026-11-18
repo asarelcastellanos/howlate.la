@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { DATA_BASE } from '#lib/data/base.ts';
 	import Remote from '#lib/charts/Remote.svelte';
+	import ResultView from '#lib/charts/ResultView.svelte';
 	import Headline from '#lib/design/Headline.svelte';
 	import Kicker from '#lib/design/Kicker.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
@@ -27,14 +28,25 @@
 		timetable.
 	</p>
 	<!-- One Remote reads the status and the index from one run, so the strip and the
-	     search list never come from two different daily runs. The "Find a line" links
-	     point at #search, so the loading and error states carry an empty anchor and
-	     the prerendered page has the id before the data arrives. -->
+	     search list never come from two different daily runs. Each file has its own
+	     result, so a failed status file shows its error and the search box still
+	     renders, and each one gets its own Try again button that reruns the whole load.
+	     The "Find a line" links point at #search, so the loading and error
+	     states carry an empty anchor and the prerendered page has the id before the
+	     data arrives. -->
 	<Remote load={() => loadHome(DATA_BASE)}>
 		{#snippet heading()}<div id="search" class="mt-10 scroll-mt-6"></div>{/snippet}
-		{#snippet children({ status, index })}
-			<div class="wide mt-10"><StatusStrip {status} /></div>
-			<div id="search" class="mt-10 scroll-mt-6"><SearchBox entries={index.lines} /></div>
+		{#snippet children({ status, index }, retry)}
+			<div class="wide mt-10">
+				<ResultView result={status} onretry={retry}>
+					{#snippet children(data)}<StatusStrip status={data} />{/snippet}
+				</ResultView>
+			</div>
+			<div id="search" class="mt-10 scroll-mt-6">
+				<ResultView result={index} onretry={retry}>
+					{#snippet children(data)}<SearchBox entries={data.lines} />{/snippet}
+				</ResultView>
+			</div>
 		{/snippet}
 	</Remote>
 	<p class="mt-10"><a href={resolve('/methods')}>How HowLate measures delay</a></p>

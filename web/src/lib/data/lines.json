@@ -1,0 +1,1152 @@
+[
+	{
+		"line": "2",
+		"label": "2",
+		"mode": "bus",
+		"to": [
+			"Expo Park / USC Station",
+			"Westwood / UCLA"
+		],
+		"via": "Westwood - Exposition Park via Sunset-Alvarado"
+	},
+	{
+		"line": "4",
+		"label": "4",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - Broadway - Venice",
+			"Santa Monica"
+		],
+		"via": "Downtown LA - Santa Monica via Santa Monica Bl"
+	},
+	{
+		"line": "10",
+		"label": "10/48",
+		"mode": "bus",
+		"to": [
+			"Avalon Station",
+			"West Hollywood"
+		],
+		"via": "W Hollywood-Dtwn LA -Avalon Sta via Melrose-Avalon"
+	},
+	{
+		"line": "14",
+		"label": "14/37",
+		"mode": "bus",
+		"to": [
+			"Beverly Center",
+			"Washington / Fairfax Transit Hub"
+		],
+		"via": "Cedars Sinai-Dtla-Wash/Fairfax via Beverly-Adams"
+	},
+	{
+		"line": "16",
+		"label": "16",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - 6th - Los Angeles",
+			"West Hollywood"
+		],
+		"via": "Downtown LA - West Hollywood via West 3Rd St"
+	},
+	{
+		"line": "18",
+		"label": "18",
+		"mode": "bus",
+		"to": [
+			"Montebello Metrolink Station",
+			"Wilshire / Western Station"
+		],
+		"via": "Wilshire Western Sta-Montebello via 6Th - Whittier"
+	},
+	{
+		"line": "20",
+		"label": "20",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - 6th - Main",
+			"Westwood"
+		],
+		"via": "Downtown LA - Santa Monica via Wilshire Bl"
+	},
+	{
+		"line": "28",
+		"label": "28",
+		"mode": "bus",
+		"to": [
+			"Cesar Chavez - Vignes",
+			"Century City"
+		],
+		"via": "Century City-Dtw La-Via Olympic"
+	},
+	{
+		"line": "30",
+		"label": "30",
+		"mode": "bus",
+		"to": [
+			"Downtown LA- Little Tokyo-Arts Dist Sta.",
+			"Pico - Rimpau"
+		],
+		"via": "Pico Rimpau - Dtwn LA - Little Tokyo Sta via Pico"
+	},
+	{
+		"line": "33",
+		"label": "33",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - Union Station",
+			"Santa Monica"
+		],
+		"via": "Downtown LA - Santa Monica via Venice Bl"
+	},
+	{
+		"line": "35",
+		"label": "35/38",
+		"mode": "bus",
+		"to": [
+			"Washington / Fairfax Transit Hub",
+			"Downtown LA - Broadway - Venice"
+		],
+		"via": "Downtown La- Wla via Washington Bl & Jefferson Bl"
+	},
+	{
+		"line": "40",
+		"label": "40",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - Union Station",
+			"Redondo Beach Transit Center"
+		],
+		"via": "Downtown La-Sbay Galleria via King Bl-Hawthorne Bl"
+	},
+	{
+		"line": "45",
+		"label": "45",
+		"mode": "bus",
+		"to": [
+			"Lincoln Heights",
+			"Harbor Freeway Station"
+		],
+		"via": "Lincoln Heights-Dtwn La-Harbr Fwy Sta via Broadway"
+	},
+	{
+		"line": "51",
+		"label": "51",
+		"mode": "bus",
+		"to": [
+			"Westlake / MacArthur Park Station",
+			"Avalon Station"
+		],
+		"via": "Westlake/Mcarthur Pk Sta-Dtwn La-Csu Dh via Avalon"
+	},
+	{
+		"line": "53",
+		"label": "53",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - 4th - Beaudry",
+			"Cal State Dominguez Hills"
+		],
+		"via": "Downtown LA - Csu Domiguez Hills via Central Av"
+	},
+	{
+		"line": "55",
+		"label": "55",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - Sunset - Figueroa",
+			"Willowbrook / Rosa Parks Station"
+		],
+		"via": "Downtown LA – Willowbrook Sta via Compton Av"
+	},
+	{
+		"line": "60",
+		"label": "60",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - Sunset - Figueroa",
+			"Artesia Station"
+		],
+		"via": "Downtown LA - Artesia Station - via Long Beach Bl"
+	},
+	{
+		"line": "62",
+		"label": "62",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - 4th - Beaudry",
+			"Hawaiian Gardens - 226th - Norwalk Blvd"
+		],
+		"via": "Downtown LA - Hawaiian Gardens via Telegraph Rd"
+	},
+	{
+		"line": "66",
+		"label": "66",
+		"mode": "bus",
+		"to": [
+			"Montebello Metrolink Station",
+			"Wilshire / Western Station"
+		],
+		"via": "Wilshire Ctr-Dtwn La-Montebello via 8Th-Olympic"
+	},
+	{
+		"line": "70",
+		"label": "70",
+		"mode": "bus",
+		"to": [
+			"El Monte Station",
+			"Downtown LA - Grand - Venice"
+		],
+		"via": "Downtown LA - El Monte via Cesar Chavez-Garvey Avs"
+	},
+	{
+		"line": "74",
+		"label": "74",
+		"mode": "bus",
+		"to": [
+			"Garvey / Atlantic",
+			"The Shops at Montebello"
+		],
+		"via": "Montebello - Monterey Park via 1St-Garvey"
+	},
+	{
+		"line": "76",
+		"label": "76",
+		"mode": "bus",
+		"to": [
+			"El Monte Station",
+			"Downtown LA-Grand/Venice-Little Tokyo"
+		],
+		"via": "Downtown LA - El Monte via Valley Bl"
+	},
+	{
+		"line": "78",
+		"label": "78",
+		"mode": "bus",
+		"to": [
+			"Las Tunas - Live Oak",
+			"Downtown LA - Grand - Venice"
+		],
+		"via": "Downtown La-Arcadia via Huntington-Main-Las Tunas"
+	},
+	{
+		"line": "81",
+		"label": "81",
+		"mode": "bus",
+		"to": [
+			"Eagle Rock Plaza",
+			"Harbor Freeway Station"
+		],
+		"via": "Eagle Rock- Dwntwn La- Harbor Fwy Sta via Figueroa"
+	},
+	{
+		"line": "90",
+		"label": "90",
+		"mode": "bus",
+		"to": [
+			"North Hollywood Station",
+			"Downtown LA"
+		],
+		"via": "Dtla - Noho Sta via Vineland-Foothill-Glendale Bl"
+	},
+	{
+		"line": "92",
+		"label": "92",
+		"mode": "bus",
+		"to": [
+			"Sylmar Metrolink Station",
+			"Downtown LA - Main - Olympic"
+		],
+		"via": "Dwntwn La- Sylmar Sta via Glendale - Glenoaks Bls"
+	},
+	{
+		"line": "93",
+		"label": "93",
+		"mode": "bus",
+		"to": [
+			"Glendale Galleria",
+			"Grand / LATTC Station"
+		],
+		"via": "Glendale-Grand Sta via San Fernando-Rampart-Hoover"
+	},
+	{
+		"line": "94",
+		"label": "94",
+		"mode": "bus",
+		"to": [
+			"North Hollywood Station",
+			"Downtown LA - Hill - Venice"
+		],
+		"via": "Dtwn LA - Noho Sta via San Fernando Rd-Magnolia Bl"
+	},
+	{
+		"line": "102",
+		"label": "102",
+		"mode": "bus",
+		"to": [
+			"Huntington Park - Palm - Seville",
+			"LAX / Metro Transit Center"
+		],
+		"via": "Lax/Metro Tc - S Gate via LA Tijera-Exposition"
+	},
+	{
+		"line": "105",
+		"label": "105",
+		"mode": "bus",
+		"to": [
+			"West Hollywood",
+			"Vernon - Santa Fe"
+		],
+		"via": "W Hollywood - Vernon via LA Cienega Bl"
+	},
+	{
+		"line": "108",
+		"label": "108",
+		"mode": "bus",
+		"to": [
+			"Pico Rivera - Slauson / Passons",
+			"Culver City Transit Center"
+		],
+		"via": "Marina Del Rey - Pico Rivera via Slauson Av"
+	},
+	{
+		"line": "110",
+		"label": "110",
+		"mode": "bus",
+		"to": [
+			"Bell Gardens",
+			"Culver City Transit Center"
+		],
+		"via": "Playa Vista- Bell Gardens via Jefferson Bl-Gage Av"
+	},
+	{
+		"line": "111",
+		"label": "111",
+		"mode": "bus",
+		"to": [
+			"Norwalk Station / C Line",
+			"LAX / Metro Transit Center"
+		],
+		"via": "Lax/Metro Tc - Norwalk Sta via Florence Av"
+	},
+	{
+		"line": "115",
+		"label": "115",
+		"mode": "bus",
+		"to": [
+			"Norwalk Station / C Line",
+			"Playa Del Rey"
+		],
+		"via": "Playa Del Rey - Norwalk via Manchester - Firestone"
+	},
+	{
+		"line": "117",
+		"label": "117",
+		"mode": "bus",
+		"to": [
+			"Lakewood Blvd Station",
+			"LAX / Metro Transit Center"
+		],
+		"via": "Lax/Metro Tc -Downey via Century Bl-Imperial Hwy"
+	},
+	{
+		"line": "120",
+		"label": "120",
+		"mode": "bus",
+		"to": [
+			"Whittwood Town Center",
+			"LAX / Metro Transit Center"
+		],
+		"via": "Lax/Metro Tc- Whittwood Ctr via Imperial Hwy"
+	},
+	{
+		"line": "125",
+		"label": "125",
+		"mode": "bus",
+		"to": [
+			"Norwalk Station / C Line",
+			"Plaza El Segundo"
+		],
+		"via": "El Segundo - Norwalk Station via Rosecrans Av"
+	},
+	{
+		"line": "127",
+		"label": "127",
+		"mode": "bus",
+		"to": [
+			"Downey Depot",
+			"Harbor Freeway Station"
+		],
+		"via": "Harbor Fwy Sta - Downey via Compton - Somerset Bls"
+	},
+	{
+		"line": "128",
+		"label": "128",
+		"mode": "bus",
+		"to": [
+			"Cerritos Town Center",
+			"Compton Station"
+		],
+		"via": "Compton Sta - Cerritos Towne Center via Alondra Bl"
+	},
+	{
+		"line": "134",
+		"label": "134",
+		"mode": "bus",
+		"to": [
+			"Downtown Santa Monica Station",
+			"Malibu - PCH -Trancas"
+		],
+		"via": "Malibu - Santa Monica"
+	},
+	{
+		"line": "150",
+		"label": "150",
+		"mode": "bus",
+		"to": [
+			"Encino",
+			"Chatsworth Station"
+		],
+		"via": "Chatsworth Sta - Encino via Topanga Cyn-Ventura Bl"
+	},
+	{
+		"line": "152",
+		"label": "152",
+		"mode": "bus",
+		"to": [
+			"North Hollywood Station",
+			"West Hills Medical Center via Roscoe"
+		],
+		"via": "Canoga Park - N Hollywood Sta via Roscoe Bl"
+	},
+	{
+		"line": "154",
+		"label": "154",
+		"mode": "bus",
+		"to": [
+			"Burbank Station",
+			"Sepulveda G Line Station"
+		],
+		"via": "Van Nuys - Burbank Sta via Oxnard St"
+	},
+	{
+		"line": "155",
+		"label": "155",
+		"mode": "bus",
+		"to": [
+			"N. Hollywood Station via Sepulveda Blvd",
+			"Burbank Station via Sepulveda Blvd"
+		],
+		"via": "N. Hollywood Sta- Burbank Sta via Riverside-Olive"
+	},
+	{
+		"line": "158",
+		"label": "158",
+		"mode": "bus",
+		"to": [
+			"Sherman Oaks",
+			"Chatsworth Station"
+		],
+		"via": "Chatsworth Sta-Sherman Oaks via Devonshire-Woodman"
+	},
+	{
+		"line": "161",
+		"label": "161",
+		"mode": "bus",
+		"to": [
+			"Canoga Station via Warner Center",
+			"Thousand Oaks Transportation Center"
+		],
+		"via": "Thousand Oaks -Agoura Hills -Calabasas -Warner Ctr"
+	},
+	{
+		"line": "162",
+		"label": "162",
+		"mode": "bus",
+		"to": [
+			"North Hollywood Station",
+			"UCLA West Valley Medical Center"
+		],
+		"via": "Woodland Hills - N Hollywood Sta via Sherman Way"
+	},
+	{
+		"line": "164",
+		"label": "164",
+		"mode": "bus",
+		"to": [
+			"Burbank Station",
+			"West Hills"
+		],
+		"via": "West Hills - Burbank via Victory Bl"
+	},
+	{
+		"line": "165",
+		"label": "165",
+		"mode": "bus",
+		"to": [
+			"Burbank Station",
+			"West Hills"
+		],
+		"via": "West Hills - Burbank via Vanowen St"
+	},
+	{
+		"line": "166",
+		"label": "166",
+		"mode": "bus",
+		"to": [
+			"Sun Valley",
+			"Nordhoff - Canoga"
+		],
+		"via": "Chatsworth Sta -Sun Valley via Nordhoff-Osborne St"
+	},
+	{
+		"line": "167",
+		"label": "167",
+		"mode": "bus",
+		"to": [
+			"Coldwater Canyon - Ventura",
+			"Chatsworth Station"
+		],
+		"via": "Chatsworth Sta-Studio Cty-Csun via Plummr-Cldwt Cn"
+	},
+	{
+		"line": "169",
+		"label": "169",
+		"mode": "bus",
+		"to": [
+			"Hollywood Burbank Airport",
+			"Canoga Station"
+		],
+		"via": "Warner Ctr-Burbank Airpt via Valley Cir-Saticoy St"
+	},
+	{
+		"line": "179",
+		"label": "179",
+		"mode": "bus",
+		"to": [
+			"Arcadia Station",
+			"Huntington - Monterey"
+		],
+		"via": "Rose Hill Tc - Arcadia L Line Sta via Huntington"
+	},
+	{
+		"line": "180",
+		"label": "180",
+		"mode": "bus",
+		"to": [
+			"Pasadena City College",
+			"Hollywood - Vine Station"
+		],
+		"via": "Hollywood-Glendale-Pasadena via Los Feliz-Colorado"
+	},
+	{
+		"line": "182",
+		"label": "182",
+		"mode": "bus",
+		"to": [
+			"Huntington - Monterey",
+			"Vermont / Sunset Station"
+		],
+		"via": "Rose Hill Tc - E Hollywood via Figueroa St-York Bl"
+	},
+	{
+		"line": "202",
+		"label": "202",
+		"mode": "bus",
+		"to": [
+			"Willowbrook / Rosa Parks Station",
+			"Del Amo Station"
+		],
+		"via": "Willowbrook Sta - Del Amo Sta via Willowbrook Av"
+	},
+	{
+		"line": "204",
+		"label": "204",
+		"mode": "bus",
+		"to": [
+			"Vermont / Sunset Station",
+			"Vermont / Athens Station"
+		],
+		"via": "Hollywood -Athens via Vermont Av"
+	},
+	{
+		"line": "205",
+		"label": "205",
+		"mode": "bus",
+		"to": [
+			"Willowbrook / Rosa Parks Station",
+			"San Pedro - Harbor Bl & 6th St"
+		],
+		"via": "Willowbrook Sta-San Pedro via Wilmgtn-Vermont"
+	},
+	{
+		"line": "206",
+		"label": "206",
+		"mode": "bus",
+		"to": [
+			"Vermont - Hollywood",
+			"Vermont / Athens Station"
+		],
+		"via": "Hollywood - Athens via Normandie Av"
+	},
+	{
+		"line": "207",
+		"label": "207",
+		"mode": "bus",
+		"to": [
+			"Hollywood - Western - Franklin",
+			"Crenshaw Station / C Line"
+		],
+		"via": "Hollywood - Crenshaw Sta via Western Av"
+	},
+	{
+		"line": "209",
+		"label": "209",
+		"mode": "bus",
+		"to": [
+			"Expo / Crenshaw Station",
+			"Crenshaw - Rosecrans"
+		],
+		"via": "Expo/Crenshaw Sta- Gardena via Arlngtn - Van Ness"
+	},
+	{
+		"line": "210",
+		"label": "210",
+		"mode": "bus",
+		"to": [
+			"Hollywood / Vine",
+			"Redondo Beach Transit Center"
+		],
+		"via": "Hllywd Vine Sta - So Bay Galeria via Crenshaw Bl"
+	},
+	{
+		"line": "211",
+		"label": "211/215",
+		"mode": "bus",
+		"to": [
+			"Downtown Inglewood K Line Station",
+			"Redondo Beach Transit Center"
+		],
+		"via": "Inglewood-South Bay Galleria via Prairie-Inglewood"
+	},
+	{
+		"line": "212",
+		"label": "212",
+		"mode": "bus",
+		"to": [
+			"Hollywood - Highland Station",
+			"Hawthorne - Lennox Station"
+		],
+		"via": "Hllywd/Hghlnd Sta - Hwthrne/Lennox Sta via LA Brea"
+	},
+	{
+		"line": "217",
+		"label": "217",
+		"mode": "bus",
+		"to": [
+			"Eagle Rock Plaza",
+			"La Cienega / Jefferson Station"
+		],
+		"via": "E Hollywood - LA Cienega Sta via Hollywood-Fairfax"
+	},
+	{
+		"line": "218",
+		"label": "218",
+		"mode": "bus",
+		"to": [
+			"Studio City",
+			"Cedars-Sinai Medical Center"
+		],
+		"via": "Studio Cty-Cedars Sinai Med via Laurel Cyn-Fairfax"
+	},
+	{
+		"line": "222",
+		"label": "222",
+		"mode": "bus",
+		"to": [
+			"Sun Valley",
+			"Hollywood - Vine Station"
+		],
+		"via": "Burbank Ritc- Hollywood via Riverside/Hollywood Wy"
+	},
+	{
+		"line": "224",
+		"label": "224",
+		"mode": "bus",
+		"to": [
+			"Olive View Medical Center",
+			"Universal - Studio City Station"
+		],
+		"via": "Sylmar-Universal Cty via San Fernando - Lankershim"
+	},
+	{
+		"line": "230",
+		"label": "230",
+		"mode": "bus",
+		"to": [
+			"Sylmar Metrolink Station",
+			"Studio City"
+		],
+		"via": "Sylmar- San Fernando- Studio City- via Laurel Cyn"
+	},
+	{
+		"line": "232",
+		"label": "232",
+		"mode": "bus",
+		"to": [
+			"LAX / Metro Transit Center",
+			"Downtown Long Beach"
+		],
+		"via": "Lax/Metro Tc - Long Beach-Via Sepulveda Bl - Pch"
+	},
+	{
+		"line": "233",
+		"label": "233",
+		"mode": "bus",
+		"to": [
+			"Lake View Terrace",
+			"Sherman Oaks"
+		],
+		"via": "Lake View Terr - Sherman Oaks via Van Nuys Bl"
+	},
+	{
+		"line": "234",
+		"label": "234",
+		"mode": "bus",
+		"to": [
+			"LA Mission College",
+			"Sherman Oaks Galleria"
+		],
+		"via": "Sylmar - Sherman Oaks via Sepulveda Bl"
+	},
+	{
+		"line": "236",
+		"label": "235/236",
+		"mode": "bus",
+		"to": [
+			"Sylmar Station",
+			"Encino - Balboa / Ventura"
+		],
+		"via": "Sylmar Sta-Encino via Balboa Bl Rinaldi St"
+	},
+	{
+		"line": "237",
+		"label": "237",
+		"mode": "bus",
+		"to": [
+			"North Hollywood Station",
+			"Encino"
+		],
+		"via": "Encino-N. Holywd via Woodley-White Oak Burbank Bl"
+	},
+	{
+		"line": "240",
+		"label": "240",
+		"mode": "bus",
+		"to": [
+			"Universal - Studio City Station",
+			"Northridge - Reseda - Devonshire"
+		],
+		"via": "Northridge-Universal City via Ventura-Reseda Bls"
+	},
+	{
+		"line": "242",
+		"label": "242/243",
+		"mode": "bus",
+		"to": [
+			"Chatsworth",
+			"Woodland Hills"
+		],
+		"via": "Northridge - Tarzana via Tampa - Winnetka Avs"
+	},
+	{
+		"line": "244",
+		"label": "244",
+		"mode": "bus",
+		"to": [
+			"Chatsworth Station",
+			"Woodland Hills"
+		],
+		"via": "Chatsworth Sta-Woodland Hills via De Soto Av"
+	},
+	{
+		"line": "246",
+		"label": "246",
+		"mode": "bus",
+		"to": [
+			"Harbor Gateway Transit Center",
+			"San Pedro - Point Fermin"
+		],
+		"via": "Harbor Gateway Trans Ctr - San Pedro via Avalon Bl"
+	},
+	{
+		"line": "251",
+		"label": "251",
+		"mode": "bus",
+		"to": [
+			"Eagle Rock Plaza",
+			"Lynwood C Line Station"
+		],
+		"via": "Eagle Rock- Lynwood Sta via Eagle Rock-Soto St"
+	},
+	{
+		"line": "258",
+		"label": "258",
+		"mode": "bus",
+		"to": [
+			"Figueroa - York",
+			"Paramount"
+		],
+		"via": "Highland Park - Paramount via Fremont - Eastern"
+	},
+	{
+		"line": "260",
+		"label": "260/261",
+		"mode": "bus",
+		"to": [
+			"Pasadena Fair Oaks / Walnut via Atlantic",
+			"Artesia Station"
+		],
+		"via": "Artesia Station-Pasadena via Atlantic - Fair Oaks"
+	},
+	{
+		"line": "265",
+		"label": "265",
+		"mode": "bus",
+		"to": [
+			"Pico Rivera",
+			"Lakewood Center"
+		],
+		"via": "Pico Rivera - Lakewood Ctr Mall via Paramount Bl"
+	},
+	{
+		"line": "266",
+		"label": "266",
+		"mode": "bus",
+		"to": [
+			"Sierra Madre Villa Station",
+			"Lakewood Center"
+		],
+		"via": "S Madre Villa Sta-Lakewood Ctr Mall via Rosemead"
+	},
+	{
+		"line": "267",
+		"label": "267",
+		"mode": "bus",
+		"to": [
+			"Altadena via Del Mar Station",
+			"El Monte Station"
+		],
+		"via": "El Monte Sta-Pasadena via Tc Bl-Dl Mar-Colrdo-Alln"
+	},
+	{
+		"line": "268",
+		"label": "268",
+		"mode": "bus",
+		"to": [
+			"Sierra Madre Villa Station",
+			"El Monte Station"
+		],
+		"via": "Sierra Madre Villa Sta - El Monte Sta via Baldwin"
+	},
+	{
+		"line": "287",
+		"label": "287",
+		"mode": "bus",
+		"to": [
+			"Arcadia Station",
+			"The Shops at Montebello"
+		],
+		"via": "Montebello- El Monte- Arcadia via Rush Santa Anita"
+	},
+	{
+		"line": "294",
+		"label": "294",
+		"mode": "bus",
+		"to": [
+			"Sylmar Metrolink Station",
+			"Burbank Station"
+		],
+		"via": "Sylmar Sta - Burbank Sta - via San Fernando Rd"
+	},
+	{
+		"line": "296",
+		"label": "296",
+		"mode": "bus",
+		"to": [
+			"Burbank Station",
+			"Lincoln - Cypress Station"
+		],
+		"via": "Lincoln/Cypress Sta-Burbank Sta via Griffith Park"
+	},
+	{
+		"line": "344",
+		"label": "344",
+		"mode": "bus",
+		"to": [
+			"Harbor Gateway Transit Center",
+			"Rancho Palos Verdes"
+		],
+		"via": "Harbor Gateway Tc - Palos Verdes via Hawthorne Bl"
+	},
+	{
+		"line": "460",
+		"label": "460",
+		"mode": "bus",
+		"to": [
+			"Disneyland",
+			"Downtown LA - 6th - Los Angeles"
+		],
+		"via": "Downtown LA - Disneyland via Harbor Tway-105 Fwy"
+	},
+	{
+		"line": "487",
+		"label": "487/489",
+		"mode": "bus",
+		"to": [
+			"Sierra Madre Villa Station",
+			"Downtown LA - Union Station"
+		],
+		"via": "Downtown LA - Sierra Madre Villa Sta"
+	},
+	{
+		"line": "501",
+		"label": "501",
+		"mode": "bus",
+		"to": [
+			"Pasadena via 134 Fwy",
+			"North Hollywood Station via 134 Fwy"
+		],
+		"via": "Pasadena - N. Hollywood Sta via 134 Fwy"
+	},
+	{
+		"line": "550",
+		"label": "550",
+		"mode": "bus",
+		"to": [
+			"Expo Park / USC Station",
+			"Harbor Gateway Transit Center"
+		],
+		"via": "Jefferson Prk - Harbor Gatwy Tc via Harbr Trans Wy"
+	},
+	{
+		"line": "577",
+		"label": "577",
+		"mode": "bus",
+		"to": [
+			"El Monte Station",
+			"CSULB - VA Medical Center"
+		],
+		"via": "El Monte Sta- Long Beach Va Med Ctr via I-605 Fwy"
+	},
+	{
+		"line": "601",
+		"label": "601",
+		"mode": "bus",
+		"to": [
+			"Warner Center / Canoga Station / G Line",
+			"Warner Center Kaiser / Corporate Park"
+		],
+		"via": "Warner Center Circulator"
+	},
+	{
+		"line": "602",
+		"label": "602",
+		"mode": "bus",
+		"to": [
+			"Westwood / UCLA",
+			"Sunset - Pacific Coast Highway"
+		],
+		"via": "Westwood - Pacific Palisades via Sunset Bl"
+	},
+	{
+		"line": "605",
+		"label": "605",
+		"mode": "bus",
+		"to": [
+			"LA General Medical Ctr Outpatient Clinic",
+			"Olympic - Grande Vista"
+		],
+		"via": "Lac+Usc Med Ctr Out Patient Shuttle"
+	},
+	{
+		"line": "611",
+		"label": "611",
+		"mode": "bus",
+		"to": [
+			"Huntington Park - Vernon - Cudahy",
+			"Vernon - Huntington Park - Cudahy"
+		],
+		"via": "Huntington Park Shuttle"
+	},
+	{
+		"line": "617",
+		"label": "617",
+		"mode": "bus",
+		"to": [
+			"Culver City Station",
+			"Beverly - Pico"
+		],
+		"via": "Beverly Hills-Culver City via Burton - Robertson"
+	},
+	{
+		"line": "660",
+		"label": "660",
+		"mode": "bus",
+		"to": [
+			"Fair Oaks - Loma Alta",
+			"Del Mar Station"
+		],
+		"via": "Del Mar Station - Altadena - via Fair Oaks Shuttle"
+	},
+	{
+		"line": "662",
+		"label": "662",
+		"mode": "bus",
+		"to": [
+			"NB Lake - SB Lincoln via Del Mar Station",
+			"NB Lincoln - SB Lake via Del Mar Station"
+		],
+		"via": "Altadena-Pasadena via Lake - Los Robles - Lincoln"
+	},
+	{
+		"line": "665",
+		"label": "665",
+		"mode": "bus",
+		"to": [
+			"Huntington - Monterey",
+			"Indiana - Olympic"
+		],
+		"via": "Rose Hill Tc - City Terrace - East LA"
+	},
+	{
+		"line": "690",
+		"label": "690",
+		"mode": "bus",
+		"to": [
+			"Sunland",
+			"Olive View Medical Center"
+		],
+		"via": "Sylmar Olive View Hosp. - Sunland via Foothill Bl"
+	},
+	{
+		"line": "697",
+		"label": "LAX / Metro Transit Center -  SoFi Stadium Express",
+		"mode": "bus",
+		"to": [
+			"SoFi Stadium",
+			"LAX / Metro Transit Center"
+		],
+		"via": "The Express Shuttle Will Operate Between The Metro LAX / Metro Transit Center And Sofi Stadium. Shuttle Service Will Run Every 5 Minutes Beginning Roughly 3 Hours Before The Event Begins And Ending Roughly 1.5 Hours After The Event Concludes. During The Event, Shuttles Will Depart Sofi To The LAX / Metro Transit Center As Needed. Metro Express Service To Sofi Stadium Is Free, But Normal Fares Apply For Regular Metro Bus And Rail Service And Parking Fees At Metro Park & Ride Lots"
+	},
+	{
+		"line": "720",
+		"label": "720",
+		"mode": "bus",
+		"to": [
+			"Downtown LA - 6th - Central",
+			"Santa Monica (Rapid)"
+		],
+		"via": "Santa Monica-Downtown LA via Wilshire Blvd"
+	},
+	{
+		"line": "754",
+		"label": "754",
+		"mode": "bus",
+		"to": [
+			"Vermont / Sunset Station",
+			"Vermont / Athens Station"
+		],
+		"via": "Hollywood - Athens via Vermont Av"
+	},
+	{
+		"line": "761",
+		"label": "761",
+		"mode": "bus",
+		"to": [
+			"Sylmar Metrolink Station",
+			"Expo / Sepulveda Station"
+		],
+		"via": "Sylmar Sta- West LA via Van Nuys Bl - Sepulveda Bl"
+	},
+	{
+		"line": "901",
+		"label": "901",
+		"mode": "bus",
+		"to": [
+			"North Hollywood Station G Line",
+			"Chatsworth Station / G Line"
+		],
+		"via": "Metro G Line"
+	},
+	{
+		"line": "910",
+		"label": "910",
+		"mode": "bus",
+		"to": [
+			"El Monte Station - Downtown LA / J Line",
+			"Harbor Gtwy TC - Downtown LA / J Line"
+		],
+		"via": "Metro J Line"
+	},
+	{
+		"line": "801",
+		"label": "Metro A Line",
+		"mode": "rail",
+		"to": [
+			"Pomona Station",
+			"Downtown Long Beach Station"
+		],
+		"via": ""
+	},
+	{
+		"line": "802",
+		"label": "Metro B Line",
+		"mode": "rail",
+		"to": [
+			"Union Station",
+			"North Hollywood Station"
+		],
+		"via": ""
+	},
+	{
+		"line": "803",
+		"label": "Metro C Line",
+		"mode": "rail",
+		"to": [
+			"LAX / Metro Transit Center",
+			"Norwalk Station"
+		],
+		"via": ""
+	},
+	{
+		"line": "804",
+		"label": "Metro E Line",
+		"mode": "rail",
+		"to": [
+			"Atlantic Station",
+			"Downtown Santa Monica Station"
+		],
+		"via": ""
+	},
+	{
+		"line": "805",
+		"label": "Metro D Line",
+		"mode": "rail",
+		"to": [
+			"Union Station",
+			"Wilshire / La Cienega Station"
+		],
+		"via": ""
+	},
+	{
+		"line": "807",
+		"label": "Metro K Line",
+		"mode": "rail",
+		"to": [
+			"Expo / Crenshaw Station",
+			"Redondo Beach Station"
+		],
+		"via": ""
+	}
+]

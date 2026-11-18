@@ -5,9 +5,7 @@ import type { Direction, IndexEntry, LineFile, SiteIndex } from './data/types';
 import { DESCRIPTION_LENGTH } from './head.ts';
 import { LINES, type BusService, type LineId } from './design/lines.ts';
 import { serviceOf } from './design/service.ts';
-
-/** How the methodology page words the on-time window. */
-export const ONTIME_WINDOW = '1 minute early to 5 minutes late, at every stop';
+import { shareText } from './share.ts';
 
 /** Shown in place of the on-time share on a rail line while #133 is open. */
 export const RAIL_HOLD_NOTE =
@@ -59,7 +57,7 @@ export function headline(
 	const arrivals = `${n.toLocaleString('en-US')} measured ${n === 1 ? 'arrival' : 'arrivals'}`;
 	const start = `${directionName(direction, index)}, the median arrival is ${delayWords(med)} and the 90th percentile is ${delayWords(p90)}`;
 	if (!showsOntime(mode, railGate)) return `${start}, across ${arrivals}.`;
-	return `${start}, and ${ontime.toFixed(1)} percent of ${arrivals} were on time.`;
+	return `${start}, and ${shareText(ontime)} percent of ${arrivals} were on time.`;
 }
 
 export const hasDirectionSwitch = (line: Pick<LineFile, 'directions'>) =>

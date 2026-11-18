@@ -32,12 +32,12 @@
 		<Headline level={2} size="md">How lines are ranked</Headline>
 		<p class="mt-4">
 			HowLate ranks a bus line by its on-time share. That is the share of measured arrivals that
-			came from 1 minute early to 5 minutes late, counted at every stop. Lines with a higher share
-			rank higher. <a href={resolve('/methods')}>How HowLate measures delay</a>
+			came from 1 minute early to 5 minutes late, counted at every measured stop. Lines with a
+			higher share rank higher. <a href={resolve('/methods')}>How HowLate measures delay</a>
 		</p>
 		<p class="mt-4">
-			Lines are scored at every stop, not only at timepoints, so the numbers differ from Metro's
-			published on-time performance.
+			Lines are scored at every measured stop, not only at timepoints, so the numbers differ from
+			Metro's published on-time performance.
 		</p>
 		<p class="caption text-ink-muted mt-2">Not Metro's published figure.</p>
 	</section>

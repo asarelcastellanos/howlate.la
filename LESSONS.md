@@ -139,3 +139,62 @@ Each entry records a mistake the checks or review caught and the lasting fix.
   an old endpoint, load every live page in a browser with the network tab open
   and confirm no request still goes to it, and list the hosting settings that
   can override a code default.
+
+## 2026-11-17: Local tests passed while Pages ignored the line page change
+- What happened: the wildcard rule `/lines/* /200 200` in
+  `web/static/_redirects` shadowed the prerendered line pages on Cloudflare
+  Pages. `/lines/720`, `/lines/2` and `/lines/zzz` all returned the same
+  1,508-byte shell on a preview, so the change in #156 did nothing. A first fix,
+  `/lines/<id> /lines/<id>.html 200`, looped with a 308 to the clean URL. The
+  rule `/lines/<id> /lines/<id> 200` worked.
+- Caught by: fetching the preview with curl. Local builds and tests cannot see
+  how Pages applies a rewrite. It took three preview checks to land the rule.
+- Fix: after every change to a rewrite rule, request the affected paths on a
+  real Pages preview with curl and compare the status and the served HTML.
+
+## 2026-11-17: A typo in the test script skipped tests without an error
+- What happened: two filenames in the `test` script in `web/package.json` were
+  fused with no space between them. Node skips a path that does not exist
+  without an error, so `npm test` stayed green while `methodsShares` and
+  `rankingShape` never ran, about 15 tests.
+- Caught by: the review of PR #169.
+- Fix: `web/tests/testScript.test.ts` checks that every test file named in the
+  scripts exists and that every test file is named. When a test count does not
+  rise after adding a file, find the file before trusting green.
+
+## 2026-11-17: A guard checked the code and not the data
+- What happened: `shareText` caps a share at 99.9 unless it is exactly 100. The
+  pipeline already rounds to one decimal and the published files carry no
+  on-time count, so 99.96 arrives as 100.0 and the cap never fires on real
+  data (#162).
+- Caught by: the review.
+- Fix: before adding a guard on a value, read what the published files hold at
+  the boundary. The pipeline rounding is left for a later release.
+
+## 2026-11-17: Moving error handling inward dropped the retry
+- What happened: the home page's status and index views lost their Try again
+  button when only one file failed (#161). No test covered a single failed
+  file.
+- Caught by: the review.
+- Fix: PR #168 restored the button and added two e2e cases that fail without
+  the change. A change to where errors are handled needs a test for each
+  failure case that existed before.
+
+## 2026-11-17: Footnote tests passed with the footnote broken
+- What happened: the first e2e tests for the on-time note read `textContent`, so
+  they passed with the responsive classes removed and with the marks deleted.
+- Caught by: the review of PR #169, which deleted the classes and the marks and
+  watched the tests stay green.
+- Fix: the tests now check visibility at 375 and 1024 px and find each mark by
+  `data-testid`. Before trusting a test, break the thing it names and confirm
+  the test fails.
+
+## 2026-11-17: Copy about Metro made claims its source did not
+- What happened: drafts said "read early" flatly, said Metro "does not publish"
+  for everything Metro publishes, and tied the board report figures to the
+  policy definitions, which the report does not state.
+- Caught by: the review of PR #169, which checked each sentence against the
+  quoted document.
+- Fix: each sentence is now worded to what the source or the data shows. Check
+  every sentence about another agency against the document it cites, and say
+  what we could not confirm.

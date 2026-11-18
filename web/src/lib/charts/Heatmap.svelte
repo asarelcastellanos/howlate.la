@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { Hour } from '#lib/data/types.ts';
+	import OntimeMark from '#lib/design/OntimeMark.svelte';
+	import OntimeNote from '#lib/design/OntimeNote.svelte';
 	import ChartFigure from './ChartFigure.svelte';
 	import {
 		DOTTED,
@@ -10,10 +12,10 @@
 		hourlyGrid,
 		selectHour
 	} from './heatmap.ts';
-	import { nextHour, readoutText, startHour } from './readout.ts';
+	import { nextHour, readoutHasShare, readoutText, startHour } from './readout.ts';
 	import { DAY_NAMES, MIN_ARRIVALS, QUIET, RAMP, RAMP_STEPS, hourLabel, trusted } from './theme.ts';
 
-	// `showOntime` is false for a rail line while the on-time share is on hold.
+	// `showOntime` is false for a rail line when SHOW_RAIL_ONTIME is off.
 	let {
 		profile,
 		caption,
@@ -30,9 +32,9 @@
 	// direction's worst hour. A resize redraws the SVG and keeps the pick.
 	let picked = $state.raw<{ profile: Hour[]; h: number }>();
 	const selected = $derived(picked?.profile === profile ? picked.h : startHour(profile));
-	const readout = $derived(
-		readoutText(profile.find((hour) => hour.h === selected) ?? { h: selected }, { showOntime })
-	);
+	const current = $derived(profile.find((hour) => hour.h === selected) ?? { h: selected });
+	const readout = $derived(readoutText(current, { showOntime }));
+	const marked = $derived(readoutHasShare(current, { showOntime }));
 	let svg = $state.raw<Element>();
 	$effect(() => {
 		if (svg) selectHour(svg, selected);
@@ -86,7 +88,10 @@
 	{source}
 >
 	{#snippet extra()}
-		<p id="{uid}-readout" aria-live="polite" class="data mt-3 min-h-[2lh]">{readout}</p>
+		<p id="{uid}-readout" aria-live="polite" class="data mt-3 min-h-[2lh]">
+			{readout}{#if marked}<OntimeMark />{/if}
+		</p>
+		{#if showOntime}<OntimeNote class="mt-2" />{/if}
 		<div
 			class="caption text-ink-muted mt-2 flex flex-wrap items-center gap-x-4 gap-y-1"
 			aria-hidden="true"

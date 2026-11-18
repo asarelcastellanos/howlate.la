@@ -359,32 +359,54 @@ search. The story and the replay come in 0.9.0.
 
 Done when every test above passes.
 
-## 0.5.1 Custom domains
+## 0.5.1 Launch fixes
 
-Goal: the site and its data have their own addresses, so nothing depends on a
-pages.dev or r2.dev address.
+Goal: fix what the first week of howlate.la and the 0.5.0 review turned up,
+and show the rail on-time share with a note on how HowLate measures it. The
+custom domains, planned for this version, went live in 0.5.0. Only the site
+changed.
 
-Still to do after the 0.5.0 merge, because deploys take their code from `main`
-and the live job keeps its old settings. Run `pipeline/deploy/daily.sh` so the
-job's public address becomes `https://data.howlate.la`. Then turn the `r2.dev`
-address off once the new site is confirmed live.
-
-- Serve the site at https://howlate.la, with www.howlate.la redirecting to it
-  by a Cloudflare redirect rule. The Pages `_redirects` file does not change.
-  (Medium)
-- Serve the data from https://data.howlate.la, a custom domain on the R2
-  bucket, and make it the default data base in `web/src/env.ts`. (Medium)
+- Prerender every line page with its own title, description and canonical link,
+  from a committed `lines.json` and one `_redirects` rule per line. (Medium, #156)
+- Fix the ranking: the Least reliable caption shows the real count, the median
+  and 90th percentile columns sort by distance from the on-time window, and a
+  share under 100 prints as at most 99.9. (Medium, #158)
+- Keep the home page search box when `status.json` fails, and restore Try again
+  on both error views. (Low, #161, #168)
+- Show the rail on-time share, with an On time column in the rail table, a
+  footnote beside every share and a "How we measure on-time" section on the
+  methods page. (Medium, #157, #169)
+- Remove the promise of a cost breakdown from the behind-the-scenes page. (Low,
+  #159)
+- Fix the typo in the web `test` script that skipped about 15 tests, and add a
+  test that fails when a test file is missing from the script. (Low)
 
 ### Tests
 
-- `curl -sI https://howlate.la` returns 200, and `curl -sI https://www.howlate.la`
-  returns a 301 to `https://howlate.la/`.
-- `https://data.howlate.la/site/current.json` returns 200 with
-  `access-control-allow-origin: *` and `cache-control: public, max-age=60`.
-- The canonical link and `og:url` of every page start with `https://howlate.la`.
-- A deployed preview shows the `status.json` numbers on the home page.
+- The pipeline's 512 tests and the web's 264 tests pass.
+- Playwright passes 32 of 32. It checks the home page when `status.json` fails,
+  Try again on both error views, and the footnote at 375 and 1024 px.
+- On the branch preview, `/lines/720` and `/lines/2` return their own title,
+  description and canonical link, and `/lines/zzz` returns the shell.
+- Lighthouse performance on `/lines/720` is 0.96, against a threshold of 0.9.
+- A review ran on the release, and its findings are fixed.
 
-Done when every test above passes.
+Done when every test above passes. The gaps this version leaves are listed in
+the 0.5.1 entry of `CHANGELOG.md`.
+
+## 0.5.2 Data and pipeline fixes
+
+Goal: close the data gaps the 0.5.1 review found.
+
+- Grade yesterday at 05:00 Pacific, not two days back (#164).
+- Estimate the bus stops the feed skipped between two reports, to raise bus
+  coverage from 71.35 percent (#165).
+- Account for ungraded rail trips (#166).
+- Check the trip updates feed (#167).
+
+## 0.5.3 Redesign
+
+Goal: the site's visual redesign. The scope is set when the version starts.
 
 ## 0.6.0 Commute tool
 

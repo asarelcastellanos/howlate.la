@@ -4,6 +4,112 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## 0.5.1 - 2026-11-17
+
+Launch fixes. Every line page now has its own title and link preview in the
+served HTML, the ranking panels and sorts are corrected, the home page keeps
+working when the status file fails, and the rail on-time share is shown with a
+note on how HowLate measures it. Only the site changed.
+
+### Added
+
+- Line pages are prerendered, one page for each of the 115 lines. Each has its
+  own title, description and canonical link in the served HTML, so a crawler or
+  a link preview that does not run JavaScript sees them. The titles come from
+  `web/src/lib/data/lines.json`, which is committed. `npm run lines:refresh`
+  rewrites it, and the line rules in `_redirects`, from the published index. A
+  line that is not in the file still works in the browser, with the shell and no
+  title.
+- One `/lines/<id> /lines/<id> 200` rule per line in `web/static/_redirects`,
+  ahead of the wildcard rule. The wildcard alone served every line the same
+  1,508-byte shell, and a `.html` target looped with a 308. On the branch
+  preview, `/lines/720` and `/lines/2` returned their own title, description and
+  canonical link, and `/lines/zzz` still got the shell (#156).
+- A "How we measure on-time" section on the methods page. It says what HowLate
+  scores, why it scores every measured stop after the first, what the feed
+  gives at the last stop, and what Metro's standards say. It does not claim the
+  gap to Metro's 99.4 percent for rail is explained. A sentence under it gives
+  the network bus and rail shares from the published data.
+- A footnote beside every on-time share, short on a phone and in full on a wider
+  screen, with a link to the methods page. Both forms say Metro reports
+  on-time performance differently.
+- An On time column in the rail table on the ranking page. Rail lines are listed
+  there and are not ranked against buses.
+- Two Playwright cases for the home page's Try again button, and tests that
+  check the footnote at 375 and 1024 px and find each mark by `data-testid`.
+- `web/tests/testScript.test.ts`, which checks that every test file named in the
+  `test` script exists and that every test file is named.
+
+### Changed
+
+- The rail on-time share is shown. `SHOW_RAIL_ONTIME` is now true, so the
+  ranking page and the line pages show it. This reverses the 0.5.0 decision on
+  #133 to keep it hidden. The decision is recorded in #157. HowLate's rail share
+  is 64.4 percent against Metro's 99.4 percent, and the methods page says the
+  gap is not explained.
+- With 10 or fewer ranked lines, the Least reliable caption states the real
+  count, and the panel is hidden when it would be empty (#158).
+- The median and 90th percentile columns on the ranking page sort by distance
+  from the on-time window, -60 to +300 seconds, and then by the size of the
+  delay. Every bus median on 2026-11-16 was inside the window, so the second key
+  keeps the sort useful. The sort arrow still points up, which is only
+  approximately right, because an early value can now rank below a late one
+  (#158).
+- A share under 100 prints as at most 99.9 on the line headline and the ranking
+  page. Exactly 100 still prints 100.0 (#158).
+- On the home page, a failed `status.json` no longer hides the search box. Each
+  file keeps its own result (#161).
+- The behind-the-scenes page no longer says a cost breakdown will be published.
+  It keeps the budget figure and says it is an estimate (#159).
+- The web README and code comments that the ranking and line page changes made
+  wrong are corrected.
+
+### Fixed
+
+- The home page's status and index error views lost their Try again button when
+  only one of the two files failed. #161 dropped it, the review found it, and
+  #168 restored it with two Playwright cases that fail without the change.
+- A typo in the web `test` script left two test files out of the run, about 15
+  tests. The new `testScript.test.ts` fails if a test file is missing from the
+  script.
+- Line pages in 0.5.0 had no title, description, canonical link or Open Graph
+  tags in the served HTML. They have them now, as described under Added.
+
+### Checked
+
+- The pipeline's 512 tests pass. The web's 264 tests pass. The web had 210
+  tests in 0.5.0.
+- Playwright passes 32 of 32 against the fixture build. It had 26 in 0.5.0.
+- Lighthouse performance on `/lines/720` is 0.96 against a threshold of 0.9.
+- The release got a review, and its findings are fixed. The home page retry, the
+  footnote tests and the copy about Metro came from it, and `LESSONS.md` has an
+  entry for each.
+
+### Known gaps
+
+- HowLate's rail on-time share is 64.4 percent and Metro's is 99.4 percent. The
+  gap is not explained. Matching to the schedule accounts for at most 0.9
+  points, the timestamp lag is about 7 seconds, and scoring departures gives
+  the same share.
+- Metro's policy says bus is measured at timepoints and rail at the end terminal
+  on arrival. It states no on-time window for rail, so HowLate uses the bus
+  window of -60 to +300 seconds for rail.
+- Coverage is 71.35 percent for bus and 88.27 percent for rail. Most of the gap
+  is bus stops the feed skipped between two reports (#165).
+- The site shows data that is two days old on purpose, to leave a margin for the
+  daily job (#164).
+- A line that Metro removes or renames stays live until `npm run lines:refresh`
+  is run again and the result is committed and deployed. A page at
+  `/lines/<id>/`, with a trailing slash, gets the shell with no title.
+- The 99.9 cap never fires on published data. The pipeline rounds to one
+  decimal and the files carry no on-time count, so 99.96 arrives as 100.0. The
+  rounding is left for a later release.
+
+### Not changed
+
+- The collector stays at 0.1.0, and the VM is not redeployed.
+- The pipeline and its published JSON are unchanged.
+
 ## 0.5.0 - 2026-11-17
 
 The first launch. howlate.la shows a page for every line, a reliability

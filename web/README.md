@@ -75,10 +75,12 @@ The data does not need a server either. Per the release plan, the browser
 fetches JSON from R2 at runtime, so a new day of data needs no rebuild.
 
 The adapter also writes `build/200.html`, the app shell, so the client router
-can handle a path that was not prerendered, such as `/lines/720`. Pages does not
+can handle a path that was not prerendered, such as a line missing from
+`src/lib/data/lines.json`. Pages does not
 pick that file by itself for an unknown path. The rule in `static/_redirects`
-(`/lines/* /200 200`) sends every line path to it. The Lines section has the
-details.
+(`/lines/* /200 200`) sends a line path to it when no per-line rule matches first,
+which means an id that is not in `src/lib/data/lines.json`. The Lines section has
+the details.
 
 ### Tailwind CSS v4 with shadcn-svelte
 
@@ -183,7 +185,8 @@ The home page loads `status.json` and `index.json` with `loadHome`
 (`src/lib/home.ts`), which opens one run and reads both from it. It shows the
 status strip and a search box (`SearchBox.svelte`, ranked by `searchLines` in
 `src/lib/search.ts`). Choosing a result opens
-`/lines/<line>`. That route is client rendered (`prerender = false`). It reads
+`/lines/<line>`. That route renders in the browser, and the build also prerenders
+a page for each line in `src/lib/data/lines.json` (see "Line page head" below). It reads
 `index.json` and `lines/<line>.json` from one run, then shows a headline for each
 direction, a switch between directions, and the three charts. An id that is not
 in the index, or a line file that returns 404, shows a "We could not find that
@@ -199,25 +202,73 @@ Starting the data fetch earlier from an inline script in `src/app.html` was
 measured at about +0.01 and left out, because it repeated the loader's URL
 logic in a script.
 
-`static/_redirects` holds the rule `/lines/* /200 200`, which answers every
-`/lines/*` path with `200.html`, the app shell that adapter-static writes, and
-keeps the address. The target has no `.html` because Cloudflare Pages redirects
-a `.html` target to the clean URL, which changes the address and breaks the
-route. Without it, Cloudflare Pages serves the prerendered home
-page for a path it did not build. A rail line page hides the on-time share while
-`SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+`static/_redirects` holds the rule `/lines/* /200 200`. The 115 per-line rules
+come before it and serve a listed line its own prerendered file, so the wildcard
+answers only a path with no rule, such as an unlisted id, with `200.html`, the
+app shell that adapter-static writes, and keeps the address. The target has no
+`.html` because Cloudflare Pages redirects a `.html` target to the clean URL,
+which changes the address and breaks the route. Without it, Cloudflare Pages serves the prerendered home
+page for a path it did not build. A rail line page shows the on-time share like a
+bus page, because `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is true (see "The
+on-time share and its note").
+
+### Line page head
+
+`src/routes/lines/[line]/+page.ts` sets `prerender = true`, and `entries()` returns
+every id in `src/lib/data/lines.json`. `Remote` renders its loading state at build
+time, so each `build/lines/<id>.html` holds the title, a description, the canonical
+link and `og:image` without JavaScript. `lineHead` (`src/lib/lineHead.ts`) builds
+the title and a description that is different for every line, from the line's label,
+mode, ends and corridor, and the page and the prerendered file both call it, so the
+browser's head matches the served one. An id that is not in the list is not built.
+Pages serves `200.html` for it, and the page shows the not-found message.
+
+The build does not fetch the index, so an unreachable index cannot fail it. The list
+is committed instead. It keeps `line`, `label`, `mode`, `to` and `via` for each line
+and no metric. Run `npm run lines:refresh` when Metro adds a line, then commit
+`lines.json`. The script reads the index from `PUBLIC_DATA_BASE` (default
+`https://data.howlate.la`). A line missing from the list gets no title or preview in
+the served HTML until the list is refreshed, and it still works in the browser.
+`tests/built.test.ts` checks that every id in the list has a built file with a title,
+a description of 40 to 160 characters, a canonical link and `og:image`.
+
+`lines:refresh` also rewrites the block between the `# BEGIN line pages` and
+`# END line pages` lines in `static/_redirects`, one rule per id
+(`/lines/720 /lines/720 200`). Do not edit that block by hand. Pages follows a
+redirect rule even when a file matches the path, and the first matching rule wins, so
+the wildcard `/lines/* /200 200` alone sends every line to the app shell. A preview
+served `/lines/720` and `/lines/zzz` as the same 1,508 bytes with no title. The
+per-line rules sit before the wildcard so the prerendered files are served. Each rule
+rewrites the path to itself and has no `.html` target. A preview with `.html` targets
+answered `/lines/720` with 308 and `location: /lines/720`, an endless loop, because
+Pages redirects a `.html` target to the clean URL and that URL matched the rule again.
+`tests/lineRedirects.test.ts` fails when the committed file no longer matches
+`lines.json`.
+
+A line removed from the live index keeps its prerendered, indexable page and its
+per-line rule until someone reruns `npm run lines:refresh` and commits. A renamed
+line keeps its old title the same way. `scripts/refresh-lines.ts` rejects only an
+empty list or a duplicate id, so check the diff of `lines.json` before committing.
+
+A trailing slash, `/lines/720/`, does not match the per-line rule, so Pages
+answers it with the app shell and no title. A preview on 2026-11-17 measured
+1,506 bytes and no title tag. Nothing on the site links with a trailing slash, so
+this stays as an accepted limit.
 
 ## Ranking
 
 `/ranking` is prerendered, and the browser loads `index.json` with
 `readRankingIndex`. The page ranks bus lines by the share of measured arrivals
-from 1 minute early to 5 minutes late, counted at every stop. It is not Metro's
+from 1 minute early to 5 minutes late, counted at every measured stop. It is not Metro's
 published figure, and the page says so. Two panels list the top and bottom five.
 The table below has every ranked line, and its three metric headers are buttons
-that sort it. Headers sort best first (the highest on-time share, the lowest
-median delay or 90th percentile) and a second click reverses. Lines with equal
-values share a rank and keep line-id order in both directions. A line that ties
-with the fifth line of a panel is shown too, so a panel can hold six.
+that sort it. Headers sort best first and a second click reverses. The on-time
+share sorts highest first. The median delay and the 90th percentile sort by
+distance from the on-time window (60 seconds early to 300 seconds late), then by
+the size of the delay, so a median of 30 seconds early and one of 30 seconds
+late tie. Lines with equal values share a rank and keep line-id order in both
+directions. A line that ties with the fifth line of a panel is shown too, so a
+panel can hold six.
 
 `rankLines` in `src/lib/ranking.ts` holds the logic, and `tests/ranking.test.ts`
 checks the order against a plain sort on the real index when `static/data` exists.
@@ -227,26 +278,68 @@ checks the order against a plain sort on the real index when `static/data` exist
   was under it, line 697 at 202 arrivals, and the next smallest was 18,078. Below
   500 arrivals, five arrivals changing move a share by more than a point. The
   comment on the constant has the arithmetic.
-- Rail is never ranked. A small rail table shows median and 90th percentile
-  only, and `rankLines` also drops rail from an on-time ranking while
-  `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is false (issue #133).
+- Rail is never ranked against buses. A small rail table lists its on-time
+  share, median and 90th percentile, and the page passes `rankLines` bus lines
+  only. `rankLines` also drops rail from an on-time ranking when its `railGate`
+  argument, which defaults to `SHOW_RAIL_ONTIME`, is false.
 - Until the daily run after a release, the live bucket's `index.json` has no
   `n`, `med`, `p90`, `pct5` or `ontime`. `checkRankingIndex` turns that into a
   `shape` error, and the page shows "This page needs newer data than the site has
   yet. Try again in a few minutes." with a retry button. `ResultView`'s boundary
   covers a throw while the page draws.
+- The on-time share prints to one decimal, and `shareText` in `src/lib/share.ts`
+  caps a value below 100 at 99.9. The cap guards unrounded input only. The
+  pipeline already rounds the share to one decimal and the published files carry
+  no on-time count, so a true 99.96 is published as 100.0 and prints as "100.0".
+  The site cannot tell it from a line that is exactly 100. No published line is
+  near it today. In run 20261117T130127Z-b2b787 the best line was 80.6 percent.
+  47 hour cells read exactly 100.0, and all have `n` of 207 or fewer.
 - Table delays show minutes with one decimal, such as "1.3 min late". Seconds
   under two minutes and whole minutes above would not read as sorted.
 
-Known limits of the ranking. Neither shows in the 2026-11-16 run, which has 108
-ranked bus lines and no bus median below 19 seconds.
+Known limit of the ranking. It does not show in the 2026-11-16 run, which has
+108 ranked bus lines.
 
-- With 10 or fewer ranked lines, the "Least reliable" panel is short or empty
-  while its caption still promises five lines, because the panel leaves out any
-  line the "Most reliable" panel already shows.
-- Sorting by median delay or 90th percentile puts the smallest number first, so
-  a line with a negative median (early on average) ranks above a line that is
-  on time.
+- With 10 or fewer ranked lines, the "Least reliable" panel is short or empty,
+  because the panel leaves out any line the "Most reliable" panel already shows.
+  Its caption counts the lines it lists, so it does not promise five.
+
+## The on-time share and its note
+
+Since 0.5.1 rail shows its on-time share like a bus line. The owner decided that
+on 2026-11-17, after issue #133 found no cause for the gap with Metro. Nothing in
+the pipeline or the published data changed.
+
+- `SHOW_RAIL_ONTIME` in `src/lib/config.ts` is true. `showsOntime`, `headline`,
+  `rankLines`, `LineView`, `sharesText` and the methods section
+  (`MeasureOnTime.svelte` and `NetworkShares.svelte`) read it, each through a
+  `railGate` argument or prop, so a test covers the closed gate too.
+  `RailTable` gets the gate through `showRailOntime`, which defaults to
+  `showsOntime('rail')`. Setting the constant to false brings the old rail hold
+  back.
+- The methods copy is written for the open gate. With the gate closed, the live
+  sentence and the section leave out every sentence that states a rail share,
+  and the rest still reads. Nothing else on the methods page states one. Reopen
+  the copy if the gate closes for good.
+- Every on-time share has a note, `OntimeNote`, and an asterisk, `OntimeMark`,
+  beside the figure. They appear under each direction's headline on a line page,
+  under the heatmap's hour readout, under the two ranking panels, over the
+  ranking table, and in the rail table. The home page shows no share. The live
+  sentence on the methods page sits inside the section the note links to, so it
+  has no note of its own. A new place that shows a share must render the note.
+- The asterisk is hidden from screen readers. The words and the "How we measure"
+  link carry the meaning. Under 640 px (`sm`) the note shortens to the window, the
+  Metro caveat and the link.
+- The link is `MEASURE_HREF` in `src/lib/ontimeNote.ts`, a plain path, because
+  the chart components import the note and their tests run outside SvelteKit.
+  `MeasureOnTime.svelte` uses `MEASURE_ANCHOR` as the id of the "How we
+  measure on-time" section, and `tests/methods.test.ts` checks that the page
+  renders it.
+- That section's figures for last stops (93,955 of 93,956, 53.7 percent, about
+  5 and 1 percent) come from the issue #133 analysis of 18 August to 15 November
+  2026 and say so. They are fixed. The current bus and rail shares are not typed
+  in. `NetworkShares.svelte` reads them from `network.json` and `status.json`
+  with `loadShares` after the page loads, and shows nothing if the load fails.
 
 ## Behind the scenes
 
@@ -273,14 +366,31 @@ its `<svelte:boundary>`, so a render error shows the error box.
 - The diagram (`Architecture.svelte`) is one inline SVG, a single column that
   scales to a phone, with the same flow as a numbered list under it. It names
   no bucket, host or account.
-- The cost section gives only the owner's budget, labelled as an estimate. Add
-  the breakdown after billing is reviewed.
+- The cost section gives only the owner's budget, labelled as an estimate, and
+  the archive's growth of about 1 GB a day. It promises no breakdown.
 - `tests/built.test.ts` counts the `<title>` in the head only, because the
   diagram's SVG has its own `<title>`.
 
 To see it with local data, build with `PUBLIC_DATA_BASE=/data` and put the
 files in `static/data/site/<run>/` with a `current.json` that names the run.
 Only `health.json` is needed for this page.
+
+## Accepted limits
+
+Known issues from 0.5.0 that stay as they are, with the reason.
+
+- The behind-the-scenes warning reads today from the browser clock
+  (`pacificToday` in `src/lib/date.ts`), so a device with a wrong clock shows a
+  wrong warning. It is accepted because
+  `health.json` has no generation timestamp to compare against, and the miss
+  affects only a device with a wrong clock. A test in `tests/behind.test.ts`
+  records the current behavior.
+- The site shows the rail on-time share although HowLate's 64.4 percent over 18
+  August to 15 November 2026 is far from Metro's 99.4 percent for July to
+  September 2025, and the cause is not known (issues #133 and #157).
+  The note beside each share and the methods section say so. The public JSON
+  carries the rail values, as the pipeline writes them (`ONTIME` in
+  `pipeline/src/howlate_pipeline/aggregate.py`).
 
 ## Not done yet
 

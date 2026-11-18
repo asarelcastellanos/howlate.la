@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { createRawSnippet } from 'svelte';
 import { render } from 'svelte/server';
 import { fixtureProfile, fixtureStops } from '../src/lib/charts/fixtures.ts';
+import { SHOW_RAIL_ONTIME } from '../src/lib/config.ts';
 import type { Direction, LineFile } from '../src/lib/data/types.ts';
 import { longDate } from '../src/lib/date.ts';
 import {
@@ -103,39 +104,43 @@ test('a direction with no name and one arrival still reads as a sentence', () =>
 	);
 });
 
-test('the rail gate hides the on-time share when it is off and shows it when it is on', () => {
+test('the rail gate is open, and closing it hides the on-time share', () => {
 	const rail = direction(0, 'Pomona Station');
-	assert.equal(showsOntime('rail'), false);
-	assert.equal(showsOntime('rail', true), true);
+	assert.equal(SHOW_RAIL_ONTIME, true);
+	assert.equal(showsOntime('rail'), true);
+	assert.equal(showsOntime('rail', false), false);
 	assert.equal(showsOntime('bus'), true);
-	assert.doesNotMatch(headline(rail, 0, 'rail'), /on time|percent of/);
-	assert.match(headline(rail, 0, 'rail'), /across 345,123 measured arrivals\.$/);
 	assert.match(
-		headline(rail, 0, 'rail', true),
+		headline(rail, 0, 'rail'),
 		/56\.5 percent of 345,123 measured arrivals were on time\.$/
 	);
+	assert.doesNotMatch(headline(rail, 0, 'rail', false), /on time|percent of/);
+	assert.match(headline(rail, 0, 'rail', false), /across 345,123 measured arrivals\.$/);
 });
 
-test('a bus page shows the on-time share, its window and the small print', () => {
+const NOTE =
+	/On time means arriving 1 minute early to 5 minutes late against the timetable\. We score every measured stop after the first\. Metro reports on-time performance differently\. How we measure/;
+
+test('a bus page shows the on-time share and the note on how it is measured', () => {
 	const page = text(render(LineView, { props: { line: lineFile('bus', two) } }).body);
 	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
-	assert.match(page, /On time means 1 minute early to 5 minutes late, at every stop\./);
-	assert.match(page, /Not Metro's published figure\./);
+	assert.match(page, NOTE);
 	assert.ok(!page.includes(RAIL_HOLD_NOTE));
 });
 
-test('a rail page holds the on-time share back and says why', () => {
+test('a rail page shows the on-time share and the note the way a bus page does', () => {
 	const page = text(render(LineView, { props: { line: lineFile('rail', two) } }).body);
+	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
+	assert.match(page, NOTE);
+	assert.ok(!page.includes(RAIL_HOLD_NOTE));
+});
+
+test('a rail page holds the on-time share back and says why when the gate is closed', () => {
+	const props = { line: lineFile('rail', two), showRailOntime: false };
+	const page = text(render(LineView, { props }).body);
 	assert.ok(page.includes(RAIL_HOLD_NOTE));
 	assert.match(page, /the 90th percentile is 8 minutes late, across 345,123 measured arrivals\./);
-	assert.doesNotMatch(page, /percent of|on time means|Not Metro's published/i);
-});
-
-test('a rail page shows the share once the gate is open', () => {
-	const props = { line: lineFile('rail', two), showRailOntime: true };
-	const page = text(render(LineView, { props }).body);
-	assert.ok(!page.includes(RAIL_HOLD_NOTE));
-	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
+	assert.doesNotMatch(page, /percent of|on time means|how we measure/i);
 });
 
 // The page loads the chart code after the headline has painted, which a
@@ -168,13 +173,14 @@ test('a line page has four figures, and the route chart is the last one', () => 
 	);
 });
 
-test('a rail page hands the heatmap no on-time share and a bus page does', () => {
-	const readout = (line: LineFile) =>
-		text(render(LineView, { props: { line, charts: LineCharts } }).body).match(
+test('a rail page hands the heatmap an on-time share like a bus page, unless the gate is closed', () => {
+	const readout = (line: LineFile, showRailOntime?: boolean) =>
+		text(render(LineView, { props: { line, showRailOntime, charts: LineCharts } }).body).match(
 			/Friday 5 pm\. Median[^.]*\.[^.]*\.[^.]*\./
 		)?.[0];
 	assert.match(readout(lineFile('bus', two))!, /percent on time/);
-	assert.doesNotMatch(readout(lineFile('rail', two))!, /percent on time/);
+	assert.match(readout(lineFile('rail', two))!, /percent on time/);
+	assert.doesNotMatch(readout(lineFile('rail', two), false)!, /percent on time/);
 });
 
 test('two directions get a switch and one direction does not', () => {
@@ -186,12 +192,36 @@ test('two directions get a switch and one direction does not', () => {
 	assert.equal(radios(lineFile('bus', one)), 0);
 });
 
-test('the page has one h1 and names the line in its title and description', () => {
+test('the page has one h1, and a listed line keeps the head its prerendered file has', () => {
 	const { head, body } = render(LineView, { props: { line: lineFile('bus', two) } });
 	assert.equal(body.match(/<h1[\s>]/g)?.length, 1);
-	assert.match(head, /<title>Route 720 · HowLate<\/title>/);
-	assert.match(head, /<meta name="description" content="How late Route 720 runs/);
+	assert.match(head, /<title>Line 720 · HowLate<\/title>/);
+	assert.match(
+		head,
+		/<meta name="description" content="Line 720 \(bus line to Downtown LA - 6th - Central and Santa Monica \(Rapid\)\): how late it runs by hour of the week and by stop, against the timetable\."/
+	);
 	assert.doesNotMatch(head + body, /[—–]/);
+});
+
+test('a line missing from the list gets a head built from the loaded file, with the corridor dropped when it does not fit', () => {
+	const line = { ...lineFile('bus', two), line: '999', label: '999' };
+	const { head } = render(LineView, { props: { line } });
+	assert.match(head, /<title>Line 999 · HowLate<\/title>/);
+	assert.match(
+		head,
+		/<meta name="description" content="Line 999 \(bus line to Downtown LA and Santa Monica\): how late it runs by hour of the week and by stop, against the timetable\."/
+	);
+	assert.match(head, /<link rel="canonical" href="https:\/\/howlate\.la\/lines\/999"/);
+});
+
+test('a rail line keeps its own name as the title and has no on-time wording in its head', () => {
+	const { head } = render(LineView, { props: { line: lineFile('rail', two) } });
+	assert.match(head, /<title>Metro A Line · HowLate<\/title>/);
+	assert.match(
+		head,
+		/content="Metro A Line \(rail line to Pomona Station and Downtown Long Beach Station\): /
+	);
+	assert.doesNotMatch(head, /on.time/i);
 });
 
 test('names and bullets follow the index', () => {

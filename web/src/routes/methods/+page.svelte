@@ -4,9 +4,8 @@
 	import Masthead from '#lib/design/Masthead.svelte';
 	import Rule from '#lib/design/Rule.svelte';
 	import PageHead from '#lib/PageHead.svelte';
+	import MeasureOnTime from './MeasureOnTime.svelte';
 
-	const standards =
-		'https://busstophub.metro.net/wp-content/uploads/2025/10/TSP-2025-Adopted-7-17-2025.pdf';
 	const repository = 'https://github.com/asarelcastellanos/howlate.la';
 </script>
 
@@ -30,10 +29,11 @@
 	<section class="my-8">
 		<Headline level={2} size="md">What HowLate measures</Headline>
 		<p class="mt-4">
-			Each Metro bus and train reports its position about every 6 seconds. HowLate records those
-			reports and compares the time the timetable gives for each scheduled stop with the time the
-			vehicle actually reached it. The difference is the delay. A late arrival is a positive number
-			and an early one is negative.
+			Each Metro bus and train reports its position. A vehicle's distinct reports are a median 5 to
+			6 seconds apart (5 for rail, 6 for bus, measured over 8 to 14 November 2026). HowLate records
+			those reports and compares the time the timetable gives for each scheduled stop with the time
+			the vehicle actually reached it. The difference is the delay. A late arrival is a positive
+			number and an early one is negative.
 		</p>
 		<p class="mt-4">
 			Most pages show the median delay, the middle value. Some charts also show the 90th percentile,
@@ -64,31 +64,7 @@
 	</section>
 
 	<Rule />
-	<section class="my-8">
-		<Headline level={2} size="md">What counts as on time</Headline>
-		<p class="mt-4">
-			Metro counts a bus or train as on time when it is no more than 1 minute early and no more than
-			5 minutes late. The standard is in Metro's
-			<a href={standards} rel="noreferrer">2025 Transit Service Policies and Standards</a>, adopted
-			in July 2025, section 3.3. HowLate scores arrivals by the same window.
-		</p>
-		<p class="mt-4">
-			Metro and HowLate do not score the same stops. Metro measures buses at timepoints, the stops
-			where the schedule is checked, and trains at the end terminals. HowLate scores every stop for
-			buses. For trains, HowLate does not show an on-time share yet.
-		</p>
-		<p class="mt-4">
-			In 84 percent of rail trips, HowLate times the last stop from the last report before the train
-			arrived, not from a stopped report. Where the previous stop had a stopped report, the share on
-			time falls from about 67 percent there to about 55 percent at the last stop, mostly into early
-			arrivals. We do not yet know how Metro times a terminal arrival, so we cannot say how our
-			figures compare with Metro's 99 percent.
-		</p>
-		<p class="mt-4">
-			Metro's board report 2025-0860 gives 78.2 percent of buses on time at timepoints, for July to
-			September 2025. It is not comparable with HowLate's bus numbers.
-		</p>
-	</section>
+	<MeasureOnTime />
 
 	<Rule />
 	<section class="my-8">
@@ -163,9 +139,8 @@
 				Metro changes its timetables, and a change to one agency's schedule can move a number.
 			</li>
 			<li>
-				HowLate does not show an on-time share for rail because it does not yet know how Metro times
-				a terminal arrival, and last-stop arrivals are estimates. Rail lines show median and 90th
-				percentile delay.
+				HowLate does not know how Metro times a rail terminal arrival. Last-stop arrivals are
+				estimates, and many read early.
 			</li>
 		</ul>
 	</section>
