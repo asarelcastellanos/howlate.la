@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { MIN_RANKED_ARRIVALS } from '../src/lib/ranking.ts';
 import { longDate } from '../src/lib/date.ts';
-import { health, index, readLine } from './fixture.ts';
+import { shareText } from '../src/lib/share.ts';
+import { health, index, network, readLine, status } from './fixture.ts';
 import { lineLoaded, watchConsole } from './helpers.ts';
 
 // A fixture that lost its lines would let every loop below pass without a visit.
@@ -130,7 +131,8 @@ test('three taps from the home page reach the Friday 5 pm readout on line 720', 
 	const entry = entries.find((e) => e.line === '720')!;
 	const hour = readLine(entry.line).directions[0].profile.find((h) => h.h === FRIDAY_5PM)!;
 	expect(hour, 'the fixture has no Friday 5 pm entry for 720').toBeTruthy();
-	const expected = `Friday 5 pm. Median ${delay(hour.med)}. ${Math.round(hour.ontime)} percent on time. ${hour.n.toLocaleString('en-US')} arrivals measured.`;
+	// The trailing asterisk points to the on-time note under the readout.
+	const expected = `Friday 5 pm. Median ${delay(hour.med)}. ${Math.round(hour.ontime)} percent on time. ${hour.n.toLocaleString('en-US')} arrivals measured.*`;
 
 	await page.goto('/');
 	await page.getByRole('combobox', { name: 'Find a line' }).tap(); // tap 1
@@ -146,8 +148,8 @@ test('three taps from the home page reach the Friday 5 pm readout on line 720', 
 	await expect(readout).toHaveText(expected);
 });
 
-test('a rail page shows no on-time sentence and a bus page does', async ({ page }) => {
-	const sentences = /percent on time|On time means/;
+test('a rail page shows the on-time sentence like a bus page', async ({ page }) => {
+	const sentences = /percent of [\d,]+ measured arrivals were on time|On time means/;
 	const bus = entries.find((e) => e.mode === 'bus' && e.n >= MIN_RANKED_ARRIVALS)!;
 	await page.goto(`/lines/${bus.line}`);
 	await expect(lineLoaded(page)).toBeVisible();
@@ -159,7 +161,106 @@ test('a rail page shows no on-time sentence and a bus page does', async ({ page 
 		await page.goto(`/lines/${entry.line}`);
 		await expect(lineLoaded(page)).toBeVisible();
 		await expect(page.locator('figure').first()).toBeVisible();
-		await expect(page.locator('main')).not.toContainText(sentences);
+		await expect(page.locator('main')).toContainText(sentences);
+		await expect(page.locator('main')).not.toContainText('on hold');
+	}
+});
+
+// The asterisk is hidden from a screen reader, so the tests find it by its test id.
+const MARK = 'ontime-mark';
+const SHORT_NOTE =
+	'On time means 1 minute early to 5 minutes late. Metro reports on-time performance differently.';
+const LONG_NOTE =
+	'On time means arriving 1 minute early to 5 minutes late against the timetable. We score every measured stop after the first. Metro reports on-time performance differently.';
+
+// At 375 px the note is the short form. The full text is for wider screens, and the
+// asterisk is hidden from a screen reader, so the link carries the meaning.
+test('every line page has the on-time note, and its link opens the methods section', async ({
+	page
+}) => {
+	for (const entry of entries.filter((e) => e.mode === 'rail' || e.n >= MIN_RANKED_ARRIVALS)) {
+		await page.goto(`/lines/${entry.line}`);
+		await expect(lineLoaded(page)).toBeVisible();
+		const notes = page.locator('main p', { hasText: 'On time means' });
+		// One under the headline, one under the heatmap readout.
+		await expect(notes).toHaveCount(2);
+		for (const note of await notes.all()) {
+			await expect(note.getByText(SHORT_NOTE, { exact: true })).toBeVisible();
+			await expect(note.getByText(LONG_NOTE, { exact: true })).toBeHidden();
+			await expect(note.getByRole('link', { name: 'How we measure' })).toHaveAttribute(
+				'href',
+				'/methods#how-we-measure-on-time'
+			);
+		}
+		// Each direction's headline share has its own asterisk.
+		const headlines = page.locator('main li', { hasText: /measured arrivals were on time/ });
+		expect(await headlines.count()).toBeGreaterThan(0);
+		for (const headline of await headlines.all()) {
+			await expect(headline.getByTestId(MARK)).toHaveCount(1);
+		}
+	}
+
+	const rail = entries.find((e) => e.mode === 'rail')!;
+	await page.goto(`/lines/${rail.line}`);
+	await expect(lineLoaded(page)).toBeVisible();
+	await page.getByRole('link', { name: 'How we measure' }).first().click();
+	await expect(page).toHaveURL(/\/methods#how-we-measure-on-time$/);
+	const heading = page.getByRole('heading', { level: 2, name: 'How we measure on-time' });
+	await expect(heading).toBeInViewport();
+});
+
+test('from 640 px up the note is the full form and the short one is hidden', async ({ page }) => {
+	await page.setViewportSize({ width: 1024, height: 800 });
+	for (const mode of ['bus', 'rail'] as const) {
+		const entry = entries.find(
+			(e) => e.mode === mode && (mode === 'rail' || e.n >= MIN_RANKED_ARRIVALS)
+		)!;
+		await page.goto(`/lines/${entry.line}`);
+		await expect(lineLoaded(page)).toBeVisible();
+		const notes = page.locator('main p', { hasText: 'On time means' });
+		await expect(notes).toHaveCount(2);
+		for (const note of await notes.all()) {
+			await expect(note.getByText(LONG_NOTE, { exact: true })).toBeVisible();
+			await expect(note.getByText(SHORT_NOTE, { exact: true })).toBeHidden();
+		}
+	}
+});
+
+test('the methods page shows the live bus and rail shares from the published files', async ({
+	page
+}) => {
+	await page.goto('/methods');
+	const bus = shareText(network.bus.all.ontime!);
+	const rail = shareText(network.rail.all.ontime!);
+	await expect(page.locator('#how-we-measure-on-time')).toContainText(
+		`HowLate scored ${bus} percent of measured bus arrivals and ${rail} percent of measured rail arrivals as on time`
+	);
+	await expect(page.locator('#how-we-measure-on-time')).toContainText(
+		`over ${status.days} days of data`
+	);
+});
+
+test('the ranking marks each share and lists the rail on-time share', async ({ page }) => {
+	await page.goto('/ranking');
+	const table = page.getByRole('region', { name: /Ranked bus lines/ });
+	await expect(table.locator('tbody tr').first()).toBeVisible();
+	await expect(page.locator('main p', { hasText: 'On time means' })).toHaveCount(3);
+	const rail = page.getByRole('region', { name: /Rail lines/ });
+	await expect(rail.getByRole('columnheader', { name: /On time/ })).toBeVisible();
+	// An asterisk beside every share: each Extremes row, and the On time heading of
+	// the bus table and the rail table.
+	const extremes = page.locator('ol.data > li');
+	expect(await extremes.count()).toBeGreaterThan(0);
+	for (const row of await extremes.all()) await expect(row.getByTestId(MARK)).toHaveCount(1);
+	for (const region of [table, rail]) {
+		const heading = region.getByRole('columnheader', { name: /On time/ });
+		await expect(heading.getByTestId(MARK)).toHaveCount(1);
+	}
+	const railEntries = entries.filter((e) => e.mode === 'rail');
+	for (const entry of railEntries) {
+		await expect(rail.locator('tbody tr', { hasText: entry.label })).toContainText(
+			`${shareText(entry.ontime)}%`
+		);
 	}
 });
 

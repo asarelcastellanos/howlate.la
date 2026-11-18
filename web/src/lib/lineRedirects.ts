@@ -18,7 +18,7 @@ export const lineRule = (id: string): string => `/lines/${id} /lines/${id} 200`;
  * app shell (a preview served /lines/720 and /lines/zzz the same 1,508 bytes, no
  * title). The first matching rule wins and a proxy target is not matched again, so
  * these rules have to come before the wildcard. The target is the path itself, not
- * `/lines/<id>.html`: on 2026-11-18 a preview with .html targets answered /lines/720
+ * `/lines/<id>.html`: on 2026-11-17 a preview with .html targets answered /lines/720
  * and /lines/2 with 308 and `location: /lines/720`, because Pages redirects a .html
  * target to the clean URL and that URL matched the rule again, an endless loop.
  */

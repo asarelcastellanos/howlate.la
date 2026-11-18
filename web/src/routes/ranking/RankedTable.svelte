@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { IndexEntry } from '#lib/data/types.ts';
+	import OntimeMark from '#lib/design/OntimeMark.svelte';
 	import {
 		DEFAULT_SORT,
 		METRICS,
@@ -48,7 +49,7 @@
 							class="cursor-pointer font-[inherit] uppercase hover:underline"
 							onclick={() => (sort = nextSort(sort, metric.id))}
 						>
-							{metric.label}
+							{metric.label}{#if metric.id === 'ontime'}<OntimeMark />{/if}
 							<span aria-hidden="true" class="inline-block w-3">{direction(metric.id)}</span>
 						</button>
 					</th>

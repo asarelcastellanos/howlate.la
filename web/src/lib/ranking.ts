@@ -102,15 +102,18 @@ function compareBest(metric: Metric, a: IndexEntry, b: IndexEntry): number {
  * Ties break by line id, in the same order for both `order` values, so reversing
  * a table never reshuffles lines that share a value.
  *
- * Rail never enters an on-time ranking while SHOW_RAIL_ONTIME is false, and it
- * is dropped, not listed as unranked, because the reason is not its arrivals.
+ * Rail never enters an on-time ranking while `railGate` (SHOW_RAIL_ONTIME) is
+ * false, and it is dropped, not listed as unranked, because the reason is not
+ * its arrivals. The ranking page passes only bus lines, so rail is shown in its
+ * own table and is not ranked against buses even with the gate open.
  */
 export function rankLines(
 	entries: readonly IndexEntry[],
 	metric: Metric,
-	order: Order = 'best'
+	order: Order = 'best',
+	railGate: boolean = SHOW_RAIL_ONTIME
 ): Ranking {
-	const gated = (e: IndexEntry) => metric === 'ontime' && e.mode === 'rail' && !SHOW_RAIL_ONTIME;
+	const gated = (e: IndexEntry) => metric === 'ontime' && e.mode === 'rail' && !railGate;
 	const candidates = entries.filter((e) => !gated(e));
 	const enough = candidates.filter((e) => e.n >= MIN_RANKED_ARRIVALS);
 	const unranked = candidates

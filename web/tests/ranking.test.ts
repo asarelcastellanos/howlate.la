@@ -7,7 +7,7 @@ import { registerHooks } from 'node:module';
 import { before, test } from 'node:test';
 import { render } from 'svelte/server';
 import type { IndexEntry, SiteIndex } from '../src/lib/data/types.ts';
-import { headline, shortVia } from '../src/lib/linePage.ts';
+import { RAIL_HOLD_NOTE, headline, shortVia } from '../src/lib/linePage.ts';
 import {
 	MIN_RANKED_ARRIVALS,
 	ariaSort,
@@ -95,10 +95,10 @@ test('on the real index, every metric orders lines by its value, then by line id
 	}
 });
 
-test('on the real index, rail never reaches the on-time ranking', (t) => {
+test('on the real index, rail stays out of the on-time ranking while the gate is closed', (t) => {
 	const lines = realIndex();
 	if (!lines) return t.skip('static/data is absent');
-	const { ranked, unranked } = rankLines(lines, 'ontime');
+	const { ranked, unranked } = rankLines(lines, 'ontime', 'best', false);
 	assert.ok(lines.some((l) => l.mode === 'rail'));
 	assert.ok([...ranked.map((r) => r.entry), ...unranked].every((l) => l.mode === 'bus'));
 });
@@ -243,10 +243,10 @@ test('the Not ranked copy says 500', async () => {
 	assert.ok(text.includes('202 arrivals measured'));
 });
 
-test('rail is left out of the on-time ranking and the unranked list, but not of median', () => {
+test('a closed rail gate leaves rail out of the on-time ranking and the unranked list, but not of median', () => {
 	const rail = entry('801', { mode: 'rail', ontime: 99, med: 1, n: 10 });
 	const lines = [rail, entry('1')];
-	const byOntime = rankLines(lines, 'ontime');
+	const byOntime = rankLines(lines, 'ontime', 'best', false);
 	assert.deepEqual(ids(byOntime.ranked), ['1']);
 	assert.deepEqual(byOntime.unranked, []);
 	assert.deepEqual(
@@ -254,6 +254,17 @@ test('rail is left out of the on-time ranking and the unranked list, but not of 
 			rankLines([entry('801', { mode: 'rail', med: 1 }), entry('1', { med: 500 })], 'med').ranked
 		),
 		['801', '1']
+	);
+});
+
+test('an open rail gate, the default, ranks rail by on-time share like a bus line', () => {
+	const rail = entry('801', { mode: 'rail', ontime: 99 });
+	const lines = [rail, entry('1', { ontime: 60 })];
+	assert.deepEqual(ids(rankLines(lines, 'ontime').ranked), ['801', '1']);
+	const thin = entry('804', { mode: 'rail', n: 10 });
+	assert.deepEqual(
+		rankLines([thin], 'ontime').unranked.map((e) => e.line),
+		['804']
 	);
 });
 
@@ -427,4 +438,21 @@ test('the static copy has no em dash, en dash or curly quote, and states the win
 	assert.ok(copy.includes("Not Metro's published figure"));
 	assert.ok(copy.includes('not only at timepoints'));
 	assert.match(body, /href="\/methods"/);
+});
+
+test('the rail table lists the on-time share by default and not when the gate is closed', async () => {
+	const RailTable = (await import('../src/routes/ranking/RailTable.svelte')).default;
+	const entries = [entry('801', { mode: 'rail', label: 'Metro A Line', ontime: 56.4 })];
+	const flat = (html: string) =>
+		html
+			.replace(/<!--.*?-->/g, '')
+			.replace(/<[^>]+>/g, ' ')
+			.replace(/\s+/g, ' ');
+	const open = flat(render(RailTable, { props: { entries } }).body);
+	assert.ok(open.includes('On time'));
+	assert.ok(open.includes('56.4%'));
+	assert.ok(!open.includes(RAIL_HOLD_NOTE));
+	const closed = flat(render(RailTable, { props: { entries, showRailOntime: false } }).body);
+	assert.ok(closed.includes(RAIL_HOLD_NOTE));
+	assert.ok(!closed.includes('56.4%'));
 });
