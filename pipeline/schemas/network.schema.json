@@ -26,9 +26,10 @@
       "description": "The delay numbers over every measured arrival in this scope, on every day and hour.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["n", "med", "p90", "pct5", "ontime"],
+      "required": ["n", "est", "med", "p90", "pct5", "ontime"],
       "properties": {
         "n": {"type": "integer", "minimum": 0, "description": "Arrivals with a measured delay. It is 0 when nothing was measured in this scope, and then every other field is null."},
+        "est": {"type": "integer", "minimum": 0, "description": "Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival. It is 0 when n is 0, and 0 for rail, which is never estimated this way."},
         "med": {"type": ["integer", "null"], "description": "Median delay in seconds. Positive means late and negative means early. Null when n is 0."},
         "p90": {"type": ["integer", "null"], "description": "90th percentile delay in seconds. One measured arrival in ten was later than this. Null when n is 0."},
         "pct5": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "Percent of measured arrivals more than 300 seconds late, to one decimal place. Null when n is 0."},

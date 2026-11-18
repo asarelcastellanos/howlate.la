@@ -49,6 +49,7 @@ export function fixtureStops(): Stop[] {
 			lon: null,
 			seq: i + 1,
 			n,
+			est: 0,
 			sched: n + 40,
 			all: { med, p90: med * 3, pct5: 10, ontime: 80 },
 			cells: i === 7 || i === 20 ? [] : [cell]

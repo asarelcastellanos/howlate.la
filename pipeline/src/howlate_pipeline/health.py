@@ -12,6 +12,8 @@ added here.
 name the join check `join_rate` and have no explained_* stats. Days graded by
 0.4.0 name it `matched_rate` and have them. A missing explained_* stat reads as
 0, which is true, because the pipeline did not count the trips then.
+A report from before bus stops were estimated has no `interpolated_pct`, and
+that reads as 0 for the same reason.
 """
 
 import json
@@ -38,6 +40,7 @@ def parse(document: object) -> tuple[dict, list[dict]] | None:
             "ok": document["ok"],
             "failed": [check["name"] for check in document["checks"] if not check["ok"]],
             "coverage_pct": round(stats["coverage"], 1),
+            "estimated_pct": round(stats.get("interpolated_pct", 0), 1),
             "explained_trips": stats.get("explained_trips", 0),
             "explained_pct": round(stats.get("explained_pct", 0), 1),
             "observations": stats["observations"],
