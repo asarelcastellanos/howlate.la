@@ -20,8 +20,8 @@ check it against a small committed copy of the data in `fixture/`. The CI job
   (found by `data-testid="ontime-mark"`). It also opens `/behind-the-scenes` at 375 px and checks one h1, the
   newest graded day, the 14-day strip with its failed and missing days, the
   check list, no console error and no sideways scroll. A second test serves a
-  copy of `health.json` through `page.route` and checks that a newest day 4 days
-  old shows the warning and 3 days old does not. Both set the browser clock, so
+  copy of `health.json` through `page.route` and checks that a newest day 3 days
+  old shows the warning and 2 days old does not. Both set the browser clock, so
   the fixture does not turn stale as the real date moves on. Expected values come
   from the fixture files, never from numbers typed into a test.
 - `axe.spec.ts` runs axe on the home page, `/lines/720`, `/ranking`, `/methods`

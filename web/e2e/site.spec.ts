@@ -318,12 +318,12 @@ async function openWithLag(page: Page, lag: number) {
 	await expect(page.locator('[data-cell]')).toHaveCount(14);
 }
 
-test('a newest day 4 days old shows the warning, and 3 days old does not', async ({ page }) => {
-	await openWithLag(page, 4);
+test('a newest day 3 days old shows the warning, and 2 days old does not', async ({ page }) => {
+	await openWithLag(page, 3);
 	const warning = page.locator('[data-warning]');
 	await expect(warning).toBeVisible();
-	await expect(warning).toContainText('4 days before today');
+	await expect(warning).toContainText('3 days before today');
 	await page.unrouteAll();
-	await openWithLag(page, 3);
+	await openWithLag(page, 2);
 	await expect(page.locator('[data-warning]')).toHaveCount(0);
 });
