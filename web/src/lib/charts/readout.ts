@@ -40,6 +40,14 @@ export type ReadoutEntry = { h: number } & Partial<Pick<Hour, 'n' | 'med' | 'ont
 const plural = (n: number, word: string) =>
 	`${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 
+/** Whether `readoutText` for this hour includes an on-time share, so the page can mark it. */
+export function readoutHasShare(entry: ReadoutEntry, { showOntime }: { showOntime: boolean }) {
+	const { n, med, ontime } = entry;
+	return (
+		showOntime && n !== undefined && med !== undefined && ontime !== undefined && n >= MIN_ARRIVALS
+	);
+}
+
 /**
  * The hour in plain words for the line under the heatmap. A measured hour gives
  * the median, the on-time share when the line shows one, and the count. A thin

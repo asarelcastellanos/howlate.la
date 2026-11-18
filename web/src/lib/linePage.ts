@@ -7,9 +7,6 @@ import { LINES, type BusService, type LineId } from './design/lines.ts';
 import { serviceOf } from './design/service.ts';
 import { shareText } from './share.ts';
 
-/** How the methodology page words the on-time window. */
-export const ONTIME_WINDOW = '1 minute early to 5 minutes late, at every stop';
-
 /** Shown in place of the on-time share on a rail line while #133 is open. */
 export const RAIL_HOLD_NOTE =
 	"The on-time share for rail is on hold while we check how it compares with Metro's.";

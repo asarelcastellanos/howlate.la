@@ -9,7 +9,6 @@
 </script>
 
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { SHOW_RAIL_ONTIME } from '#lib/config.ts';
 	import ErrorState from '#lib/charts/ErrorState.svelte';
 	import LoadingState from '#lib/charts/LoadingState.svelte';
@@ -18,11 +17,12 @@
 	import Headline from '#lib/design/Headline.svelte';
 	import Kicker from '#lib/design/Kicker.svelte';
 	import LineBullet from '#lib/design/LineBullet.svelte';
+	import OntimeMark from '#lib/design/OntimeMark.svelte';
+	import OntimeNote from '#lib/design/OntimeNote.svelte';
 	import Rule from '#lib/design/Rule.svelte';
 	import { findListed, lineHead, listEntryOfFile } from '#lib/lineHead.ts';
 	import PageHead from '#lib/PageHead.svelte';
 	import {
-		ONTIME_WINDOW,
 		RAIL_HOLD_NOTE,
 		bulletProps,
 		hasDirectionSwitch,
@@ -100,15 +100,13 @@
 	<Headline level={2} size="md">How late it runs</Headline>
 	<ul class="mt-4">
 		{#each line.directions as d, i (d.id)}
-			<li class="border-t py-4">{headline(d, i, line.mode, showRailOntime)}</li>
+			<li class="border-t py-4">
+				{headline(d, i, line.mode, showRailOntime)}{#if ontime}<OntimeMark />{/if}
+			</li>
 		{/each}
 	</ul>
 	{#if ontime}
-		<p class="caption text-ink-muted mt-2">
-			On time means {ONTIME_WINDOW}.
-			<a href={resolve('/methods')}>How HowLate measures delay</a>
-		</p>
-		<p class="caption text-ink-muted mt-1">Not Metro's published figure.</p>
+		<OntimeNote class="mt-2" />
 	{:else}
 		<p class="mt-2">{RAIL_HOLD_NOTE}</p>
 	{/if}

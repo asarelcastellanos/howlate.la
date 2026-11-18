@@ -2,6 +2,7 @@
 	import Notice from '#lib/charts/Notice.svelte';
 	import type { SiteIndex } from '#lib/data/types.ts';
 	import Headline from '#lib/design/Headline.svelte';
+	import OntimeNote from '#lib/design/OntimeNote.svelte';
 	import Rule from '#lib/design/Rule.svelte';
 	import { longDate } from '#lib/date.ts';
 	import { MIN_RANKED_ARRIVALS, count, ends, rankLines } from '#lib/ranking.ts';
@@ -46,16 +47,18 @@
 			/>
 		{/if}
 	</div>
+	<OntimeNote class="mt-4" />
 
 	<Rule />
 	<section class="my-8">
 		<Headline level={2} size="md">All bus lines</Headline>
-		<p class="caption text-ink-muted mt-2 mb-4">
+		<p class="caption text-ink-muted mt-2">
 			Ranked by on-time share, the share of measured arrivals from 1 minute early to 5 minutes late.
 			Median delay and 90th percentile are in minutes. Click a heading to sort by it. For median
 			delay and 90th percentile, a line closer to on time ranks higher, whether it runs early or
 			late, and inside the on-time window the smaller delay ranks higher.
 		</p>
+		<OntimeNote class="mt-2 mb-4" />
 		<RankedTable entries={bus} />
 	</section>
 {/if}

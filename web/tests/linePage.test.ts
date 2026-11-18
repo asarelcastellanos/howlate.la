@@ -118,19 +118,20 @@ test('the rail gate is open, and closing it hides the on-time share', () => {
 	assert.match(headline(rail, 0, 'rail', false), /across 345,123 measured arrivals\.$/);
 });
 
-test('a bus page shows the on-time share, its window and the small print', () => {
+const NOTE =
+	/On time means arriving 1 minute early to 5 minutes late against the timetable\. We score every measured stop after the first\. Metro reports on-time performance differently\. How we measure/;
+
+test('a bus page shows the on-time share and the note on how it is measured', () => {
 	const page = text(render(LineView, { props: { line: lineFile('bus', two) } }).body);
 	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
-	assert.match(page, /On time means 1 minute early to 5 minutes late, at every stop\./);
-	assert.match(page, /Not Metro's published figure\./);
+	assert.match(page, NOTE);
 	assert.ok(!page.includes(RAIL_HOLD_NOTE));
 });
 
-test('a rail page shows the on-time share the way a bus page does', () => {
+test('a rail page shows the on-time share and the note the way a bus page does', () => {
 	const page = text(render(LineView, { props: { line: lineFile('rail', two) } }).body);
 	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);
-	assert.match(page, /On time means 1 minute early to 5 minutes late, at every stop\./);
-	assert.match(page, /Not Metro's published figure\./);
+	assert.match(page, NOTE);
 	assert.ok(!page.includes(RAIL_HOLD_NOTE));
 });
 
@@ -139,7 +140,7 @@ test('a rail page holds the on-time share back and says why when the gate is clo
 	const page = text(render(LineView, { props }).body);
 	assert.ok(page.includes(RAIL_HOLD_NOTE));
 	assert.match(page, /the 90th percentile is 8 minutes late, across 345,123 measured arrivals\./);
-	assert.doesNotMatch(page, /percent of|on time means|Not Metro's published/i);
+	assert.doesNotMatch(page, /percent of|on time means|how we measure/i);
 });
 
 // The page loads the chart code after the headline has painted, which a
