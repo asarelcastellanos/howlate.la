@@ -115,14 +115,15 @@ describe('each line page in lines.json', () => {
 		});
 	}
 
-	test('every proxy rule in _redirects points at a file in the build', () => {
+	test('every rule in _redirects has its own build/lines/<id>.html', () => {
 		const rules = readFileSync(new URL('../static/_redirects', import.meta.url), 'utf8')
 			.split('\n')
 			.filter((rule) => /^\/lines\/[^*\s]+ /.test(rule));
 		assert.equal(rules.length, LINE_LIST.length);
 		for (const rule of rules) {
-			const target = rule.split(' ')[1]!;
-			assert.ok(existsSync(join(BUILD, target)), `${rule} has no file in build/`);
+			const [path, target] = rule.split(' ');
+			assert.equal(target, path, `${rule} must rewrite the path to itself`);
+			assert.ok(existsSync(join(BUILD, `${path}.html`)), `${rule} has no ${path}.html in build/`);
 		}
 	});
 

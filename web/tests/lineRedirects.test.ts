@@ -17,12 +17,10 @@ const entry = (line: string): LineListEntry => ({
 	to: ['Santa Monica'],
 	via: 'Wilshire'
 });
-const file = ['# top', BEGIN, '/lines/old /lines/old.html 200', END, '# shell', WILDCARD, ''].join(
-	'\n'
-);
+const file = ['# top', BEGIN, '/lines/old /lines/old 200', END, '# shell', WILDCARD, ''].join('\n');
 
-test('a rule proxies a line to its prerendered file', () => {
-	assert.equal(lineRule('720'), '/lines/720 /lines/720.html 200');
+test('a rule rewrites a line to its own path, with no .html target', () => {
+	assert.equal(lineRule('720'), '/lines/720 /lines/720 200');
 });
 
 test('the rules replace what was between the markers and sit before the wildcard', () => {
@@ -30,8 +28,8 @@ test('the rules replace what was between the markers and sit before the wildcard
 	assert.deepEqual(out, [
 		'# top',
 		BEGIN,
-		'/lines/2 /lines/2.html 200',
-		'/lines/720 /lines/720.html 200',
+		'/lines/2 /lines/2 200',
+		'/lines/720 /lines/720 200',
 		END,
 		'# shell',
 		WILDCARD,

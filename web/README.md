@@ -229,11 +229,14 @@ a description of 40 to 160 characters, a canonical link and `og:image`.
 
 `lines:refresh` also rewrites the block between the `# BEGIN line pages` and
 `# END line pages` lines in `static/_redirects`, one rule per id
-(`/lines/720 /lines/720.html 200`). Do not edit that block by hand. Pages follows a
+(`/lines/720 /lines/720 200`). Do not edit that block by hand. Pages follows a
 redirect rule even when a file matches the path, and the first matching rule wins, so
 the wildcard `/lines/* /200 200` alone sends every line to the app shell. A preview
 served `/lines/720` and `/lines/zzz` as the same 1,508 bytes with no title. The
-per-line rules sit before the wildcard so the prerendered files are served.
+per-line rules sit before the wildcard so the prerendered files are served. Each rule
+rewrites the path to itself and has no `.html` target. A preview with `.html` targets
+answered `/lines/720` with 308 and `location: /lines/720`, an endless loop, because
+Pages redirects a `.html` target to the clean URL and that URL matched the rule again.
 `tests/lineRedirects.test.ts` fails when the committed file no longer matches
 `lines.json`.
 
