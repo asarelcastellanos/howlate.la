@@ -128,6 +128,26 @@ test('a bus page shows the on-time share and the note on how it is measured', ()
 	assert.ok(!page.includes(RAIL_HOLD_NOTE));
 });
 
+const ESTIMATE_NOTE =
+	'23 percent of these arrivals were estimated from where the bus was between two reports. How we estimate';
+
+test('a direction with estimated arrivals says how many, with a link to the method', () => {
+	const estimated = [
+		direction(0, 'Downtown LA', { est: 79_378 }),
+		direction(1, 'Santa Monica', { est: 0 })
+	] as LineFile['directions'];
+	const { body } = render(LineView, { props: { line: lineFile('bus', estimated) } });
+	assert.ok(text(body).includes(ESTIMATE_NOTE));
+	// Only the direction with a count has the sentence.
+	assert.equal(text(body).match(/were estimated from where the bus was/g)?.length, 1);
+	assert.match(body, /<a href="\/methods#how-an-arrival-is-timed">How we estimate<\/a>/);
+});
+
+test('a line file from before the estimate count has no estimate sentence', () => {
+	const page = text(render(LineView, { props: { line: lineFile('bus', two) } }).body);
+	assert.ok(!page.includes('estimated'));
+});
+
 test('a rail page shows the on-time share and the note the way a bus page does', () => {
 	const page = text(render(LineView, { props: { line: lineFile('rail', two) } }).body);
 	assert.match(page, /56\.5 percent of 345,123 measured arrivals were on time/);

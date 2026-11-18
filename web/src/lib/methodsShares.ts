@@ -1,5 +1,6 @@
 import { openRun, type Result } from './data/load.ts';
 import { longDate } from './date.ts';
+import { estimatedNote } from './estimated.ts';
 import { SHOW_RAIL_ONTIME } from './config.ts';
 import { showsOntime } from './linePage.ts';
 import { shareText } from './share.ts';
@@ -8,6 +9,8 @@ import { shareText } from './share.ts';
 export type NetworkShares = {
 	bus: number | null;
 	rail: number | null;
+	/** Bus arrivals with a delay and how many of them were estimated. Absent in a file from before the count. */
+	busArrivals?: { n: number; est: number };
 	days: number;
 	last_day: string;
 };
@@ -21,6 +24,14 @@ function shareOf(scope: unknown): number | null | undefined {
 	const ontime = (scope as { all?: { ontime?: unknown } } | null)?.all?.ontime;
 	if (ontime === null) return null;
 	return typeof ontime === 'number' && Number.isFinite(ontime) ? ontime : undefined;
+}
+
+/** The arrival count and the estimated count of one scope, or undefined when either is missing. */
+function arrivalsOf(scope: unknown): { n: number; est: number } | undefined {
+	const all = (scope as { all?: { n?: unknown; est?: unknown } } | null)?.all;
+	return typeof all?.n === 'number' && typeof all.est === 'number'
+		? { n: all.n, est: all.est }
+		: undefined;
 }
 
 /**
@@ -47,7 +58,17 @@ export async function loadShares(
 		const url = `${base.replace(/\/+$/, '')}/${run.data.pointer.prefix}network.json`;
 		return { ok: false, error: { kind: 'shape', url } };
 	}
-	return { ok: true, data: { bus, rail, days: status.data.days, last_day: status.data.last_day } };
+	const busArrivals = arrivalsOf(scopes.bus);
+	return {
+		ok: true,
+		data: {
+			bus,
+			rail,
+			...(busArrivals && { busArrivals }),
+			days: status.data.days,
+			last_day: status.data.last_day
+		}
+	};
 }
 
 /**
@@ -55,7 +76,7 @@ export async function loadShares(
  * share has one. Rail is left out while `railGate` (SHOW_RAIL_ONTIME) is false.
  */
 export function sharesText(
-	{ bus, rail, days, last_day }: NetworkShares,
+	{ bus, rail, busArrivals, days, last_day }: NetworkShares,
 	railGate: boolean = SHOW_RAIL_ONTIME
 ): string | undefined {
 	const parts = [
@@ -65,5 +86,10 @@ export function sharesText(
 			: `${shareText(rail)} percent of measured rail arrivals`
 	].filter((part) => part !== undefined);
 	if (parts.length === 0) return undefined;
-	return `As of ${longDate(last_day)}, over ${days} days of data, HowLate scored ${parts.join(' and ')} as on time. These shares change every day. Each line page has its own.`;
+	const shares = `As of ${longDate(last_day)}, over ${days} days of data, HowLate scored ${parts.join(' and ')} as on time. These shares change every day. Each line page has its own.`;
+	const estimated =
+		bus === null || !busArrivals
+			? undefined
+			: estimatedNote(busArrivals.n, busArrivals.est, 'the measured bus arrivals');
+	return estimated ? `${shares} ${estimated}` : shares;
 }

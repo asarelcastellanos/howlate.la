@@ -3,6 +3,7 @@
 	import Kicker from '#lib/design/Kicker.svelte';
 	import Masthead from '#lib/design/Masthead.svelte';
 	import Rule from '#lib/design/Rule.svelte';
+	import { ESTIMATE_ANCHOR } from '#lib/estimated.ts';
 	import PageHead from '#lib/PageHead.svelte';
 	import MeasureOnTime from './MeasureOnTime.svelte';
 
@@ -43,7 +44,7 @@
 	</section>
 
 	<Rule />
-	<section class="my-8">
+	<section id={ESTIMATE_ANCHOR} class="my-8 scroll-mt-6">
 		<Headline level={2} size="md">How an arrival is timed</Headline>
 		<p class="mt-4">
 			If a vehicle reported that it was stopped at the stop, HowLate uses the first time it said so.
@@ -58,6 +59,18 @@
 			estimate, so the figures may not hold for the rest.
 		</p>
 		<p class="mt-4">
+			For some bus stops the feed has no report at all. HowLate places these between two reports of
+			the same bus, by where the stop sits between the two positions. It does this only when the two
+			reports are 5 minutes apart or less, and never for rail.
+		</p>
+		<p class="mt-4">
+			We checked this by hiding 3.1 million bus stops from 10 to 16 November 2026 that did have a
+			stopped report. Where the bus waited 10 seconds or less, the closest match to a stop it rolled
+			past, the estimate was a median 2 seconds early and 9 in 10 were within 28 seconds. 3.0
+			percent landed on the other side of the on-time window. A skipped stop has no real time to
+			check against, so these figures may not hold for it.
+		</p>
+		<p class="mt-4">
 			Trip starts are left out of every number. A vehicle waits at the first stop, so that time
 			measures a departure and not an arrival.
 		</p>
@@ -70,12 +83,13 @@
 	<section class="my-8">
 		<Headline level={2} size="md">Why some stops have no number</Headline>
 		<p class="mt-4">
-			As of November 15, 2026, HowLate had measured 71.9 percent of scheduled stops over 90 days.
-			The rest have no number, for four reasons.
+			As of November 15, 2026, vehicles had reported 71.9 percent of scheduled stops over 90 days.
+			Estimates fill some of the rest. The others have no number, for four reasons.
 		</p>
 		<p class="mt-4">
 			<strong>Nobody was waiting.</strong> A vehicle with no one waiting does not always report stopping.
-			The estimate fills many of these gaps, but not all.
+			The estimate fills many of these gaps, but not where the reports on either side are missing or more
+			than 5 minutes apart.
 		</p>
 		<p class="mt-4">
 			<strong>The trip never showed up.</strong> Some scheduled trips never appear in the vehicle feed.
@@ -134,7 +148,10 @@
 				Bus bunching is not separated from lateness. A bus that runs close behind another counts as
 				late like any other.
 			</li>
-			<li>Estimated arrivals carry a bias of about 7 seconds, and we do not correct it.</li>
+			<li>
+				Arrivals timed from an approach report carry a bias of about 7 seconds, and we do not
+				correct it. We do not correct estimated bus stops either.
+			</li>
 			<li>
 				Metro changes its timetables, and a change to one agency's schedule can move a number.
 			</li>

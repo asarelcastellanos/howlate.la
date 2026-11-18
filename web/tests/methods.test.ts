@@ -66,10 +66,26 @@ test('states the on-time window and the three explained-trip counts', () => {
 });
 
 // The longer on-time section took the page past 1,000 words, so the limit moved
-// from four minutes to five.
-test('stays short enough to read in five minutes at about 250 words a minute', () => {
+// from four minutes to five. How skipped bus stops are estimated, with its check,
+// took it from about 1,250 words to 1,402, so the limit is 1,410, under 5.7 minutes.
+test('stays short enough to read in under six minutes at about 250 words a minute', () => {
 	const words = copy.split(' ').length;
-	assert.ok(words <= 1250, `${words} words`);
+	assert.ok(words <= 1410, `${words} words`);
+});
+
+test('says how a skipped bus stop is estimated, with the check, and links the section', () => {
+	assert.match(body, /<section id="how-an-arrival-is-timed"/);
+	for (const phrase of [
+		'HowLate places these between two reports of the same bus',
+		'only when the two reports are 5 minutes apart or less, and never for rail',
+		'We checked this by hiding 3.1 million bus stops from 10 to 16 November 2026',
+		'a median 2 seconds early and 9 in 10 were within 28 seconds. 3.0 percent landed on the other side of the on-time window',
+		'so these figures may not hold for it',
+		'Estimates fill some of the rest',
+		'We do not correct estimated bus stops either'
+	]) {
+		assert.ok(text.includes(phrase), `missing "${phrase}"`);
+	}
 });
 
 test('has a how-we-measure-on-time section for the footnote to link to', () => {

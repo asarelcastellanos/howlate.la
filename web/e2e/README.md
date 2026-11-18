@@ -13,7 +13,8 @@ check it against a small committed copy of the data in `fixture/`. The CI job
   match the line's direction count. It also checks the not-found message, the
   home page search, the ranking links, the three-tap path from the home page to
   the Friday 5 pm readout on line 720, that rail and bus pages show the on-time
-  sentence and its note, that the phone width shows the short note and 1024 px
+  sentence and its note, that a bus page says how much of each direction was
+  estimated and a rail page says nothing, that the phone width shows the short note and 1024 px
   the full one, that the note's link opens the methods section, that the
   methods page shows the live shares from `network.json`, and that the headline
   share, the Extremes rows and the On time column headings have an asterisk
@@ -63,7 +64,7 @@ run folder `site/runs/<run>/`, and that folder holds `index.json`, `status.json`
 number of lines plus 4. `fixture/.gitignore` re-includes `site/`,
 which the repository's `.gitignore` ignores for pipeline output.
 
-It is real data with two edits, plus a `health.json` that is not copied from a
+It is real data with three edits, plus a `health.json` that is not copied from a
 run. Eight lines come from a full `aggregate` output
 over the 90 service days from 2026-08-18 to 2026-11-15.
 
@@ -97,6 +98,12 @@ over the 90 service days from 2026-08-18 to 2026-11-15.
   which expects 2, and `silent_lines`). The numbers are made up. The tests
   read the expected values from this file, so they stay true when the numbers
   change.
+- **Estimates.** The source run predates the estimate of skipped bus stops, so
+  it has no `est`. `make_fixture.py` adds one beside every `n`: a fifth of the
+  count for bus and 0 for rail, which is never estimated, and `estimated_arrivals`
+  in `status.json`. The numbers are made up, like the ones in `health.json`, and
+  give the browser tests an estimated figure to look for. `--estimates` adds them
+  to a fixture that exists.
 - **Source shape.** The source predates two removals, so each cell's `ontime`
   and each stop's `all.n` are deleted. `pipeline/tests/test_web_fixture.py`
   validates every file against the strict schemas in `pipeline/schemas`, so the

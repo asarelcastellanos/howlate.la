@@ -29,6 +29,7 @@ const day = (service_date: string, ok = true, failed: string[] = []): HealthDay 
 	ok,
 	failed,
 	coverage_pct: 81.1,
+	estimated_pct: 0,
 	explained_trips: 337,
 	explained_pct: 1.1,
 	observations: 526528
@@ -243,6 +244,15 @@ describe('the status panel', () => {
 		assert.equal(html.match(/data-check="/g)?.length, 3);
 		assert.doesNotMatch(html, /data-warning/);
 		assert.doesNotMatch(text, /\blive\b/i);
+	});
+
+	test('the estimated share of the day shows beside the measured share, and only when there is one', () => {
+		const text = plain(show(ok(health([{ ...day('2026-11-15'), estimated_pct: 22.5 }]))));
+		assert.ok(text.includes('81.1% of scheduled stops measured on that day.'));
+		assert.ok(
+			text.includes('A further 22.5% were estimated from where the bus was between two reports.')
+		);
+		assert.ok(!plain(show(ok(health([day('2026-11-15')])))).includes('estimated'));
 	});
 
 	test('a clean day says all checks passed, and a failed one does not', () => {
