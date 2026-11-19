@@ -323,6 +323,35 @@ least 5 observed trips and every one of them is explained, so a whole line
 cannot be hidden. A line that is only partly explained passes, as route 801 did
 on 2026-11-14 with 338 explained trips and 233 matched ones.
 
+`rail_misfit_pct` catches a rail trip id that names the wrong run. A run is one
+vehicle on one reported trip. For each run, the check takes the median gap
+between when the vehicle first stopped at each stop and when a trip scheduled
+it, and does this for the reported trip and for every other trip on the same
+route and direction. A run is a misfit when another trip is within 60 seconds
+and the reported trip is 300 seconds or more worse. Only runs timed at 5 or
+more non-origin stops count, and a trip with no scheduled stops cannot be
+judged, so later-start trips stay with `explained_pct`. The check is the
+highest misfit share on any rail line with at least 30 judged runs, and fails
+above 10%. It is per line because all rail dilutes it: on 2026-11-13 route 801
+had 71 misfits in 331 runs (21.5%) and all rail had 5.3%. The report lists
+every line's runs and misfits as `rail_misfits`.
+
+This is a half-archive validation. It was measured on 48 of the 91 days from
+2026-08-18 to 2026-11-16: 08-18 to 09-18 except 09-19, 09-20 to 09-27, 10-24,
+10-25, 10-31, 11-07, 11-10, 11-13, 11-14 and 11-15. The highest line was a
+median 2.6%. Six days were over 10%: 2026-08-22 (14.5%, route 805), 09-15
+(10.8%, 805), 09-18 (11.2%, 805), 11-13 (21.5%, 801), 11-14 (24.4%, 801) and
+11-15 (18.3%, 801). The other 42 were at most 9.0%. Raising the fit window from
+60 to 120 seconds put the median at 7.9% and 14 days over the limit, because a
+train a few minutes late is close to the trip behind it. A train that really ran
+a headway late also fits the trip behind it, so some of the baseline is real
+lateness and not a bad id. The other 43 days were not measured, 2026-09-19
+among them because it failed to load. The days were read from the raw files
+only to 07:59 UTC the next day, which leaves out the end of the service day after
+local midnight on the days after 1 November. The full pipeline on 2026-11-13
+found 70 misfits in 342 runs on route 801 (20.5%), against 71 in 331 (21.5%) in
+the measurement, so a share near the limit can differ by about a point.
+
 The six bus lines that never appeared were exactly the six in `EVENT_ONLY` in
 `collector/src/howlate_collector/routes.py`. Nothing else was missing.
 
