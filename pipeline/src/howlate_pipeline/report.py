@@ -328,7 +328,10 @@ MIN_LINE_RUNS = 30
 def rail_misfits(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int]]:
     """For each rail line, the runs judged and how many fit another trip much better.
 
-    A run is one vehicle on one reported trip_id. Its miss against a trip is the
+    A run is one vehicle on one trip_id of `observations`, which is the trip the
+    grader used. A run `arrivals.match_rail_runs` moved to its fitted trip is
+    judged on that trip, and one it dropped is not judged, so a day when the feed
+    labels trains with the wrong ids fails only for the runs the matcher trusted. Its miss against a trip is the
     median, over the stops it was timed at, of the seconds between its first
     STOPPED_AT and the trip's scheduled arrival. The run is a misfit when another
     trip on the same route and direction, scheduled at every stop the run was timed
@@ -377,6 +380,19 @@ def rail_misfits(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int]]:
         """,
         [RAIL_AGENCY, MIN_RUN_STOPS, RAIL_AGENCY, FIT_SECONDS, FIT_MARGIN],
     ).fetchall()
+
+
+def rail_matching(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int, int]]:
+    """For each rail line, the runs trusted, matched by position, and left ungraded.
+
+    Empty when the matcher is off or the day had no rail runs.
+    """
+    return con.sql("""
+        SELECT line, count(*) FILTER (WHERE outcome = 'trusted'),
+               count(*) FILTER (WHERE outcome = 'matched'),
+               count(*) FILTER (WHERE outcome = 'ungraded')
+        FROM rail_runs GROUP BY line ORDER BY line
+    """).fetchall()
 
 
 def notes(stats: dict) -> list[str]:
@@ -508,6 +524,11 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             f"          info {agency} {line}: event-only line, {stops:,} scheduled stops, "
             "nothing observed, not checked"
         )
+    for line, trusted, matched, ungraded in rail_matching(con):
+        print(
+            f"          {RAIL_AGENCY} {line}: {trusted:,} runs graded on their reported trip, "
+            f"{matched:,} matched by position, {ungraded:,} left ungraded"
+        )
     limit = EXPECTED["rail_misfit_pct"][1]
     for line, runs, misfits in rail:
         if runs >= MIN_LINE_RUNS and pct(misfits, runs) > limit:
@@ -627,6 +648,10 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
         ],
         "rail_misfits": [
             {"line": line, "runs": runs, "misfits": misfits} for line, runs, misfits in rail
+        ],
+        "rail_matching": [
+            {"line": line, "trusted": trusted, "matched": matched, "ungraded": ungraded}
+            for line, trusted, matched, ungraded in rail_matching(con)
         ],
         "explained_unmatched": [
             {"agency": agency, "observations": observations, "trips": trips}

@@ -39,7 +39,7 @@ from pathlib import Path
 import duckdb
 from google.cloud import storage
 
-from howlate_pipeline import BUS_AGENCY, DERIVED_BUCKET, RAW_BUCKET, gtfs
+from howlate_pipeline import BUS_AGENCY, DERIVED_BUCKET, RAIL_AGENCY, RAW_BUCKET, gtfs, railmatch
 
 POSITIONS = "vehicle_positions"
 
@@ -58,7 +58,11 @@ SELECT
   json_extract_string(j, '$.payload.vehicle.vehicle.id')       AS vehicle_id,
   CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts,
   CAST(json_extract_string(j, '$.payload.vehicle.position.latitude') AS DOUBLE)  AS lat,
-  CAST(json_extract_string(j, '$.payload.vehicle.position.longitude') AS DOUBLE) AS lon
+  CAST(json_extract_string(j, '$.payload.vehicle.position.longitude') AS DOUBLE) AS lon,
+  -- Rail only. The matcher trusts a reported id only when this agrees with it,
+  -- and a column of bus strings would add memory for nothing.
+  CASE WHEN json_extract_string(j, '$.agency') = 'LACMTA_Rail'
+       THEN json_extract_string(j, '$.payload.vehicle.trip.startTime') END AS start_time
 FROM read_json_objects(?) t(j)
 """
 
@@ -299,6 +303,11 @@ def load_schedule(
         "(agency VARCHAR, trip_id VARCHAR, route_id VARCHAR, "
         "service_active BOOLEAN, service_later BOOLEAN)"
     )
+    con.execute(
+        "CREATE OR REPLACE TABLE rail_runs (line VARCHAR, vehicle_id VARCHAR, "
+        "run_start BIGINT, run_end BIGINT, reported_trip VARCHAR, trip_id VARCHAR, "
+        "outcome VARCHAR)"
+    )
 
     for agency, directory in directories.items():
         services = sorted(gtfs.active_services(directory, service_date))
@@ -347,6 +356,84 @@ def load_schedule(
                 agency,
             ],
         )
+
+
+def match_rail_runs(
+    con: duckdb.DuckDBPyConnection, directories: dict[str, Path], service_date: str
+) -> None:
+    """Grade each rail run on the trip it ran, not always on the trip it reported.
+
+    Runs after `load_schedule` and before `match`, and rewrites the rail rows of
+    `observations`. A trusted run keeps its rows as they are. A matched run's
+    rows move to the fitted trip, each at the stop that trip schedules at the
+    row's stop_id, and a row at a stop the fitted trip lacks is dropped. Every
+    other rail row is dropped, because no run vouches for its trip id. The
+    outcome of each run goes in `rail_runs`, and the rows that moved are marked
+    `matched` by `match`.
+
+    On 2026-11-13 route 801 reported the trip it ran in 15% of runs (#177), so
+    grading its reported ids read as a delay of half an hour or more.
+    """
+    directory = directories.get(RAIL_AGENCY)
+    if directory is None or not railmatch.ENABLED:
+        return
+    base = int(gtfs.day_base(service_date))
+    trips, coords, _ = railmatch.load_timetable([directory], service_date)
+    routes = railmatch.build_routes(trips, coords)
+    rows = con.execute(
+        "SELECT DISTINCT vehicle_id, ts, lat, lon, trip_id, start_time FROM observations "
+        "WHERE agency = ? AND vehicle_id IS NOT NULL ORDER BY vehicle_id, ts",
+        [RAIL_AGENCY],
+    ).fetchall()
+    decided = railmatch.decide(rows, trips, routes, base)
+
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE rail_segments (vehicle_id VARCHAR, lo BIGINT, hi BIGINT, "
+        "status VARCHAR, outcome VARCHAR, trip_id VARCHAR)"
+    )
+    con.executemany(
+        "INSERT INTO rail_segments VALUES (?, ?, ?, ?, ?, ?)",
+        [seg for group in decided.values() for seg in railmatch.segments(group)],
+    )
+    con.executemany(
+        "INSERT INTO rail_runs VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                d.run["route"],
+                d.vehicle,
+                d.run["start"],
+                d.run["end"],
+                d.reported,
+                d.trip.trip_id if d.trip else None,
+                d.outcome,
+            )
+            for group in decided.values()
+            for d in group
+        ],
+    )
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP TABLE rail_rows AS
+        SELECT o.* EXCLUDE (trip_id, stop_sequence),
+               CASE WHEN s.outcome = 'matched' THEN s.trip_id ELSE o.trip_id END AS trip_id,
+               CASE WHEN s.outcome = 'matched' THEN c.stop_sequence ELSE o.stop_sequence END
+                 AS stop_sequence
+        FROM observations o
+        JOIN rail_segments s
+          ON s.vehicle_id = o.vehicle_id AND o.ts BETWEEN s.lo AND s.hi
+         AND (s.status IS NULL OR s.status = o.status)
+        LEFT JOIN (SELECT trip_id, stop_id, min(stop_sequence) AS stop_sequence
+                   FROM scheduled WHERE agency = ? GROUP BY trip_id, stop_id) c
+          ON c.trip_id = s.trip_id AND c.stop_id = o.stop_id
+        WHERE o.agency = ? AND (s.outcome = 'trusted'
+                                OR (s.outcome = 'matched' AND c.stop_sequence IS NOT NULL))
+    """,
+        [RAIL_AGENCY, RAIL_AGENCY],
+    )
+    con.execute("DELETE FROM observations WHERE agency = ?", [RAIL_AGENCY])
+    con.execute("INSERT INTO observations BY NAME SELECT * FROM rail_rows")
+    con.execute("DROP TABLE rail_rows")
+    con.execute("DROP TABLE rail_segments")
 
 
 def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
@@ -480,6 +567,18 @@ def match(con: duckdb.DuckDBPyConnection, service_date: str) -> None:
           AND o.trip_id = s.trip_id
           AND o.stop_sequence = s.stop_sequence
     """)
+    # A row graded through a matched run says so. `match_rail_runs` records the run's vehicle
+    # and graded trip, and the vehicle that timed the stop is on the row.
+    con.execute(
+        """
+        UPDATE arrivals SET source = 'matched'
+        FROM (SELECT DISTINCT vehicle_id, trip_id FROM rail_runs WHERE outcome = 'matched') m
+        WHERE arrivals.agency = ? AND arrivals.vehicle_id = m.vehicle_id
+          AND arrivals.trip_id = m.trip_id
+          AND arrivals.source IN ('origin_departure', 'stopped_at', 'approach')
+    """,
+        [RAIL_AGENCY],
+    )
 
 
 # Metres in a degree at Los Angeles. Longitude shrinks with the cosine of the
