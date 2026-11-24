@@ -16,8 +16,9 @@ from pathlib import Path
 
 import duckdb
 
-from howlate_pipeline import RAIL_AGENCY, __version__
+from howlate_pipeline import RAIL_AGENCY, __version__, railmatch
 from howlate_pipeline.gtfs import line_code
+from howlate_pipeline.railmatch import FIT_MARGIN, FIT_SECONDS, MIN_RUN_STOPS
 
 # A stop a vehicle reported at, as opposed to one placed between two reports. The
 # coverage numbers and the silent-lines check count only these, so a bug that
@@ -230,6 +231,8 @@ def summarise(
     return stats
 
 
+ADVISORY_NOTE = "advisory while the rail matcher is off, so a failure here does not fail the day"
+
 EXPLAINED_NOTE = (
     "These trips are in every timetable copy that lists them only under a service whose "
     "start date is after this date, so they have no scheduled stops to grade against "
@@ -302,22 +305,6 @@ def fully_explained_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     )
 
 
-# Fewest non-origin stops a rail run must be timed at before it is judged. With 3
-# the share on 2026-11-07 was 2.3% for all rail, with 5 it was 1.1% and with 8
-# 0.8%, so a short run is mostly noise. The same days' other shares moved by under
-# a point between 5 and 8.
-MIN_RUN_STOPS = 5
-
-# How close, in seconds, another trip must fit, and how much worse the reported
-# trip must fit than it. At 60 the highest line was a median 2.6% over the 48
-# measured days. At 120 it was a median 7.9% and 14 days were over 10%, because a
-# train a few minutes late is within 120 s of the trip behind it. The margin
-# barely matters: 180 instead of 300 changed the highest line on 3 days, by 0.4 to
-# 3.0 points, and moved no day across the 10% limit. 300 is under the 8 minute
-# headway of the K line.
-FIT_SECONDS = 60
-FIT_MARGIN = 300
-
 # Fewest judged runs on a line before it can fail the check. Lines had 60 to 459
 # judged runs a day on the measured days, apart from 2026-08-21, when the archive
 # held 190 of the day's 382 files and each line had 24 to 52. Below 30, one run
@@ -328,14 +315,22 @@ MIN_LINE_RUNS = 30
 def rail_misfits(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int]]:
     """For each rail line, the runs judged and how many fit another trip much better.
 
-    A run is one vehicle on one reported trip_id. Its miss against a trip is the
+    A run is one vehicle on one trip_id of `observations`, which is the trip the
+    grader used. With the matcher on, a run `arrivals.match_rail_runs` moved to
+    its fitted trip is judged on that trip and a run it dropped is not judged, so
+    a day when the feed labels trains with the wrong ids fails only for the runs
+    the matcher trusted. Its miss against a trip is the
     median, over the stops it was timed at, of the seconds between its first
     STOPPED_AT and the trip's scheduled arrival. The run is a misfit when another
     trip on the same route and direction, scheduled at every stop the run was timed
     at, has a miss of at most FIT_SECONDS and the reported trip's miss is at least
     FIT_MARGIN worse. Only runs timed at MIN_RUN_STOPS or more non-origin stops are
     judged, and a run on a trip with no scheduled stops cannot be, so a later-start
-    trip is left to explained_pct. The line is the reported trip's route_id.
+    trip is left to explained_pct. The line is the judged trip's route_id.
+
+    A failing `rail_misfit_pct` is advisory while `railmatch.ENABLED` is False
+    (see `binding`): it shows as failed here and in the saved report but does not
+    fail the day.
     """
     return con.execute(
         """
@@ -377,6 +372,19 @@ def rail_misfits(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int]]:
         """,
         [RAIL_AGENCY, MIN_RUN_STOPS, RAIL_AGENCY, FIT_SECONDS, FIT_MARGIN],
     ).fetchall()
+
+
+def rail_matching(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int, int]]:
+    """For each rail line, the runs trusted, matched by position, and left ungraded.
+
+    Empty when the matcher is off or the day had no rail runs.
+    """
+    return con.sql("""
+        SELECT line, count(*) FILTER (WHERE outcome = 'trusted'),
+               count(*) FILTER (WHERE outcome = 'matched'),
+               count(*) FILTER (WHERE outcome = 'ungraded')
+        FROM rail_runs GROUP BY line ORDER BY line
+    """).fetchall()
 
 
 def notes(stats: dict) -> list[str]:
@@ -490,9 +498,8 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             print(f"  {note}")
 
     print()
-    ok = True
-    for check in checks(con, s):
-        ok &= check["ok"]
+    found = checks(con, s)
+    for check in found:
         mark = "ok  " if check["ok"] else "CHECK"
         if check["kind"] == "range":
             print(
@@ -501,6 +508,8 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             )
         else:
             print(f"  {mark} {check['value']:8,}  {check['label']} (expect {check['expect']})")
+        if not binding(check) and not check["ok"]:
+            print(f"          {ADVISORY_NOTE}")
     for agency, line, stops in silent_lines(con)[:10]:
         print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
     for agency, line, stops in silent_event_lines(con):
@@ -508,13 +517,35 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             f"          info {agency} {line}: event-only line, {stops:,} scheduled stops, "
             "nothing observed, not checked"
         )
+    for line, trusted, matched, ungraded in rail_matching(con):
+        print(
+            f"          {RAIL_AGENCY} {line}: {trusted:,} runs graded on their reported trip, "
+            f"{matched:,} matched by position, {ungraded:,} left ungraded"
+        )
     limit = EXPECTED["rail_misfit_pct"][1]
     for line, runs, misfits in rail:
         if runs >= MIN_LINE_RUNS and pct(misfits, runs) > limit:
             print(
                 f"          {RAIL_AGENCY} {line}: {misfits:,} of {runs:,} runs fit another trip better"
             )
-    return ok
+    return day_ok(found)
+
+
+def binding(check: dict) -> bool:
+    """Whether a failure of this check fails the day.
+
+    `rail_misfit_pct` judges the trip ids the feed reported while the rail matcher
+    is off. On a split-service day such as 2026-11-13 it reads 20.5% on route 801
+    against the 10% limit, and nothing in the pipeline can fix that cause. It is
+    reported and saved but does not fail the day. Turning the matcher on makes it
+    binding again.
+    """
+    return railmatch.ENABLED or check["name"] != "rail_misfit_pct"
+
+
+def day_ok(found: list[dict]) -> bool:
+    """Whether every binding check passed."""
+    return all(check["ok"] for check in found if binding(check))
 
 
 def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
@@ -628,13 +659,17 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
         "rail_misfits": [
             {"line": line, "runs": runs, "misfits": misfits} for line, runs, misfits in rail
         ],
+        "rail_matching": [
+            {"line": line, "trusted": trusted, "matched": matched, "ungraded": ungraded}
+            for line, trusted, matched, ungraded in rail_matching(con)
+        ],
         "explained_unmatched": [
             {"agency": agency, "observations": observations, "trips": trips}
             for agency, observations, trips in explained_unmatched(con)
         ],
         "notes": notes(s),
         "checks": found,
-        "ok": all(check["ok"] for check in found),
+        "ok": day_ok(found),
     }
 
 

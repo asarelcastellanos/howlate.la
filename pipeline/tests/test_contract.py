@@ -14,9 +14,9 @@ import pytest
 import test_ontime
 import test_write
 from fixture_day import SERVICE_DATE, run_day
-from test_health import three_days
+from test_health import rail_failing_day, three_days
 
-from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, health, labels
+from howlate_pipeline import DERIVED_BUCKET, aggregate, arrivals, health, labels, railmatch
 
 ROOT = Path(__file__).resolve().parents[1]
 if not (ROOT / "pyproject.toml").is_file():
@@ -145,6 +145,22 @@ def test_health_validates_when_the_report_for_last_day_is_unreadable(tmp_path):
     assert document["checks"] == []
     assert document["recent"][0]["service_date"] == "2026-08-17"
     assert not list(validator("health").iter_errors(document))
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_health_validates_with_a_failing_rail_check_advisory_or_binding(
+    tmp_path, monkeypatch, enabled
+):
+    monkeypatch.setattr(railmatch, "ENABLED", enabled)
+    document = health.document(rail_failing_day(tmp_path), "2026-08-18", 1)
+    assert not list(validator("health").iter_errors(document))
+
+
+def test_the_schema_rejects_an_advisory_flag_that_is_false(tmp_path, monkeypatch):
+    monkeypatch.setattr(railmatch, "ENABLED", False)
+    document = health.document(rail_failing_day(tmp_path), "2026-08-18", 1)
+    document["checks"][-1]["advisory"] = False
+    assert list(validator("health").iter_errors(document))
 
 
 def test_a_site_with_rail_and_two_directions_validates(tmp_path):

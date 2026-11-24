@@ -9,7 +9,7 @@ report that cannot is skipped, never fatal.
 import json
 import re
 
-from howlate_pipeline import aggregate, health
+from howlate_pipeline import aggregate, health, railmatch
 
 RANGE = ("coverage", "scheduled stops with a timed arrival", 81.13352126715155, 55.0, 90.0)
 COUNT = ("silent_lines", "lines scheduled today but never seen", 0, 0)
@@ -286,3 +286,41 @@ def test_a_stale_report_from_an_earlier_run_never_reaches_recent(tmp_path):
     aggregate.fetch_arrivals(RealListing(names), tmp_path / "graded", reports=reports)
     out = health.document(reports, "2026-08-18", 2)
     assert [day["service_date"] for day in out["recent"]] == ["2026-08-18", "2026-08-17"]
+
+
+RAIL_CHECK = {
+    "name": "rail_misfit_pct", "kind": "range", "label": "rail runs that fit another trip better",
+    "value": 20.5, "low": 0.0, "high": 10.0, "ok": False,
+}  # fmt: skip
+
+
+def rail_failing_day(root, *, ok=True):
+    """A day whose only failing check is rail_misfit_pct, as a split-service day reads.
+
+    `ok` is what the pipeline saved: True while the matcher was off, False once on.
+    """
+    document = report("2026-08-18")
+    document["checks"].append(dict(RAIL_CHECK))
+    document["ok"] = ok
+    return write(root, document)
+
+
+def rail_row(out):
+    return next(check for check in out["checks"] if check["name"] == "rail_misfit_pct")
+
+
+def test_an_advisory_rail_failure_is_not_a_failed_check_but_stays_visible(tmp_path, monkeypatch):
+    monkeypatch.setattr(railmatch, "ENABLED", False)
+    out = health.document(rail_failing_day(tmp_path), "2026-08-18", 1)
+    (day,) = out["recent"]
+    assert (day["ok"], day["failed"]) == (True, [])
+    assert (rail_row(out)["ok"], rail_row(out)["advisory"]) == (False, True)
+    assert not any("advisory" in check for check in out["checks"] if check is not rail_row(out))
+
+
+def test_a_binding_rail_failure_is_a_failed_check_and_not_advisory(tmp_path, monkeypatch):
+    monkeypatch.setattr(railmatch, "ENABLED", True)
+    out = health.document(rail_failing_day(tmp_path, ok=False), "2026-08-18", 1)
+    (day,) = out["recent"]
+    assert (day["ok"], day["failed"]) == (False, ["rail_misfit_pct"])
+    assert "advisory" not in rail_row(out)

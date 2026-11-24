@@ -50,27 +50,32 @@ import argparse
 import bisect
 import csv
 import json
-import math
 import statistics
 import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from howlate_pipeline import RAIL_AGENCY, arrivals, gtfs  # noqa: E402
 from howlate_pipeline.__main__ import Bucket  # noqa: E402
+from howlate_pipeline.railmatch import (  # noqa: E402
+    LAYOVER_S,
+    MAP_M,
+    MIN_COMMON,
+    RADIUS_M,
+    build_routes,
+    clock,
+    fit_run,
+    load_timetable,
+    map_trip,
+    metres,
+    modal,
+    nearest,
+    overlaps,
+    residuals,
+    vehicle_runs,
+)
 
-RADIUS_M = 300
-MAP_M = 300
-MERGE_S = 600
-GAP_S = 2400
-MIN_STATIONS = 3
-MIN_COMMON = 3
-CONFIDENT_FIT_S = 120
-CONFIDENT_MARGIN_S = 120
-LAYOVER_S = 3600
 DAY_START_S = 2 * 3600
 DAY_END_S = 27 * 3600
 
@@ -90,293 +95,6 @@ SELECT
 FROM read_json_objects(?) t(j)
 WHERE json_extract_string(j, '$.agency') = ?
 """
-
-
-@dataclass
-class Trip:
-    trip_id: str
-    route: str
-    direction: int | None
-    service: str
-    source: str
-    active: bool
-    later: bool
-    weekday: bool
-    stops: list
-    first_dep: int
-
-
-@dataclass
-class Stretch:
-    k: int
-    first: int
-    best: int
-    last: int
-    dist: float
-
-
-def clock(text: str | None) -> int | None:
-    """A GTFS clock such as 25:30:00 as seconds from the service day's base."""
-    try:
-        hours, minutes, seconds = (int(part) for part in text.strip().split(":"))
-    except (AttributeError, ValueError):
-        return None
-    return hours * 3600 + minutes * 60 + seconds
-
-
-def read_rows(path: Path) -> list[dict]:
-    with path.open(encoding="utf-8-sig") as handle:
-        return list(csv.DictReader(handle))
-
-
-def load_timetable(directories: list[Path], service_date: str) -> tuple[dict, dict, dict]:
-    """Every trip any copy lists, and every stop's coordinates and name.
-
-    Only the first copy, the one grading uses, has running trips. A trip another
-    copy adds is listed but never active, so the candidates for a fit are the
-    timetable in force and nothing else. `weekday` is true for a later-start
-    service whose calendar row runs on this date's weekday, which is the set a
-    later timetable would offer if it were already in force.
-    """
-    trips: dict[str, Trip] = {}
-    coords: dict[str, tuple[float, float]] = {}
-    names: dict[str, str] = {}
-    day = gtfs.DOW[datetime.strptime(service_date, "%Y%m%d").weekday()]
-    for position, directory in enumerate(directories):
-        active = gtfs.active_services(directory, service_date) if position == 0 else set()
-        later = gtfs.later_start_services(directory, service_date)
-        calendar = {r["service_id"]: r for r in read_rows(directory / "calendar.txt")}
-        for row in read_rows(directory / "stops.txt"):
-            try:
-                coords.setdefault(row["stop_id"], (float(row["stop_lat"]), float(row["stop_lon"])))
-                names.setdefault(row["stop_id"], row.get("stop_name", ""))
-            except ValueError:
-                continue
-        meta = {r["trip_id"]: r for r in read_rows(directory / "trips.txt")}
-        stops = defaultdict(list)
-        for row in read_rows(directory / "stop_times.txt"):
-            if row["trip_id"] in meta and row["trip_id"] not in trips:
-                arr = clock(row["arrival_time"])
-                dep = clock(row["departure_time"])
-                arr, dep = arr if arr is not None else dep, dep if dep is not None else arr
-                if arr is not None:
-                    stops[row["trip_id"]].append(
-                        (int(row["stop_sequence"]), row["stop_id"], arr, dep)
-                    )
-        for trip_id, rows in stops.items():
-            row = meta[trip_id]
-            rows.sort()
-            direction = row.get("direction_id", "")
-            service = row["service_id"]
-            trips[trip_id] = Trip(
-                trip_id,
-                row["route_id"],
-                int(direction) if direction.isdigit() else None,
-                service,
-                directory.name,
-                service in active,
-                service in later,
-                service in later and calendar.get(service, {}).get(day) == "1",
-                rows,
-                rows[0][3],
-            )
-    return trips, coords, names
-
-
-def metres(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    dy = (lat2 - lat1) * 110540
-    dx = (lon2 - lon1) * 111320 * math.cos(math.radians(lat1))
-    return math.hypot(dx, dy)
-
-
-def nearest(lat: float, lon: float, stations: list) -> tuple[int, float]:
-    return min(
-        ((k, metres(lat, lon, slat, slon)) for k, (slat, slon) in enumerate(stations)),
-        key=lambda pair: pair[1],
-    )
-
-
-def map_trip(trip: Trip, stations: list, coords: dict) -> dict:
-    """The trip's times by reference station, matched by coordinates."""
-    mapped = {}
-    for _, stop_id, arr, dep in trip.stops:
-        if stop_id in coords:
-            k, dist = nearest(*coords[stop_id], stations)
-            if dist <= MAP_M:
-                mapped.setdefault(k, (arr, dep))
-    return mapped
-
-
-def build_routes(trips: dict, coords: dict) -> dict:
-    """The reference station lists, one for each stop pattern of each running route.
-
-    A route can run as separate pieces. On 2026-11-13 the timetable in force
-    split route 801 into a 13 stop trip from Downtown Long Beach and a 30 stop
-    trip to Pomona North, with 117 trips each way in each piece. One list from
-    the longest trip would hold only one piece and leave the other without runs.
-    So trips are taken longest first, and a trip with under half its stops
-    within MAP_M of any list so far starts a new list, keyed "801#2". Every trip
-    is mapped onto its list by coordinates, not by stop_id, because the two
-    directions can use different platform ids at one station.
-
-    `later_fits` holds the later-start trips that run on this weekday, mapped
-    onto the same stations, so a fit to them tests the times and not the pattern.
-    """
-    by_route = defaultdict(list)
-    for trip in trips.values():
-        if trip.active and trip.direction is not None:
-            by_route[trip.route].append(trip)
-    routes: dict = {}
-    for route, listed in by_route.items():
-        for trip in sorted(listed, key=lambda t: (-len(t.stops), t.trip_id)):
-            best = None
-            for key, info in routes.items():
-                if info["route"] == route:
-                    mapped = map_trip(trip, info["stations"], coords)
-                    if best is None or len(mapped) > len(best[1]):
-                        best = (key, mapped)
-            if best is None or 2 * len(best[1]) < len(trip.stops):
-                count = sum(1 for info in routes.values() if info["route"] == route)
-                key = route if not count else f"{route}#{count + 1}"
-                stations = [coords[s[1]] for s in trip.stops if s[1] in coords]
-                routes[key] = {
-                    "route": route,
-                    "stations": stations,
-                    "ref_direction": trip.direction,
-                    "fits": defaultdict(list),
-                    "later_fits": defaultdict(list),
-                }
-                best = (key, map_trip(trip, stations, coords))
-            routes[best[0]]["fits"][trip.direction].append((trip, best[1]))
-    for trip in trips.values():
-        if trip.weekday and trip.direction is not None:
-            for info in routes.values():
-                if info["route"] == trip.route:
-                    mapped = map_trip(trip, info["stations"], coords)
-                    if len(mapped) >= MIN_COMMON:
-                        info["later_fits"][trip.direction].append((trip, mapped))
-    return routes
-
-
-def stretches(samples: list, stations: list) -> list[Stretch]:
-    """The stations a vehicle was within RADIUS_M of, in order, with when.
-
-    `first` is when it came within range, `last` the final sample there, and
-    `best` the sample nearest the station. A vehicle dwelling at a terminal is
-    one stretch from arrival to departure.
-    """
-    found: list[Stretch] = []
-    for ts, lat, lon in samples:
-        k, dist = nearest(lat, lon, stations)
-        if dist > RADIUS_M:
-            continue
-        if found and found[-1].k == k and ts - found[-1].last <= MERGE_S:
-            found[-1].last = ts
-            if dist < found[-1].dist:
-                found[-1].best, found[-1].dist = ts, dist
-        else:
-            found.append(Stretch(k, ts, ts, ts, dist))
-    return found
-
-
-def split_runs(found: list[Stretch]) -> list[tuple[int, list[Stretch]]]:
-    """Cut the stations into runs. Returns (sign along the station order, stretches).
-
-    A reversal starts a new run at the station where the vehicle turned, so a
-    terminal is the end of one run and the origin of the next.
-    """
-    runs, current, sign = [], [], 0
-    for stretch in found:
-        if current:
-            step = stretch.k - current[-1].k
-            direction = (step > 0) - (step < 0)
-            if stretch.first - current[-1].last > GAP_S or direction == 0:
-                runs.append((sign, current))
-                current = []
-            elif sign and direction != sign:
-                runs.append((sign, current))
-                current = [current[-1]]
-            if current:
-                sign = direction
-        current.append(stretch)
-    runs.append((sign, current))
-    return [(s, r) for s, r in runs if len(r) >= MIN_STATIONS and s != 0]
-
-
-def overlaps(a: dict, b: dict) -> bool:
-    shared = min(a["end"], b["end"]) - max(a["start"], b["start"])
-    return shared > 0.5 * min(a["end"] - a["start"], b["end"] - b["start"])
-
-
-def vehicle_runs(samples: list, routes: dict) -> list[dict]:
-    """The runs of one vehicle, each route's candidates pruned by stations explained."""
-    candidates = []
-    for key, info in routes.items():
-        for sign, run in split_runs(stretches(samples, info["stations"])):
-            direction = info["ref_direction"] if sign > 0 else 1 - info["ref_direction"]
-            times = {run[0].k: run[0].last, run[-1].k: run[-1].first}
-            times.update({s.k: s.best for s in run[1:-1]})
-            candidates.append(
-                {
-                    "route": info["route"],
-                    "ref": key,
-                    "direction": direction,
-                    "start": run[0].last,
-                    "end": run[-1].first,
-                    "times": times,
-                    "origin": run[0].k,
-                    "stations": len(run),
-                }
-            )
-    chosen: list[dict] = []
-    for run in sorted(candidates, key=lambda r: -r["stations"]):
-        if not any(overlaps(run, other) for other in chosen):
-            chosen.append(run)
-    return sorted(chosen, key=lambda r: r["start"])
-
-
-def residuals(run: dict, mapped: dict, base: int) -> list[int]:
-    """Seconds the run was late at each station it shares with a trip, signed."""
-    return [
-        ts - base - (mapped[k][1] if k == run["origin"] else mapped[k][0])
-        for k, ts in run["times"].items()
-        if k in mapped
-    ]
-
-
-def fit_run(run: dict, candidates: list, base: int) -> dict:
-    """Fit a run to each candidate trip, as (trip, mapped stations)."""
-    scored = []
-    for trip, mapped in candidates:
-        signed = residuals(run, mapped, base)
-        if len(signed) >= MIN_COMMON:
-            scored.append(
-                (
-                    statistics.median(abs(x) for x in signed),
-                    statistics.median(signed),
-                    len(signed),
-                    trip,
-                )
-            )
-    scored.sort(key=lambda row: row[0])
-    if not scored:
-        return {"best": None}
-    second = scored[1][0] if len(scored) > 1 else None
-    miss, delay, common, trip = scored[0]
-    confident = miss <= CONFIDENT_FIT_S and (second is None or second - miss >= CONFIDENT_MARGIN_S)
-    return {
-        "best": trip,
-        "miss": miss,
-        "second": second,
-        "delay": delay,
-        "common": common,
-        "confident": confident,
-    }
-
-
-def modal(values: list):
-    counts = Counter(v for v in values if v is not None)
-    return counts.most_common(1)[0][0] if counts else None
 
 
 def classify(reported, run: dict, trips: dict, prev_best) -> tuple[str, str]:

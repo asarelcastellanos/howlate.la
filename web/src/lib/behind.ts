@@ -52,16 +52,27 @@ export function buildStrip(
 export const newestDay = (health: HealthFile): HealthDay | undefined =>
 	health.recent.find((day) => day.service_date === health.last_day);
 
-export type CheckRow = { label: string; ok: boolean; measured: string; rule: string };
+export type CheckRow = {
+	label: string;
+	ok: boolean;
+	advisory: boolean;
+	measured: string;
+	rule: string;
+};
 
 // A value has many decimal places. Under 1, a second decimal keeps 0.01 from reading as 0.
 const round = (value: number): string => String(Number(value.toFixed(Math.abs(value) < 1 ? 2 : 1)));
 
-/** One check in plain words. The label is the pipeline's, so a renamed check needs no change here. */
+/**
+ * One check in plain words. The label is the pipeline's, so a renamed check needs no change here.
+ * `advisory` is true only for an advisory check that is over its limit. It keeps its real `ok`,
+ * and the day's `ok` and `failed` leave it out, so the page must not count it as a failure.
+ */
 export function checkRow(check: HealthFile['checks'][number]): CheckRow {
 	return {
 		label: check.label.charAt(0).toUpperCase() + check.label.slice(1),
 		ok: check.ok,
+		advisory: check.advisory === true && !check.ok,
 		measured: round(check.value),
 		rule:
 			check.kind === 'range'

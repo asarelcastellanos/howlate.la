@@ -352,3 +352,38 @@ test('a newest day 3 days old shows the warning, and 2 days old does not', async
 	await openWithLag(page, 2);
 	await expect(page.locator('[data-warning]')).toHaveCount(0);
 });
+
+test('an advisory check over its limit reads Advisory while the day reads passed', async ({
+	page
+}) => {
+	const rail = {
+		name: 'rail_misfit_pct',
+		kind: 'range',
+		label: 'rail observations far from their stop',
+		ok: false,
+		value: 7.6543,
+		low: 0,
+		high: 2,
+		advisory: true
+	};
+	const newest = health.recent.find((day) => day.service_date === health.last_day);
+	const recent = health.recent.map((day) =>
+		day === newest ? { ...day, ok: true, failed: [] } : day
+	);
+	await page.clock.setFixedTime(new Date(`${daysAfter(health.last_day, 1)}${AFTERNOON_UTC}`));
+	await page.route('**/health.json', (route) =>
+		route.fulfill({
+			json: { ...health, recent, checks: [...health.checks.filter((c) => c.ok), rail] }
+		})
+	);
+	const problems = watchConsole(page);
+	await page.goto('/behind-the-scenes');
+	await expect(page.locator('[data-cell]')).toHaveCount(14);
+	const row = page.locator('[data-check="rail_misfit_pct"]');
+	await expect(row).toContainText('Advisory');
+	await expect(row).toContainText('7.7, passes from 0 to 2.');
+	await expect(row).toContainText('does not fail the day while rail matching is off');
+	await expect(page.getByText('All checks passed.')).toBeVisible();
+	await expect(page.getByText(/^\d+ checks? failed\.$/)).toHaveCount(0);
+	expect(problems).toEqual([]);
+});

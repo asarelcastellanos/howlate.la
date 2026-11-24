@@ -189,6 +189,7 @@ def grade_day(
         bucket(), service_date, cache / "gtfs", arrivals.observed_trip_ids(con), read
     )
     arrivals.load_schedule(con, directories, service_date, read)
+    arrivals.match_rail_runs(con, directories, service_date)
     arrivals.match(con, service_date)
     arrivals.interpolate(con)
     arrivals.trips(con)

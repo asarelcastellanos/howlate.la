@@ -161,6 +161,52 @@ and read `OUT/rail_runs_<day>.csv`. A vehicle that reports trip A while running
 trip B shows `class` `same_line` or `stale`, and one that reports a trip under
 a service that starts later shows `not_in_force`.
 
+### Grading rail by position
+
+The rail matcher is built and ships switched off (`railmatch.ENABLED` is
+`False`), because it missed the 95 percent agreement rule on 2026-11-18 and
+2026-11-19 (#178). While it is off, every rail run is graded on its reported
+trip, as before, and `rail_misfit_pct` is advisory. It still runs, prints and
+saves, but a failure does not fail the day.
+
+Rail trip ids are wrong on days when a line runs as split pieces (#177). With the
+matcher on, `arrivals.match_rail_runs` grades each rail run on the trip it ran
+when the id does not check out. `railmatch.py` rebuilds the runs from latitude
+and longitude and decides each one. The reasons and the thresholds are in
+`docs/adr/0002-match-rail-runs-by-position-when-the-id-fails.md`.
+
+- Trusted. The most common reported id is a trip of the copy in force with a
+  running service, and the most common startTime is within 120 seconds of its
+  first departure, and the run is not a misfit under the `rail_misfit_pct`
+  rule. The run is graded as before. A misfit goes on to the next rule.
+- Matched. Otherwise the run is fitted to the trips in force on its station
+  list and direction. A fit is confident when the best trip is within 120
+  seconds and the next trip is at least 120 seconds worse. The run is graded
+  against that trip, and its rows have `source` `matched`.
+- Ungraded. Any other run, and any rail report outside every run, is dropped
+  before grading.
+
+With the matcher on, the report lists the three counts per line as
+`rail_matching`, and `rail_misfit_pct` fails the day again. The agreement numbers
+behind the decision to leave it off are on #178. Set `ENABLED` to `True` to grade
+by position.
+
+Two scripts measure it on the backfill VM, as `rail_runs.py` does.
+`rail_hide_and_compare.py` hides the id of each trusted run, fits it by position
+and counts how often the confident fit is the reported trip. `rail_regrade.py`
+grades one day with the matcher off and on, writes both days under `--out` with no
+upload, and counts what became of the trip ids that sit only under later-start
+services.
+
+```bash
+bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_regrade.py \
+  <git-ref> 2026-11-13 2026-11-15
+```
+
+`pipeline/scripts/hash_day.py` grades one day with the checkout's code and
+writes the row count and an order-independent hash of every column of `arrivals`
+and `trips`. Run it from two refs and compare the files.
+
 The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and
 accepts the cost. Only the owner uses it. The guard covers vehicle positions
@@ -446,7 +492,8 @@ cannot be hidden. A line that is only partly explained passes, as route 801 did
 on 2026-11-14 with 338 explained trips and 233 matched ones.
 
 `rail_misfit_pct` catches a rail trip id that names the wrong run. A run is one
-vehicle on one reported trip. For each run, the check takes the median gap
+vehicle on one trip of the grader's observations, which is the trip it graded
+(see "Grading rail by position"). For each run, the check takes the median gap
 between when the vehicle first stopped at each stop and when a trip scheduled
 it, and does this for the reported trip and for every other trip on the same
 route and direction. A run is a misfit when another trip is within 60 seconds
@@ -457,6 +504,12 @@ highest misfit share on any rail line with at least 30 judged runs, and fails
 above 10%. It is per line because all rail dilutes it: on 2026-11-13 route 801
 had 71 misfits in 331 runs (21.5%) and all rail had 5.3%. The report lists
 every line's runs and misfits as `rail_misfits`.
+
+While the rail matcher is off, `rail_misfit_pct` is advisory. It still runs, prints
+`CHECK` with a note when it fails, and is saved as failed in the report and in
+`health.json`. But it does not make the day's `ok` false, so `grade_day` returns 0,
+`daily` exits 0 and the heartbeat is not sent as failed. Every other check fails the
+day as before. Setting `railmatch.ENABLED` to true makes the check binding again.
 
 This is a half-archive validation. It was measured on 48 of the 91 days from
 2026-08-18 to 2026-11-16: 08-18 to 09-18 except 09-19, 09-20 to 09-27, 10-24,

@@ -66,11 +66,11 @@ export interface HealthDay {
 	 */
 	service_date: string;
 	/**
-	 * True when every check passed for this day. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day.
+	 * True when every binding check passed for this day. A failing advisory check does not make it false. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day.
 	 */
 	ok: boolean;
 	/**
-	 * The names of the checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate.
+	 * The names of the binding checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate.
 	 */
 	failed: string[];
 	/**
@@ -126,6 +126,10 @@ export interface RangeCheck {
 	 * The highest value that passes.
 	 */
 	high: number;
+	/**
+	 * Present and true only on a check that does not fail the day right now, as rail_misfit_pct while the rail matcher is off. ok keeps the check's real result, so a failing advisory check has ok false and advisory true and is not in the day's failed list. Absent on every other check.
+	 */
+	advisory?: true;
 }
 /**
  * A check that passes when a count equals the number expected.
@@ -155,6 +159,10 @@ export interface CountCheck {
 	 * The count that passes.
 	 */
 	expected: number;
+	/**
+	 * Present and true only on a check that does not fail the day right now, as rail_misfit_pct while the rail matcher is off. ok keeps the check's real result, so a failing advisory check has ok false and advisory true and is not in the day's failed list. Absent on every other check.
+	 */
+	advisory?: true;
 }
 
 /**
