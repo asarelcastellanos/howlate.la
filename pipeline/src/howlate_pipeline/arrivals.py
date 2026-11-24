@@ -59,10 +59,12 @@ SELECT
   CAST(json_extract_string(j, '$.payload.vehicle.timestamp') AS BIGINT) AS ts,
   CAST(json_extract_string(j, '$.payload.vehicle.position.latitude') AS DOUBLE)  AS lat,
   CAST(json_extract_string(j, '$.payload.vehicle.position.longitude') AS DOUBLE) AS lon,
-  -- Rail only. The matcher trusts a reported id only when this agrees with it,
-  -- and a column of bus strings would add memory for nothing.
+  -- Rail only. The matcher trusts a reported id only when startTime agrees with it,
+  -- and routeId breaks ties between routes on shared track. Bus strings would add memory.
   CASE WHEN json_extract_string(j, '$.agency') = 'LACMTA_Rail'
-       THEN json_extract_string(j, '$.payload.vehicle.trip.startTime') END AS start_time
+       THEN json_extract_string(j, '$.payload.vehicle.trip.startTime') END AS start_time,
+  CASE WHEN json_extract_string(j, '$.agency') = 'LACMTA_Rail'
+       THEN json_extract_string(j, '$.payload.vehicle.trip.routeId') END AS route_id
 FROM read_json_objects(?) t(j)
 """
 
@@ -381,7 +383,7 @@ def match_rail_runs(
     trips, coords, _ = railmatch.load_timetable([directory], service_date)
     routes = railmatch.build_routes(trips, coords)
     rows = con.execute(
-        "SELECT DISTINCT vehicle_id, ts, lat, lon, trip_id, start_time FROM observations "
+        "SELECT DISTINCT vehicle_id, ts, lat, lon, trip_id, start_time, route_id FROM observations "
         "WHERE agency = ? AND vehicle_id IS NOT NULL ORDER BY vehicle_id, ts",
         [RAIL_AGENCY],
     ).fetchall()

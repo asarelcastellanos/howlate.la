@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from howlate_pipeline import gtfs
+from howlate_pipeline.report import FIT_MARGIN, FIT_SECONDS, MIN_RUN_STOPS
 
 RADIUS_M = 300
 MAP_M = 300
@@ -260,8 +261,17 @@ def overlaps(a: dict, b: dict) -> bool:
     return shared > 0.5 * min(a["end"] - a["start"], b["end"] - b["start"])
 
 
-def vehicle_runs(samples: list, routes: dict) -> list[dict]:
-    """The runs of one vehicle, each route's candidates pruned by stations explained."""
+def vehicle_runs(samples: list, routes: dict, reported=None) -> list[dict]:
+    """The runs of one vehicle, each route's candidates pruned by stations explained.
+
+    Two routes can share track, and a run on it is explained by both station
+    lists with the same number of stations. `reported(start, end)`, when given,
+    returns the routeId the vehicle's records carried in that window, and breaks
+    such a tie toward that route. It never overrides a list that explains more
+    stations. On 2026-11-13 and 11-20, 20 of the 21 confident 805 runs that
+    disagreed with a reported id were labelled with route 802 or 804 by the feed
+    and fitted to 805.
+    """
     candidates = []
     for key, info in routes.items():
         for sign, run in split_runs(stretches(samples, info["stations"])):
@@ -281,7 +291,12 @@ def vehicle_runs(samples: list, routes: dict) -> list[dict]:
                 }
             )
     chosen: list[dict] = []
-    for run in sorted(candidates, key=lambda r: -r["stations"]):
+
+    def rank(run):
+        route = reported(run["start"], run["end"]) if reported else None
+        return (-run["stations"], route is not None and route != run["route"])
+
+    for run in sorted(candidates, key=rank):
         if not any(overlaps(run, other) for other in chosen):
             chosen.append(run)
     return sorted(chosen, key=lambda r: r["start"])
@@ -323,6 +338,7 @@ def fit_run(run: dict, candidates: list, base: int) -> dict:
         "delay": delay,
         "common": common,
         "confident": confident,
+        "misses": {row[3].trip_id: row[0] for row in scored},
     }
 
 
@@ -346,6 +362,8 @@ class Decision:
     outcome: str
     trip: Trip | None
     fit: dict
+    looks_trusted: bool = False
+    misfit: bool = False
 
 
 def trusts(trip: Trip | None, start_time: int | None) -> bool:
@@ -363,31 +381,61 @@ def trusts(trip: Trip | None, start_time: int | None) -> bool:
     )
 
 
+def is_misfit(fit: dict, reported: str | None) -> bool:
+    """The rule `report.rail_misfits` uses, on the run's own station times.
+
+    Another trip of the run's piece and direction fits within FIT_SECONDS and the
+    reported trip is FIT_MARGIN or more worse. A reported trip outside that piece
+    and direction, or a run with too few stations in common, cannot be judged.
+    On 2026-11-13 and 11-20, 28 of the 86 confident 801, 804 and 805 runs whose
+    id and startTime agreed but whose fit was another trip met it.
+    """
+    miss = fit.get("misses", {}).get(reported)
+    others = [m for trip, m in fit.get("misses", {}).items() if trip != reported]
+    return (
+        miss is not None
+        and fit["common"] > MIN_RUN_STOPS
+        and bool(others)
+        and min(others) <= FIT_SECONDS
+        and miss - min(others) >= FIT_MARGIN
+    )
+
+
 def decide_vehicle(
     vehicle: str, records: list, trips: dict, routes: dict, base: int
 ) -> list[Decision]:
     """Every run of one vehicle with its outcome.
 
-    `records` are (vehicle_id, ts, lat, lon, trip_id, start_time) in time order.
-    A run is trusted when its most common reported id checks out, else matched
-    when its fit is confident, else ungraded.
+    `records` are (vehicle_id, ts, lat, lon, trip_id, start_time, route_id) in
+    time order. A run is trusted when its most common reported id checks out and
+    the run is not a misfit, else matched when its fit is confident, else
+    ungraded.
     """
     samples = [(r[1], r[2], r[3]) for r in records if r[2] is not None and r[3] is not None]
     stamps = [r[1] for r in records]
     decisions = []
-    for run in vehicle_runs(samples, routes):
+
+    def reported_route(start, end):
+        inside = records[bisect.bisect_left(stamps, start) : bisect.bisect_right(stamps, end)]
+        return modal([r[6] for r in inside])
+
+    for run in vehicle_runs(samples, routes, reported_route):
         fit = fit_run(run, routes[run["ref"]]["fits"][run["direction"]], base)
         inside = records[
             bisect.bisect_left(stamps, run["start"]) : bisect.bisect_right(stamps, run["end"])
         ]
         reported = modal([r[4] for r in inside])
-        if trusts(trips.get(reported), clock(modal([r[5] for r in inside]))):
+        looks_trusted = trusts(trips.get(reported), clock(modal([r[5] for r in inside])))
+        misfit = looks_trusted and is_misfit(fit, reported)
+        if looks_trusted and not misfit:
             outcome, trip = "trusted", trips[reported]
         elif fit["best"] is not None and fit["confident"]:
             outcome, trip = "matched", fit["best"]
         else:
             outcome, trip = "ungraded", None
-        decisions.append(Decision(vehicle, run, reported, outcome, trip, fit))
+        decisions.append(
+            Decision(vehicle, run, reported, outcome, trip, fit, looks_trusted, misfit)
+        )
     return decisions
 
 

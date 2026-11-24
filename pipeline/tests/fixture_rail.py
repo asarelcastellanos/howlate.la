@@ -32,6 +32,16 @@ five minutes before it leaves. Its S7 arrival is the last approach, so it is
         R1 and R2 both fit to 600 s, which is not within 120 s, so it is left
         ungraded and adds no delay to any trip.
 
+    V5  drives X1 of route 802, which runs exactly the times of R2, 30 s late.
+        Reports L1, a later-start id, startTime 10:30:00 and routeId 802. R2
+        and X1 explain its stations equally, so the reported route breaks the
+        tie. It is matched to X1, and R2 keeps only V2's delays.
+        X1 delays 30, 30, 30, 30, 30, 30, 90.
+    V6  drives R4, 45 s late. Reports R1 and startTime 10:00:00, so the id is
+        in force and the startTime agrees, and it looks trusted. R4 fits to 45 s
+        and R1 to 3,645 s, so the run is a misfit and is matched to R4.
+        R4 delays 45, 45, 45, 45, 45, 45, 105.
+
 The bus day is the one in fixture_day.py, graded in the same session.
 """
 
@@ -43,7 +53,14 @@ from pathlib import Path
 from fixture_day import _DOW, SERVICE_DATE, UTC, build_timetable, local, write_csv
 
 RAIL = "LACMTA_Rail"
-TRIPS = {"R1": (10, 0), "R2": (10, 20), "R3": (10, 40), "L1": (10, 30)}
+TRIPS = {
+    "R1": (10, 0),
+    "R2": (10, 20),
+    "R3": (10, 40),
+    "L1": (10, 30),
+    "R4": (11, 0),
+    "X1": (10, 20),
+}
 
 
 def station_lat(k: int) -> float:
@@ -75,7 +92,10 @@ def build_rail_timetable(directory: Path) -> Path:
     write_csv(
         directory / "trips.txt",
         ["route_id", "service_id", "trip_id", "direction_id"],
-        [["801", "LATER" if trip == "L1" else "WK", trip, "0"] for trip in TRIPS],
+        [
+            ["802" if trip == "X1" else "801", "LATER" if trip == "L1" else "WK", trip, "0"]
+            for trip in TRIPS
+        ],
     )
     write_csv(
         directory / "stop_times.txt",
@@ -90,7 +110,9 @@ def build_rail_timetable(directory: Path) -> Path:
     return directory
 
 
-def drive(vehicle: str, reported: str, start_time: str, base: str, late: int) -> list[dict]:
+def drive(
+    vehicle: str, reported: str, start_time: str, base: str, late: int, route: str = "801"
+) -> list[dict]:
     """The raw records of one vehicle driving trip `base`, `late` seconds late."""
 
     def record(k: int, status: str, moment: datetime) -> dict:
@@ -103,7 +125,7 @@ def drive(vehicle: str, reported: str, start_time: str, base: str, late: int) ->
                         "tripId": reported,
                         "startDate": SERVICE_DATE,
                         "startTime": start_time,
-                        "routeId": "801",
+                        "routeId": route,
                         "directionId": 0,
                     },
                     "position": {"latitude": station_lat(k), "longitude": -118.30},
@@ -133,6 +155,8 @@ VEHICLES = [
     ("V2", "R1", "10:20:00", "R2", 60),
     ("V3", "L1", "10:30:00", "R3", 90),
     ("V4", "R2", "10:05:00", "R1", 600),
+    ("V5", "L1", "10:30:00", "X1", 30, "802"),
+    ("V6", "R1", "10:00:00", "R4", 45),
 ]
 
 

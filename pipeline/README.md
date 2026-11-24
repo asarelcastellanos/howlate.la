@@ -171,7 +171,8 @@ and decides each one. The reasons and the thresholds are in
 
 - Trusted. The most common reported id is a trip of the copy in force with a
   running service, and the most common startTime is within 120 seconds of its
-  first departure. The run is graded as before.
+  first departure, and the run is not a misfit under the `rail_misfit_pct`
+  rule. The run is graded as before. A misfit goes on to the next rule.
 - Matched. Otherwise the run is fitted to the trips in force on its station
   list and direction. A fit is confident when the best trip is within 120
   seconds and the next trip is at least 120 seconds worse. The run is graded

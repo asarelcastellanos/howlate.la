@@ -22,9 +22,9 @@ The grader dropped the later-start ids, which left 1,133 rail trips ungraded (#1
 
 Chosen option: "Trust the id when it checks out, and match by position when it does not", because it changes nothing on the days and lines where the id is right and grades the days where it is wrong.
 
-A run is rebuilt from positions as `rail_runs.py` does, now in `railmatch.py`. Each run is one of three.
+A run is rebuilt from positions as `rail_runs.py` does, now in `railmatch.py`. Two routes can share track, and a run on it is explained equally by both station lists. The reported routeId of the run's records then breaks the tie, and position decides everything else. Each run is one of three.
 
-* Trusted. The run's most common reported id is a trip of the timetable copy in force with a service running that day, and the most common reported startTime is within 120 seconds of that trip's first departure. The run is graded as before.
+* Trusted. The run's most common reported id is a trip of the timetable copy in force with a service running that day, and the most common reported startTime is within 120 seconds of that trip's first departure, and the run is not a misfit. A misfit is the rule `rail_misfit_pct` uses: another trip of the run's piece and direction fits within 60 seconds and the reported trip is 300 seconds or more worse. The run is graded as before. A run that passes the first two tests and is a misfit goes on to the next rule.
 * Matched. Otherwise the run is fitted to the trips in force on its station list and direction. When the best trip's median miss is 120 seconds or less and the next trip is at least 120 seconds worse, the run is graded against that trip. Its rows carry `source` `matched`.
 * Ungraded. Any other run, and any rail report outside every run, is not graded.
 
@@ -38,6 +38,6 @@ The agreement of the matcher with the reported id on days when the id is good, a
 * Bad, because the matcher ships off, so the published rail numbers do not change and the later-start trips stay ungraded until the owner turns it on.
 * Good, because a line with good ids grades as before except for the runs that do not check out.
 * Bad, because a train a headway late fits the next trip as well as its own, so it is not confident and stays ungraded. The late trains of a split day are missing from the rail numbers, which makes the day look better than it was.
-* Bad, because an id and a startTime that are stale together pass the trust test. On 801 on split days the startTime followed the id and not the train, so some wrong ids are trusted. The rail check still counts them.
+* Bad, because an id and a startTime that are stale together pass the first two trust tests. The misfit test catches those whose true trip fits within 60 seconds. Where the true trip fits in 61 to 120 seconds, the id stays trusted.
 * Bad, because a rail report outside every run, such as a vehicle with no id, is no longer graded, so rail coverage can fall on a day that graded before.
 * Bad, because grading reads every rail position of the day in Python, which adds minutes to the daily job.
