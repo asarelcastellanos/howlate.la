@@ -31,8 +31,10 @@ class FakeBlob:
         fetched: datetime | None = None,
         data: bytes = b"",
         fail_after: int | None = None,
+        size: int = 0,
     ):
         self.name = name
+        self.size = size
         self.metadata = (
             {"fetched_at": fetched.isoformat().replace("+00:00", "Z")} if fetched else {}
         )
@@ -472,6 +474,67 @@ def test_an_interrupted_download_leaves_nothing_the_next_run_trusts(tmp_path):
     files = arrivals.fetch_raw(client, SERVICE_DATE, tmp_path)
     assert files == [str(tmp_path / name)]
     assert (tmp_path / name).read_bytes() == blob.data
+
+
+RAW_NAME = "vehicle_positions/dt=2026-08-18/hh=15/vehicle_positions-20260818T150000Z.jsonl.gz"
+
+
+def outside(monkeypatch):
+    monkeypatch.setattr(arrivals, "inside_google_cloud", lambda: False)
+
+
+def test_outside_google_cloud_a_missing_file_is_refused_and_nothing_downloads(
+    monkeypatch, tmp_path
+):
+    outside(monkeypatch)
+    blob = FakeBlob(RAW_NAME, data=b"x", size=2**30)
+
+    with pytest.raises(SystemExit) as refused:
+        arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path)
+    assert blob.written_to == []
+    message = str(refused.value)
+    assert "1 raw files (1.0 GiB)" in message
+    assert "$0.12" in message
+    assert "bash pipeline/deploy/backfill-vm.sh" in message
+    assert "--allow-egress" in message
+
+
+def test_outside_google_cloud_allow_egress_downloads(monkeypatch, tmp_path):
+    outside(monkeypatch)
+    blob = FakeBlob(RAW_NAME, data=b"x", size=1)
+
+    files = arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path, allow_egress=True)
+    assert files == [str(tmp_path / RAW_NAME)]
+    assert (tmp_path / RAW_NAME).read_bytes() == b"x"
+
+
+def test_outside_google_cloud_files_already_cached_need_no_flag(monkeypatch, tmp_path):
+    outside(monkeypatch)
+    (tmp_path / RAW_NAME).parent.mkdir(parents=True)
+    (tmp_path / RAW_NAME).write_bytes(b"x")
+    blob = FakeBlob(RAW_NAME, data=b"x", size=1)
+
+    files = arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path)
+    assert files == [str(tmp_path / RAW_NAME)]
+    assert blob.written_to == []
+
+
+def test_inside_google_cloud_the_download_needs_no_flag(tmp_path):
+    blob = FakeBlob(RAW_NAME, data=b"x", size=2**30)
+
+    arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path)
+    assert (tmp_path / RAW_NAME).read_bytes() == b"x"
+
+
+def test_a_raw_dir_run_never_reaches_the_guard(monkeypatch, tmp_path):
+    def asked():
+        raise AssertionError("asked the metadata server")
+
+    monkeypatch.setattr(arrivals, "inside_google_cloud", asked)
+    monkeypatch.setattr(arrivals, "local_files", lambda directory, day: [])
+
+    with pytest.raises(SystemExit, match="no raw files found"):
+        cli.grade_day(cli.Bucket(), SERVICE_DATE, cache=tmp_path, out=tmp_path, raw_dir=tmp_path)
 
 
 def test_an_interrupted_timetable_download_is_not_trusted(tmp_path):

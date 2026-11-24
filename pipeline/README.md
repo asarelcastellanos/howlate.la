@@ -45,6 +45,21 @@ reads the arrivals from `gs://howlate-derived`, and without `--gtfs-dir` it
 reads the timetables from `gs://howlate-raw`. Both are read-only, and the
 timetables are what name the lines and give each line its mode.
 
+Outside Google Cloud, `arrivals`, `backfill` and `daily` refuse to download raw
+files that are not already in the cache. Reading `gs://howlate-raw` from the
+internet costs about $0.12 per GiB, and 259 GiB read from a laptop on
+2026-11-16 to 2026-11-18 cost $19.11 in egress and $3.49 in Coldline retrieval.
+The refusal comes before the first download and states the number of files,
+their size in GiB, the estimated cost, and that the read is free on the backfill
+VM. Runs that find every file in the cache, and `--raw-dir` runs, are not
+refused. The guard asks the metadata server whether the machine is in Google
+Cloud, so Cloud Run jobs and Compute Engine VMs pass.
+
+To grade from the archive, run `bash pipeline/deploy/backfill-vm.sh`. The
+`--allow-egress` flag on `arrivals` and `backfill` forces the download and
+accepts the cost. Only the owner uses it. `gs://howlate-derived` and the
+timetables are not guarded.
+
 Nothing is published yet. Roughly a month of collection is where patterns
 separate from noise, so there is no hurry.
 

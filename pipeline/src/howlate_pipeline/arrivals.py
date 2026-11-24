@@ -27,8 +27,11 @@ stopped records at the final stop and fails its check if one appears, so a
 change in the feed's behaviour shows up as a surprise rather than as data.
 """
 
+import functools
 import glob as globlib
 import os
+import sys
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -97,7 +100,48 @@ def partitions(service_date: str) -> list[str]:
     return [(day + timedelta(days=offset)).strftime("%Y-%m-%d") for offset in (-1, 0, 1)]
 
 
-def fetch_raw(client: storage.Client, service_date: str, cache: Path) -> list[str]:
+METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/"
+EGRESS_DOLLARS_PER_GIB = 0.12
+
+
+@functools.cache
+def inside_google_cloud() -> bool:
+    """Whether the metadata server answers, as it does on Cloud Run and Compute Engine.
+
+    Only the Metadata-Flavor: Google response header counts, so a stray host
+    that answers on that name is not mistaken for Google. Asked once per
+    process. A wrong "outside" fails the daily job, and a wrong "inside" lets a
+    paid download through.
+    """
+    request = urllib.request.Request(METADATA_URL, headers={"Metadata-Flavor": "Google"})
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            return response.headers.get("Metadata-Flavor") == "Google"
+    except OSError:
+        return False
+
+
+def refuse_egress(missing: list[storage.Blob]) -> None:
+    """Exit before the first byte when the machine would pay to read the archive.
+
+    Between 2026-11-16 and 2026-11-18 runs on a laptop downloaded 259 GiB, which
+    cost $19.11 in internet egress and $3.49 in Coldline retrieval. The same
+    runs on the backfill VM cost $0.51.
+    """
+    gib = sum(blob.size or 0 for blob in missing) / 2**30
+    sys.exit(
+        f"refusing to download {len(missing)} raw files ({gib:.1f} GiB) from "
+        f"gs://{RAW_BUCKET} outside Google Cloud. Internet egress would cost about "
+        f"${gib * EGRESS_DOLLARS_PER_GIB:.2f} at ${EGRESS_DOLLARS_PER_GIB:.2f} per GiB. "
+        "The read is free on the backfill VM, so run "
+        "`bash pipeline/deploy/backfill-vm.sh`. "
+        "To download here anyway, add --allow-egress."
+    )
+
+
+def fetch_raw(
+    client: storage.Client, service_date: str, cache: Path, allow_egress: bool = False
+) -> list[str]:
     """Download the raw files for the window, skipping any already held.
 
     Objects are immutable once written, so a name already on disk is the right
@@ -114,6 +158,9 @@ def fetch_raw(client: storage.Client, service_date: str, cache: Path) -> list[st
         f"  raw: {len(wanted)} files across {len(partitions(service_date))} partitions, "
         f"{len(missing)} to download"
     )
+
+    if missing and not allow_egress and not inside_google_cloud():
+        refuse_egress(missing)
 
     def pull(blob: storage.Blob) -> None:
         target = cache / blob.name
