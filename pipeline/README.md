@@ -182,8 +182,9 @@ and decides each one. The reasons and the thresholds are in
 
 The report lists the three counts per line as `rail_matching`. `railmatch.ENABLED`
 ships `False`, which grades every rail run on its reported trip, because the
-matcher agreed with the reported id in under 95% of confident fits on lines 801,
-804 and 805 on the normal weekdays 2026-11-13 and 11-20 (#178). Set it to `True`
+matcher agreed with the reported id in under 95% of confident fits on some lines
+on the normal weekdays 2026-11-13, 11-18, 11-19 and 11-20, in two rounds of
+measurement (#178). Set it to `True`
 to grade by position.
 
 Two scripts measure it on the backfill VM, as `rail_runs.py` does.

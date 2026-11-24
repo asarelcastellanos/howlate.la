@@ -34,8 +34,9 @@ LAYOVER_S = 3600
 # id on every line with 30 or more trusted runs on a normal weekday. On
 # 2026-11-13 and 11-20 the confident fits of trusted runs agreed in 91.6% to
 # 100% of cases, and lines 801 (92.5% on 11-20), 804 (94.6%, 91.6%) and 805
-# (92.7%, 93.9%) were under 95%. Turn it on only after the owner reads those
-# numbers on #178.
+# (92.7%, 93.9%) were under 95%. After the route tie-break and the misfit test,
+# 801, 804 and 807 were still under 95% on 2026-11-18 or 11-19 with misfit ids set
+# aside. Turn it on only after the owner reads those numbers on #178.
 ENABLED = False
 
 # How far a reported startTime may sit from its trip's first departure before the
