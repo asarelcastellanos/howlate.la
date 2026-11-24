@@ -118,7 +118,9 @@ EXPECTED = {
 EVENT_ONLY = frozenset({"9", "22"})
 
 
-def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
+def summarise(
+    con: duckdb.DuckDBPyConnection, rail: list[tuple[str, int, int]] | None = None
+) -> dict[str, float]:
     """Every headline number for the day, in one pass over the joined table."""
     row = con.sql(f"""
         SELECT
@@ -220,11 +222,10 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     ).fetchall()[0]
     stats["trips_seen"] = 100 * trips_seen / trips_total if trips_total else 0
     stats["early_pct"] = 100 * stats["early"] / stats["with_delay"] if stats["with_delay"] else 0
-    lines = rail_misfits(con)
-    stats["rail_runs"] = sum(runs for _, runs, _ in lines)
-    stats["rail_misfit_runs"] = sum(misfits for _, _, misfits in lines)
+    if rail is None:
+        rail = rail_misfits(con)
     stats["rail_misfit_pct"] = max(
-        (pct(misfits, runs) for _, runs, misfits in lines if runs >= MIN_LINE_RUNS), default=0.0
+        (pct(misfits, runs) for _, runs, misfits in rail if runs >= MIN_LINE_RUNS), default=0.0
     )
     return stats
 
@@ -442,7 +443,8 @@ def minutes(seconds: float | None) -> str:
 
 def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
     """Print the report. Returns True if everything was within expectations."""
-    s = summarise(con)
+    rail = rail_misfits(con)
+    s = summarise(con, rail)
 
     print(
         f"\n  {service_date}: {s['lines']} lines, {s['trips']:,} trips, "
@@ -507,7 +509,7 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             "nothing observed, not checked"
         )
     limit = EXPECTED["rail_misfit_pct"][1]
-    for line, runs, misfits in rail_misfits(con):
+    for line, runs, misfits in rail:
         if runs >= MIN_LINE_RUNS and pct(misfits, runs) > limit:
             print(
                 f"          {RAIL_AGENCY} {line}: {misfits:,} of {runs:,} runs fit another trip better"
@@ -598,7 +600,8 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
     No wall-clock time goes in, so regrading an unchanged day writes the same
     bytes.
     """
-    s = summarise(con)
+    rail = rail_misfits(con)
+    s = summarise(con, rail)
     found = checks(con, s)
     return {
         "service_date": f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}",
@@ -623,8 +626,7 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
             for agency, line, stops in silent_event_lines(con)
         ],
         "rail_misfits": [
-            {"line": line, "runs": runs, "misfits": misfits}
-            for line, runs, misfits in rail_misfits(con)
+            {"line": line, "runs": runs, "misfits": misfits} for line, runs, misfits in rail
         ],
         "explained_unmatched": [
             {"agency": agency, "observations": observations, "trips": trips}
