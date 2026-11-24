@@ -19,7 +19,8 @@ Done
 Outcomes
     Each day not done is graded. A day whose checks fail is still written,
     as `arrivals` does on its own. A day whose grade or done check raises is
-    listed under errors and left for the next run. Ctrl-C stops the run.
+    listed under errors and left for the next run. Ctrl-C stops the run. An
+    egress refusal stops the whole run, since every later day would refuse too.
 
 Cache
     After every day attempted, whatever the outcome, raw partitions older

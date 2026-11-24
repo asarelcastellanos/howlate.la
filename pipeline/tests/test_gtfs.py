@@ -639,6 +639,7 @@ REAL_CHECK = arrivals.inside_google_cloud
 @pytest.fixture
 def check(monkeypatch):
     """The real check with urlopen answering from a list, and a clean cache around it."""
+    monkeypatch.delenv("CLOUD_RUN_JOB", raising=False)
     answers, calls = [], []
 
     def fake_urlopen(request, timeout):
@@ -659,8 +660,19 @@ def test_the_metadata_flavor_header_means_inside(check):
     answers.append(FakeResponse("Google"))
     result = real()
     assert result is True
-    assert calls[0][0].full_url == arrivals.METADATA_URL
+    assert (
+        calls[0][0].full_url
+        == "http://metadata.google.internal/computeMetadata/v1/project/project-id"
+    )
     assert calls[0][0].get_header("Metadata-flavor") == "Google"
+
+
+def test_the_cloud_run_job_variable_means_inside_with_no_request(check, monkeypatch):
+    real, answers, calls = check
+    monkeypatch.setenv("CLOUD_RUN_JOB", "daily")
+    result = real()
+    assert result is True
+    assert calls == []
 
 
 def test_an_answer_without_the_header_means_outside_with_no_retry(check):

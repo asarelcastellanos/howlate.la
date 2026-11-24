@@ -52,8 +52,9 @@ internet costs about $0.12 per GiB, and 259 GiB read from a laptop on
 The refusal comes before the first download and states the number of files,
 their size in GiB, the estimated cost, and that the read is free on the backfill
 VM. Runs that find every file in the cache, and `--raw-dir` runs, are not
-refused. The guard asks the metadata server whether the machine is in Google
-Cloud, so Cloud Run jobs and Compute Engine VMs pass.
+refused. The guard passes at once when `CLOUD_RUN_JOB` is set, as it is on every Cloud
+Run job. Otherwise it asks the metadata server for the project id, so Compute
+Engine VMs pass.
 
 To grade from the archive, run `bash pipeline/deploy/backfill-vm.sh`. The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and

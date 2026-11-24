@@ -100,7 +100,7 @@ def partitions(service_date: str) -> list[str]:
     return [(day + timedelta(days=offset)).strftime("%Y-%m-%d") for offset in (-1, 0, 1)]
 
 
-METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/"
+METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/project/project-id"
 EGRESS_DOLLARS_PER_GIB = 0.12
 METADATA_ATTEMPTS = 3
 METADATA_TIMEOUT_SECONDS = 2
@@ -108,7 +108,15 @@ METADATA_TIMEOUT_SECONDS = 2
 
 @functools.cache
 def inside_google_cloud() -> bool:
-    """Whether the metadata server answers, as it does on Cloud Run and Compute Engine.
+    """Whether this runs on Google Cloud, as on Cloud Run and Compute Engine.
+
+    A Cloud Run job sets CLOUD_RUN_JOB, which Google's container contract
+    documents, so that variable answers at once with no network call. The
+    contract page (docs.cloud.google.com/run/docs/container-contract, read
+    2026-11-24) lists specific metadata keys and not the root, and does not say
+    the response header is sent on Cloud Run, so the daily job is recognised by
+    its variable and not by the probe. Elsewhere the probe asks for the
+    project-id key, which is documented on both Cloud Run and Compute Engine.
 
     Only the Metadata-Flavor: Google response header counts, so a stray host
     that answers on that name is not mistaken for Google. Asked once per
@@ -117,6 +125,8 @@ def inside_google_cloud() -> bool:
     a dropped connection gets up to 3 attempts, 6 seconds at most on a laptop.
     An answer without the header is final and is not retried.
     """
+    if os.environ.get("CLOUD_RUN_JOB"):
+        return True
     request = urllib.request.Request(METADATA_URL, headers={"Metadata-Flavor": "Google"})
     for _ in range(METADATA_ATTEMPTS):
         try:
