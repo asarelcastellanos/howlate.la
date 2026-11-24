@@ -4,6 +4,7 @@ Cloud Storage is replaced by small fakes that hold exactly what each test needs.
 Nothing here touches the network.
 """
 
+import http.client
 import io
 import json
 import zipfile
@@ -31,8 +32,10 @@ class FakeBlob:
         fetched: datetime | None = None,
         data: bytes = b"",
         fail_after: int | None = None,
+        size: int = 0,
     ):
         self.name = name
+        self.size = size
         self.metadata = (
             {"fetched_at": fetched.isoformat().replace("+00:00", "Z")} if fetched else {}
         )
@@ -474,6 +477,67 @@ def test_an_interrupted_download_leaves_nothing_the_next_run_trusts(tmp_path):
     assert (tmp_path / name).read_bytes() == blob.data
 
 
+RAW_NAME = "vehicle_positions/dt=2026-08-18/hh=15/vehicle_positions-20260818T150000Z.jsonl.gz"
+
+
+def outside(monkeypatch):
+    monkeypatch.setattr(arrivals, "inside_google_cloud", lambda: False)
+
+
+def test_outside_google_cloud_a_missing_file_is_refused_and_nothing_downloads(
+    monkeypatch, tmp_path
+):
+    outside(monkeypatch)
+    blob = FakeBlob(RAW_NAME, data=b"x", size=2**30)
+
+    with pytest.raises(SystemExit) as refused:
+        arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path)
+    assert blob.written_to == []
+    message = str(refused.value)
+    assert "1 raw files (1.0 GiB)" in message
+    assert "$0.12" in message
+    assert "bash pipeline/deploy/backfill-vm.sh" in message
+    assert "--allow-egress" in message
+
+
+def test_outside_google_cloud_allow_egress_downloads(monkeypatch, tmp_path):
+    outside(monkeypatch)
+    blob = FakeBlob(RAW_NAME, data=b"x", size=1)
+
+    files = arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path, allow_egress=True)
+    assert files == [str(tmp_path / RAW_NAME)]
+    assert (tmp_path / RAW_NAME).read_bytes() == b"x"
+
+
+def test_outside_google_cloud_files_already_cached_need_no_flag(monkeypatch, tmp_path):
+    outside(monkeypatch)
+    (tmp_path / RAW_NAME).parent.mkdir(parents=True)
+    (tmp_path / RAW_NAME).write_bytes(b"x")
+    blob = FakeBlob(RAW_NAME, data=b"x", size=1)
+
+    files = arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path)
+    assert files == [str(tmp_path / RAW_NAME)]
+    assert blob.written_to == []
+
+
+def test_inside_google_cloud_the_download_needs_no_flag(tmp_path):
+    blob = FakeBlob(RAW_NAME, data=b"x", size=2**30)
+
+    arrivals.fetch_raw(FakeClient([blob]), SERVICE_DATE, tmp_path)
+    assert (tmp_path / RAW_NAME).read_bytes() == b"x"
+
+
+def test_a_raw_dir_run_never_reaches_the_guard(monkeypatch, tmp_path):
+    def asked():
+        raise AssertionError("asked the metadata server")
+
+    monkeypatch.setattr(arrivals, "inside_google_cloud", asked)
+    monkeypatch.setattr(arrivals, "local_files", lambda directory, day: [])
+
+    with pytest.raises(SystemExit, match="no raw files found"):
+        cli.grade_day(cli.Bucket(), SERVICE_DATE, cache=tmp_path, out=tmp_path, raw_dir=tmp_path)
+
+
 def test_an_interrupted_timetable_download_is_not_trusted(tmp_path):
     full = zipped(build_timetable(tmp_path / "full"))
     blob = FakeBlob(AUG_16, utc(8, 16, 12), full, fail_after=len(full) // 2)
@@ -556,3 +620,81 @@ def test_only_a_service_whose_start_date_is_after_the_day_is_later_start(tmp_pat
         [["ADDED", SERVICE_DATE, "1"]],
     )
     assert gtfs.later_start_services(directory, SERVICE_DATE) == {"LATER"}
+
+
+class FakeResponse:
+    def __init__(self, flavor):
+        self.headers = {"Metadata-Flavor": flavor} if flavor else {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+REAL_CHECK = arrivals.inside_google_cloud
+
+
+@pytest.fixture
+def check(monkeypatch):
+    """The real check with urlopen answering from a list, and a clean cache around it."""
+    monkeypatch.delenv("CLOUD_RUN_JOB", raising=False)
+    answers, calls = [], []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request, timeout))
+        answer = answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(arrivals.urllib.request, "urlopen", fake_urlopen)
+    REAL_CHECK.cache_clear()
+    yield REAL_CHECK, answers, calls
+    REAL_CHECK.cache_clear()
+
+
+def test_the_metadata_flavor_header_means_inside(check):
+    real, answers, calls = check
+    answers.append(FakeResponse("Google"))
+    result = real()
+    assert result is True
+    assert (
+        calls[0][0].full_url
+        == "http://metadata.google.internal/computeMetadata/v1/project/project-id"
+    )
+    assert calls[0][0].get_header("Metadata-flavor") == "Google"
+
+
+def test_the_cloud_run_job_variable_means_inside_with_no_request(check, monkeypatch):
+    real, answers, calls = check
+    monkeypatch.setenv("CLOUD_RUN_JOB", "daily")
+    result = real()
+    assert result is True
+    assert calls == []
+
+
+def test_an_answer_without_the_header_means_outside_with_no_retry(check):
+    real, answers, calls = check
+    answers.append(FakeResponse(None))
+    result = real()
+    assert result is False
+    assert len(calls) == 1
+
+
+def test_a_connection_error_means_outside_after_three_attempts(check):
+    real, answers, calls = check
+    answers.extend([OSError("down")] * 3)
+    result = real()
+    assert result is False
+    assert len(calls) == 3
+    assert all(timeout == 2 for _, timeout in calls)
+
+
+def test_a_first_failure_then_a_good_answer_means_inside(check):
+    real, answers, calls = check
+    answers.extend([http.client.RemoteDisconnected("cold"), FakeResponse("Google")])
+    result = real()
+    assert result is True
+    assert len(calls) == 2

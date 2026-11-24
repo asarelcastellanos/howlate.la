@@ -41,6 +41,26 @@ python3 -m venv .venv
 - Comments explain why, with the measurement that justified the choice. Keep
   that style when editing.
 
+## Rules that protect the bill
+
+- Never download the raw archive to a laptop, a CI runner, or any machine
+  outside Google Cloud. Cloud Storage charges $0.12 per GiB for it, plus $0.02
+  per GB for days older than 30 days. In November 2026, three days of local
+  `arrivals` and `backfill` runs cost $22.60 in a project that costs about $2 a
+  month.
+- This covers `arrivals` and `backfill` without `--raw-dir`, and
+  `gcloud storage cp`, `gcloud storage rsync` and `gsutil` on
+  `gs://howlate-raw`.
+- Grading that needs the archive runs on the backfill VM, which reads for free.
+  Use `pipeline/deploy/backfill-vm.sh`.
+- The pipeline refuses these downloads outside Google Cloud. Never pass
+  `--allow-egress`. Only the owner uses it, by hand. If a task seems to need
+  it, stop and ask the owner.
+- Local work uses the fixture days in `pipeline/tests/` or raw files the owner
+  already holds, with `--raw-dir` and `--no-upload`.
+- The decision is recorded in
+  `docs/adr/0001-refuse-raw-downloads-outside-google-cloud.md`.
+
 ## How work ships
 
 - Versions and their tests are in `docs/release-plan.md`. Each version is a
