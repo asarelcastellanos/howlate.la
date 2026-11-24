@@ -80,14 +80,33 @@ def test_a_bus_day_is_graded_the_same_with_the_matcher_on_or_off(con, tmp_path, 
 
 
 def test_the_matcher_off_grades_every_rail_run_on_its_reported_trip(tmp_path, monkeypatch):
+    """Every rail row on the fixture day, worked from fixture_rail.py.
+
+    A vehicle is graded on the id it reports. V1, V2 and V6 all report R1. The
+    grader takes the first STOPPED_AT for a stop, the last for an origin and the
+    last approach for a final stop. So R1 stops 2 to 6 are V1's, 30 s late, the
+    earliest. Stop 1 and stop 7 are V6's, the latest, which drives R4 and is 3,600
+    s behind R1 plus 45 s late, so 3,645 at stop 1 and 3,705 at stop 7 after its
+    60 s approach. V4 reports R2 and drives 600 s ahead of it. V3 and V5 report L1,
+    which has no scheduled stops today. R3, R4 and X1 are reported by nobody and
+    stay ungraded with no vehicle.
+    """
     monkeypatch.setattr(railmatch, "ENABLED", False)
     con = run_rail_day(tmp_path)
-    assert {delay for delay, _ in delays(con, "R3")} == {None}
-    assert {source for _, source in delays(con, "R1")} == {
-        "origin_departure",
-        "stopped_at",
-        "approach",
-    }
+    got = con.execute(
+        "SELECT trip_id, stop_sequence, vehicle_id, delay_seconds, source FROM arrivals "
+        "WHERE agency = ? ORDER BY trip_id, stop_sequence",
+        [RAIL],
+    ).fetchall()
+    assert got == (
+        [("R1", 1, "V6", 3645, "origin_departure")]
+        + [("R1", k, "V1", 30, "stopped_at") for k in range(2, 7)]
+        + [("R1", 7, "V6", 3705, "approach")]
+        + [("R2", 1, "V4", -600, "origin_departure")]
+        + [("R2", k, "V4", -600, "stopped_at") for k in range(2, 7)]
+        + [("R2", 7, "V4", -540, "approach")]
+        + [(trip, k, None, None, "none") for trip in ("R3", "R4", "X1") for k in range(1, 8)]
+    )
     assert report.rail_matching(con) == []
 
 

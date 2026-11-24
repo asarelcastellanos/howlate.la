@@ -163,10 +163,16 @@ a service that starts later shows `not_in_force`.
 
 ### Grading rail by position
 
-Rail trip ids are wrong on days when a line runs as split pieces (#177), so
-`arrivals.match_rail_runs` grades each rail run on the trip it ran when the id
-does not check out. `railmatch.py` rebuilds the runs from latitude and longitude
-and decides each one. The reasons and the thresholds are in
+The rail matcher is built and ships switched off (`railmatch.ENABLED` is
+`False`), because it missed the 95 percent agreement rule on 2026-11-18 and
+2026-11-19 (#178). While it is off, every rail run is graded on its reported
+trip, as before, and `rail_misfit_pct` is advisory. It still runs, prints and
+saves, but a failure does not fail the day.
+
+Rail trip ids are wrong on days when a line runs as split pieces (#177). With the
+matcher on, `arrivals.match_rail_runs` grades each rail run on the trip it ran
+when the id does not check out. `railmatch.py` rebuilds the runs from latitude
+and longitude and decides each one. The reasons and the thresholds are in
 `docs/adr/0002-match-rail-runs-by-position-when-the-id-fails.md`.
 
 - Trusted. The most common reported id is a trip of the copy in force with a
@@ -180,12 +186,10 @@ and decides each one. The reasons and the thresholds are in
 - Ungraded. Any other run, and any rail report outside every run, is dropped
   before grading.
 
-The report lists the three counts per line as `rail_matching`. `railmatch.ENABLED`
-ships `False`, which grades every rail run on its reported trip, because the
-matcher agreed with the reported id in under 95% of confident fits on some lines
-on the normal weekdays 2026-11-13, 11-18, 11-19 and 11-20, in two rounds of
-measurement (#178). Set it to `True`
-to grade by position.
+With the matcher on, the report lists the three counts per line as
+`rail_matching`, and `rail_misfit_pct` fails the day again. The agreement numbers
+behind the decision to leave it off are on #178. Set `ENABLED` to `True` to grade
+by position.
 
 Two scripts measure it on the backfill VM, as `rail_runs.py` does.
 `rail_hide_and_compare.py` hides the id of each trusted run, fits it by position

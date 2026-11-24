@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 
 from howlate_pipeline import gtfs
-from howlate_pipeline.report import FIT_MARGIN, FIT_SECONDS, MIN_RUN_STOPS
 
 RADIUS_M = 300
 MAP_M = 300
@@ -27,6 +26,22 @@ MIN_COMMON = 3
 CONFIDENT_FIT_S = 120
 CONFIDENT_MARGIN_S = 120
 LAYOVER_S = 3600
+
+# Fewest non-origin stops a rail run must be timed at before it is judged. With 3
+# the share on 2026-11-07 was 2.3% for all rail, with 5 it was 1.1% and with 8
+# 0.8%, so a short run is mostly noise. The same days' other shares moved by under
+# a point between 5 and 8.
+MIN_RUN_STOPS = 5
+
+# How close, in seconds, another trip must fit, and how much worse the reported
+# trip must fit than it. At 60 the highest line was a median 2.6% over the 48
+# measured days. At 120 it was a median 7.9% and 14 days were over 10%, because a
+# train a few minutes late is within 120 s of the trip behind it. The margin
+# barely matters: 180 instead of 300 changed the highest line on 3 days, by 0.4 to
+# 3.0 points, and moved no day across the 10% limit. 300 is under the 8 minute
+# headway of the K line.
+FIT_SECONDS = 60
+FIT_MARGIN = 300
 
 # The one switch for grading rail by position. Off, every rail run is graded on
 # the trip id it reported, as before the matcher. It ships off because it fell

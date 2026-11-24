@@ -18,6 +18,7 @@ import duckdb
 
 from howlate_pipeline import RAIL_AGENCY, __version__, railmatch
 from howlate_pipeline.gtfs import line_code
+from howlate_pipeline.railmatch import FIT_MARGIN, FIT_SECONDS, MIN_RUN_STOPS
 
 # A stop a vehicle reported at, as opposed to one placed between two reports. The
 # coverage numbers and the silent-lines check count only these, so a bug that
@@ -304,22 +305,6 @@ def fully_explained_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     )
 
 
-# Fewest non-origin stops a rail run must be timed at before it is judged. With 3
-# the share on 2026-11-07 was 2.3% for all rail, with 5 it was 1.1% and with 8
-# 0.8%, so a short run is mostly noise. The same days' other shares moved by under
-# a point between 5 and 8.
-MIN_RUN_STOPS = 5
-
-# How close, in seconds, another trip must fit, and how much worse the reported
-# trip must fit than it. At 60 the highest line was a median 2.6% over the 48
-# measured days. At 120 it was a median 7.9% and 14 days were over 10%, because a
-# train a few minutes late is within 120 s of the trip behind it. The margin
-# barely matters: 180 instead of 300 changed the highest line on 3 days, by 0.4 to
-# 3.0 points, and moved no day across the 10% limit. 300 is under the 8 minute
-# headway of the K line.
-FIT_SECONDS = 60
-FIT_MARGIN = 300
-
 # Fewest judged runs on a line before it can fail the check. Lines had 60 to 459
 # judged runs a day on the measured days, apart from 2026-08-21, when the archive
 # held 190 of the day's 382 files and each line had 24 to 52. Below 30, one run
@@ -523,7 +508,7 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             )
         else:
             print(f"  {mark} {check['value']:8,}  {check['label']} (expect {check['expect']})")
-        if not binding(check):
+        if not binding(check) and not check["ok"]:
             print(f"          {ADVISORY_NOTE}")
     for agency, line, stops in silent_lines(con)[:10]:
         print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
