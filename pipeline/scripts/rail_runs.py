@@ -440,7 +440,25 @@ def analyse(con, trips: dict, routes: dict, base: int) -> list[dict]:
                 }
             )
             previous_end = run["end"]
+    mark_twins(out)
     return out
+
+
+def mark_twins(runs: list[dict]) -> None:
+    """Count the other vehicles that ran the same trip at the same time.
+
+    Rail vehicle ids name a set of cars, such as "1095-1100-1110", and two
+    coupled sets report one train under two ids. A twin is a run on the same
+    route and direction, fitted to the same trip, overlapping in time.
+    """
+    groups = defaultdict(list)
+    for run in runs:
+        groups[(run["route"], run["direction"], run["best_trip"])].append(run)
+    for rows in groups.values():
+        for run in rows:
+            twins = [o for o in rows if o["vehicle"] != run["vehicle"] and overlaps(run, o)]
+            run["twins"] = len(twins)
+            run["twin_same_reported"] = any(o["reported"] == run["reported"] for o in twins)
 
 
 def quantiles(values: list) -> dict | None:
@@ -455,11 +473,25 @@ def share(count: int, total: int) -> float:
     return round(100 * count / total, 1) if total else 0.0
 
 
-def summarise(runs: list[dict], records: dict) -> dict:
+def summarise(runs: list[dict], records: dict, scheduled: Counter) -> dict:
     out = {}
     for route in sorted({r["route"] for r in runs} | set(records)):
         mine = [r for r in runs if r["route"] == route]
-        entry = {"records": records.get(route), "runs": len(mine)}
+        seen = {r["best_trip"] for r in mine}
+        own = {r["best_trip"] for r in mine if r["ids_include_best"]}
+        twinned = [r for r in mine if r["twins"]]
+        entry = {
+            "records": records.get(route),
+            "runs": len(mine),
+            "scheduled_trips": scheduled[route],
+            "trips_with_a_run": len(seen),
+            "trips_whose_own_id_was_reported": len(own),
+            "runs_with_twin_pct": share(len(twinned), len(mine)),
+            "twins_with_same_reported_pct": share(
+                sum(1 for r in twinned if r["twin_same_reported"]), len(twinned)
+            ),
+            "vehicle_ids": len({r["vehicle"] for r in mine}),
+        }
         for label, group in (("all", mine), ("confident", [r for r in mine if r["confident"]])):
             counts = Counter(r["class"] for r in group)
             entry[label] = {
@@ -578,7 +610,7 @@ def run(service_date: str, files: list[str], timetable, out: Path) -> None:
     summary = {
         "service_date": service_date,
         "timetable": name,
-        "routes": summarise(runs, records),
+        "routes": summarise(runs, records, Counter(t.route for t in trips.values() if t.active)),
     }
     (out / f"rail_runs_{service_date}.json").write_text(json.dumps(summary, indent=2) + "\n")
     with (out / f"rail_runs_{service_date}.csv").open("w", newline="") as handle:
