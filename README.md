@@ -70,10 +70,19 @@ vehicle was seen there (about half the time), when it did and the difference.
 | **6 seconds** | how often each vehicle reports where it is |
 | **~400** | updates arriving every second at the busy hours |
 | **~25 million** | records written down a day |
-| **~1 GB** | added to the archive a day, squeezed from 15 GB of raw text |
-| **about $1.50** | a month to run, measured from the November 2026 billing report (read on 2026-11-24), almost all of it archive storage. It grows with the archive. |
+| **~1.2 GB** | added to the archive a day, squeezed from 15 GB of raw text |
+| **about $1.50** | a month to run, projected from the first 24 days of the November 2026 billing report (read on 2026-11-24), almost all of it archive storage. It grows with the archive. |
 
-November 1 to 24 also carried $23.96 in one-time charges, mostly $19.11 for downloading 259 GiB of the raw archive to a laptop. The pipeline now refuses raw downloads outside Google Cloud, so that charge should not repeat.
+The running cost for November 1 to 24 was about $1.20. Standard storage was $0.81 and write operations were $0.23. The collector VM cost $4.65 before the free-tier credit, which brings it to about zero. The month had not closed when I read the report.
+
+The same 24 days also carried $23.96 in one-time charges.
+
+- $19.11 for downloading 259 GiB of the raw archive to a laptop
+- $3.49 for retrieving 175 GiB from Coldline
+- $0.85 for Coldline read and write operations
+- $0.51 for the Spot VM that ran two backfills
+
+The pipeline now refuses raw downloads outside Google Cloud, so the download charge should not repeat.
 
 
 ## What's in this repo
