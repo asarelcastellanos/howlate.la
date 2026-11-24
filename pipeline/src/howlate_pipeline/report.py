@@ -329,16 +329,17 @@ def rail_misfits(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int]]:
     """For each rail line, the runs judged and how many fit another trip much better.
 
     A run is one vehicle on one trip_id of `observations`, which is the trip the
-    grader used. A run `arrivals.match_rail_runs` moved to its fitted trip is
-    judged on that trip, and one it dropped is not judged, so a day when the feed
-    labels trains with the wrong ids fails only for the runs the matcher trusted. Its miss against a trip is the
+    grader used. With the matcher on, a run `arrivals.match_rail_runs` moved to
+    its fitted trip is judged on that trip and a run it dropped is not judged, so
+    a day when the feed labels trains with the wrong ids fails only for the runs
+    the matcher trusted. Its miss against a trip is the
     median, over the stops it was timed at, of the seconds between its first
     STOPPED_AT and the trip's scheduled arrival. The run is a misfit when another
     trip on the same route and direction, scheduled at every stop the run was timed
     at, has a miss of at most FIT_SECONDS and the reported trip's miss is at least
     FIT_MARGIN worse. Only runs timed at MIN_RUN_STOPS or more non-origin stops are
     judged, and a run on a trip with no scheduled stops cannot be, so a later-start
-    trip is left to explained_pct. The line is the reported trip's route_id.
+    trip is left to explained_pct. The line is the judged trip's route_id.
     """
     return con.execute(
         """
