@@ -23,6 +23,10 @@ backfill over the last few days, then `aggregate` over everything graded.
 --gtfs-dir and --no-upload, touch no Cloud Storage, so both run on local files
 without credentials. `backfill` and `daily` always read the buckets.
 
+Outside Google Cloud, `arrivals`, `backfill` and `daily` refuse to download raw
+files that are not already in the cache, because internet egress costs about
+$0.12 per GiB. `--allow-egress` on `arrivals` and `backfill` forces it.
+
 `daily` ends by copying the run it published to Cloudflare R2, and `publish-r2`
 does that copy for an existing run on demand; see r2.py. Neither runs `arrivals`
 or `aggregate`. Without R2 settings in the environment `daily` skips the copy,
@@ -146,6 +150,7 @@ def run_arrivals(args: argparse.Namespace) -> int:
         raw_dir=args.raw_dir,
         timetables=local_timetables(args.gtfs_dir, upload=not args.no_upload),
         upload=not args.no_upload,
+        allow_egress=args.allow_egress,
     )
 
 
@@ -158,6 +163,7 @@ def grade_day(
     raw_dir: Path | None = None,
     timetables: dict[str, Path] | None = None,
     upload: bool = True,
+    allow_egress: bool = False,
 ) -> int:
     """Grade one service day, write it, and upload it unless told not to."""
     started = time.monotonic()
@@ -167,7 +173,7 @@ def grade_day(
         files = arrivals.local_files(raw_dir, service_date)
         print(f"  raw: {len(files)} files from {raw_dir}")
     else:
-        files = arrivals.fetch_raw(bucket(), service_date, cache)
+        files = arrivals.fetch_raw(bucket(), service_date, cache, allow_egress)
     if not files:
         sys.exit(f"no raw files found for {service_date}")
 
@@ -239,7 +245,14 @@ def run_backfill(args: argparse.Namespace) -> int:
 
     result = backfill.run(
         days,
-        grade=lambda day: grade_day(bucket, day, cache=args.cache, out=args.out, upload=upload),
+        grade=lambda day: grade_day(
+            bucket,
+            day,
+            cache=args.cache,
+            out=args.out,
+            upload=upload,
+            allow_egress=args.allow_egress,
+        ),
         is_done=report_exists(bucket, args.out, upload),
         after_day=lambda day: backfill.prune_cache(args.cache, day),
     )
@@ -572,6 +585,11 @@ def main() -> None:
         type=Path,
         help="unpacked timetables under DIR/gtfs_bus and DIR/gtfs_rail, instead of the archive",
     )
+    one.add_argument(
+        "--allow-egress",
+        action="store_true",
+        help="download raw files from outside Google Cloud, which costs about $0.12 per GiB",
+    )
     one.set_defaults(run=run_arrivals)
 
     daily = jobs.add_parser(
@@ -613,6 +631,11 @@ def main() -> None:
         "--no-upload",
         action="store_true",
         help="write locally; a day counts as done when its report is on local disk",
+    )
+    many.add_argument(
+        "--allow-egress",
+        action="store_true",
+        help="download raw files from outside Google Cloud, which costs about $0.12 per GiB",
     )
     many.set_defaults(run=run_backfill)
 

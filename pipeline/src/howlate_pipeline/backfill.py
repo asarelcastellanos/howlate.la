@@ -19,7 +19,8 @@ Done
 Outcomes
     Each day not done is graded. A day whose checks fail is still written,
     as `arrivals` does on its own. A day whose grade or done check raises is
-    listed under errors and left for the next run. Ctrl-C stops the run.
+    listed under errors and left for the next run. Ctrl-C stops the run. An
+    egress refusal stops the whole run, since every later day would refuse too.
 
 Cache
     After every day attempted, whatever the outcome, raw partitions older
@@ -39,6 +40,8 @@ import shutil
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from howlate_pipeline.arrivals import EgressRefused
 
 # ASCII digits only: \d alone would also accept other scripts' digits.
 DAY = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})|([0-9]{4})([0-9]{2})([0-9]{2})")
@@ -112,6 +115,8 @@ def run(
                 continue
             log(f"=== {day}")
             code = grade(day)
+        except EgressRefused:
+            raise
         except (Exception, SystemExit) as error:  # noqa: BLE001 - one day must not stop the rest
             log(f"  {day} failed: {error!r}")
             result["errors"].append(day)

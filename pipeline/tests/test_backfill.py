@@ -240,7 +240,7 @@ def test_arrivals_grades_the_normalised_day(monkeypatch):
     monkeypatch.setattr(cli.storage, "Client", lambda: None)
     monkeypatch.setattr(cli, "grade_day", lambda client, day, **kwargs: graded.append(day) or 0)
     args = argparse.Namespace(service_date="20261102", cache=None, out=None, raw_dir=None, gtfs_dir=None,
-                              no_upload=True)  # fmt: skip
+                              no_upload=True, allow_egress=False)  # fmt: skip
     cli.run_arrivals(args)
     # The bucket path is built from this, so it is always the same form.
     assert graded == ["20261102"]
@@ -382,3 +382,35 @@ def test_a_bad_from_date_is_reported_before_anything_runs(monkeypatch):
     monkeypatch.setattr(cli.storage, "Client", lambda: pytest.fail("made a client"))
     with pytest.raises(SystemExit, match="not a day"):
         cli.run_backfill(argparse.Namespace(first="2026-1-12", last="2026-11-01"))
+
+
+def test_an_egress_refusal_stops_the_whole_range_after_one_listing(monkeypatch, tmp_path):
+    from howlate_pipeline import arrivals
+
+    monkeypatch.setattr(arrivals, "inside_google_cloud", lambda: False)
+
+    class Blob:
+        name = "vehicle_positions/dt=2026-08-18/hh=15/x.jsonl.gz"
+        size = 2**30
+
+    class Client:
+        listings = 0
+
+        def list_blobs(self, bucket, prefix):
+            Client.listings += 1
+            return [Blob()] if prefix.endswith("dt=2026-08-18/") else []
+
+    client = Client()
+    graded = []
+
+    def grade(day):
+        graded.append(day)
+        arrivals.fetch_raw(client, day, tmp_path)
+        return 0
+
+    with pytest.raises(SystemExit) as refused:
+        backfill.run(DAYS[:3], grade, lambda day: False, lambda day: None)
+    assert refused.value.code != 0
+    assert str(refused.value).startswith("refusing to download 1 raw files")
+    assert graded == [DAYS[0]]
+    assert Client.listings == 3
