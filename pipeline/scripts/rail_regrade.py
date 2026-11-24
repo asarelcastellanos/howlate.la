@@ -80,7 +80,7 @@ def graded(out: Path, service_date: str) -> dict:
     return {
         "stats": {key: report["stats"][key] for key in KEYS},
         "rail_misfits": report["rail_misfits"],
-        "rail_matching": report.get("rail_matching", []),
+        "rail_matching": report["rail_matching"],
         "rail": per_line(path),
     }
 
@@ -131,7 +131,7 @@ def fates(service_date: str, files: list[str], timetable) -> dict:
                      ELSE 'in_no_run'
                    END AS fate
             FROM later_rows l
-            LEFT JOIN (SELECT vehicle_id, run_start, run_end, outcome FROM rail_runs) r
+            LEFT JOIN rail_runs r
               ON r.vehicle_id = l.vehicle_id AND l.ts BETWEEN r.run_start - ? AND r.run_end + ?
         ),
         best AS (
