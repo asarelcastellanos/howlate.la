@@ -176,6 +176,7 @@ describe('check rows', () => {
 		assert.deepEqual(checkRow(file.checks[0]), {
 			label: 'Observations matching a scheduled stop',
 			ok: true,
+			advisory: false,
 			measured: '100',
 			rule: 'passes from 99.9 to 100'
 		});
@@ -325,6 +326,61 @@ describe('the status panel', () => {
 		assert.ok(text.includes('1 check failed'));
 		assert.ok(text.includes('delays beyond an hour'));
 		assert.ok(!text.includes('All checks passed'));
+	});
+
+	describe('an advisory check', () => {
+		const rail = {
+			name: 'rail_misfit_pct',
+			kind: 'range' as const,
+			label: 'rail observations far from their stop',
+			ok: false,
+			value: 7.6543,
+			low: 0,
+			high: 2,
+			advisory: true as const
+		};
+		const withRail = (day: HealthDay, extra: HealthFile['checks'] = [rail]) => {
+			const file = health([day]);
+			return ok({ ...file, checks: [...file.checks.slice(0, 1), ...extra] });
+		};
+
+		test('over its limit, it reads Advisory and the day reads passed', () => {
+			const html = show(withRail(day('2026-11-15')));
+			const text = plain(html);
+			assert.ok(text.includes('All checks passed.'));
+			assert.doesNotMatch(text, /checks? failed/);
+			assert.doesNotMatch(text.slice(text.indexOf('What was checked')), /Failed/);
+			assert.ok(text.includes('November 15, 2026: passed'));
+			assert.deepEqual(
+				[...html.matchAll(/data-cell="(ok|failed)"/g)].map((m) => m[1]),
+				['ok']
+			);
+			const row = plain(html.match(/<li[^>]*data-check="rail_misfit_pct".*?<\/li>/s)?.[0] ?? '');
+			assert.ok(row.includes('7.7, passes from 0 to 2.'));
+			assert.ok(row.includes('Advisory'));
+			assert.ok(row.includes('This does not fail the day while rail matching is off.'));
+			assert.ok(!row.includes('Passed'));
+		});
+
+		test('within its limit, it reads Passed with no note', () => {
+			const html = show(withRail(day('2026-11-15'), [{ ...rail, ok: true, value: 0.5 }]));
+			const row = plain(html.match(/<li[^>]*data-check="rail_misfit_pct".*?<\/li>/s)?.[0] ?? '');
+			assert.ok(row.includes('Passed'));
+			assert.ok(!row.includes('Advisory'));
+			assert.doesNotMatch(html, /data-advisory-note/);
+		});
+
+		test('a binding failure on the same day still reads as failed', () => {
+			const html = show(
+				withRail(day('2026-11-15', false, ['absurd_pct']), [rail, ...health([]).checks.slice(1, 2)])
+			);
+			const text = plain(html);
+			assert.ok(text.includes('1 check failed.'));
+			assert.ok(text.includes('November 15, 2026: failed a check'));
+			const row = plain(html.match(/<li[^>]*data-check="absurd_pct".*?<\/li>/s)?.[0] ?? '');
+			assert.ok(row.includes('Failed'));
+			assert.ok(!row.includes('Advisory'));
+		});
 	});
 
 	test('2 days old shows no warning and 3 days old does', () => {

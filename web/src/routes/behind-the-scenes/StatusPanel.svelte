@@ -106,9 +106,18 @@
 							<span>{row.label}</span>
 							<span class="sm:text-right">
 								<span class="tabular-nums">{row.measured}, {row.rule}.</span>
-								<strong class={row.ok ? '' : 'text-destructive'}
-									>{row.ok ? 'Passed' : 'Failed'}</strong
-								>
+								{#if row.advisory}
+									<strong>Advisory</strong>
+								{:else}
+									<strong class={row.ok ? '' : 'text-destructive'}
+										>{row.ok ? 'Passed' : 'Failed'}</strong
+									>
+								{/if}
+								{#if row.advisory}
+									<span class="caption text-ink-muted block" data-advisory-note
+										>Over its limit. This does not fail the day while rail matching is off.</span
+									>
+								{/if}
 							</span>
 						</li>
 					{/each}
