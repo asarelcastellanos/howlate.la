@@ -57,8 +57,9 @@ Cloud, so Cloud Run jobs and Compute Engine VMs pass.
 
 To grade from the archive, run `bash pipeline/deploy/backfill-vm.sh`. The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and
-accepts the cost. Only the owner uses it. `gs://howlate-derived` and the
-timetables are not guarded.
+accepts the cost. Only the owner uses it. The guard covers vehicle positions
+under `vehicle_positions/`. Timetables under `gtfs/` are not guarded because the
+whole prefix is 0.2 GB, and `gs://howlate-derived` is not guarded.
 
 Nothing is published yet. Roughly a month of collection is where patterns
 separate from noise, so there is no hurry.

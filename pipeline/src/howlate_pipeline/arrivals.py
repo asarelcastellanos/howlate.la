@@ -29,8 +29,8 @@ change in the feed's behaviour shows up as a surprise rather than as data.
 
 import functools
 import glob as globlib
+import http.client
 import os
-import sys
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -102,6 +102,8 @@ def partitions(service_date: str) -> list[str]:
 
 METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/"
 EGRESS_DOLLARS_PER_GIB = 0.12
+METADATA_ATTEMPTS = 3
+METADATA_TIMEOUT_SECONDS = 2
 
 
 @functools.cache
@@ -111,14 +113,22 @@ def inside_google_cloud() -> bool:
     Only the Metadata-Flavor: Google response header counts, so a stray host
     that answers on that name is not mistaken for Google. Asked once per
     process. A wrong "outside" fails the daily job, and a wrong "inside" lets a
-    paid download through.
+    paid download through. A cold start can answer slowly once, so a timeout or
+    a dropped connection gets up to 3 attempts, 6 seconds at most on a laptop.
+    An answer without the header is final and is not retried.
     """
     request = urllib.request.Request(METADATA_URL, headers={"Metadata-Flavor": "Google"})
-    try:
-        with urllib.request.urlopen(request, timeout=2) as response:
-            return response.headers.get("Metadata-Flavor") == "Google"
-    except OSError:
-        return False
+    for _ in range(METADATA_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(request, timeout=METADATA_TIMEOUT_SECONDS) as response:
+                return response.headers.get("Metadata-Flavor") == "Google"
+        except (OSError, http.client.HTTPException):
+            continue
+    return False
+
+
+class EgressRefused(SystemExit):
+    """A SystemExit that `backfill.run` lets through, since every later day would refuse too."""
 
 
 def refuse_egress(missing: list[storage.Blob]) -> None:
@@ -129,7 +139,7 @@ def refuse_egress(missing: list[storage.Blob]) -> None:
     runs on the backfill VM cost $0.51.
     """
     gib = sum(blob.size or 0 for blob in missing) / 2**30
-    sys.exit(
+    raise EgressRefused(
         f"refusing to download {len(missing)} raw files ({gib:.1f} GiB) from "
         f"gs://{RAW_BUCKET} outside Google Cloud. Internet egress would cost about "
         f"${gib * EGRESS_DOLLARS_PER_GIB:.2f} at ${EGRESS_DOLLARS_PER_GIB:.2f} per GiB. "

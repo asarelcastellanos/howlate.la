@@ -4,6 +4,7 @@ Cloud Storage is replaced by small fakes that hold exactly what each test needs.
 Nothing here touches the network.
 """
 
+import http.client
 import io
 import json
 import zipfile
@@ -619,3 +620,69 @@ def test_only_a_service_whose_start_date_is_after_the_day_is_later_start(tmp_pat
         [["ADDED", SERVICE_DATE, "1"]],
     )
     assert gtfs.later_start_services(directory, SERVICE_DATE) == {"LATER"}
+
+
+class FakeResponse:
+    def __init__(self, flavor):
+        self.headers = {"Metadata-Flavor": flavor} if flavor else {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+REAL_CHECK = arrivals.inside_google_cloud
+
+
+@pytest.fixture
+def check(monkeypatch):
+    """The real check with urlopen answering from a list, and a clean cache around it."""
+    answers, calls = [], []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request, timeout))
+        answer = answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(arrivals.urllib.request, "urlopen", fake_urlopen)
+    REAL_CHECK.cache_clear()
+    yield REAL_CHECK, answers, calls
+    REAL_CHECK.cache_clear()
+
+
+def test_the_metadata_flavor_header_means_inside(check):
+    real, answers, calls = check
+    answers.append(FakeResponse("Google"))
+    result = real()
+    assert result is True
+    assert calls[0][0].full_url == arrivals.METADATA_URL
+    assert calls[0][0].get_header("Metadata-flavor") == "Google"
+
+
+def test_an_answer_without_the_header_means_outside_with_no_retry(check):
+    real, answers, calls = check
+    answers.append(FakeResponse(None))
+    result = real()
+    assert result is False
+    assert len(calls) == 1
+
+
+def test_a_connection_error_means_outside_after_three_attempts(check):
+    real, answers, calls = check
+    answers.extend([OSError("down")] * 3)
+    result = real()
+    assert result is False
+    assert len(calls) == 3
+    assert all(timeout == 2 for _, timeout in calls)
+
+
+def test_a_first_failure_then_a_good_answer_means_inside(check):
+    real, answers, calls = check
+    answers.extend([http.client.RemoteDisconnected("cold"), FakeResponse("Google")])
+    result = real()
+    assert result is True
+    assert len(calls) == 2

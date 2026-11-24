@@ -40,6 +40,8 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from howlate_pipeline.arrivals import EgressRefused
+
 # ASCII digits only: \d alone would also accept other scripts' digits.
 DAY = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})|([0-9]{4})([0-9]{2})([0-9]{2})")
 
@@ -112,6 +114,8 @@ def run(
                 continue
             log(f"=== {day}")
             code = grade(day)
+        except EgressRefused:
+            raise
         except (Exception, SystemExit) as error:  # noqa: BLE001 - one day must not stop the rest
             log(f"  {day} failed: {error!r}")
             result["errors"].append(day)
