@@ -71,21 +71,37 @@ ref:
 
 ```bash
 bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/count_positions.py \
-  <git-ref> 2026-11-20
+  <git-ref> 2026-11-20 2026-11-20
 ```
+
+With one date, the range runs through the latest complete service day, which
+can be several days of 1.2 GB each. Pass the first and the last day for a
+one-day run.
 
 The VM runs the script once per service day in the range, in the same checkout
 and Python environment as `backfill`, as
 `python <script> --service-date YYYYMMDD --cache <dir> --out <dir>`. The script
 reads raw files through `arrivals.fetch_raw` and writes its results under
 `--out`. After each day the VM copies them to
-`gs://howlate-derived/logs/scripts/<script-name>/<run-timestamp>/<day>/` and
-clears that day's raw cache. A reclaimed VM loses one day at most, and a
-restarted one skips each day that already has its `_done` object. The log goes
-to `gs://howlate-derived/logs/` as in `backfill` mode. Script mode writes
-nothing to `gs://howlate-raw` or to `arrivals/`, `trips/`, `reports/` and
-`site/`, so it skips the check that the daily schedule is paused. The same
-reminder applies, delete the VM after each run.
+`gs://howlate-derived/logs/scripts/<script-name>/<run-id>/<day>/` and
+clears that day's raw cache. The wrapper copies only under
+`gs://howlate-derived/logs/scripts/`. The analysis script itself is trusted
+code that runs with the pipeline service account, which can write anywhere in
+`gs://howlate-derived` and can only read `gs://howlate-raw`.
+
+A Spot reclaim deletes the VM and loses the day in progress. Running the
+command again without `--run` starts the whole range over under a new run id.
+Add `--run <id>` to reuse that id as the output prefix, and the new VM skips
+each day that already has its `_done` object. The run prints its id and the
+exact resume command when it starts. The id may hold only letters, digits,
+`_` and `-`, and `--run` needs `--script`.
+
+A day that fails shows only as "not saved" in the run log, so check the log
+and the `_done` objects. The log goes to `gs://howlate-derived/logs/` as in
+`backfill` mode. Script mode writes nothing to `gs://howlate-raw` or to
+`arrivals/`, `trips/`, `reports/` and `site/`, so it skips the check that the
+daily schedule is paused. The same reminder applies, delete the VM after each
+run.
 
 The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and

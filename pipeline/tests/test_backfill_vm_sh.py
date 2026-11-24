@@ -33,6 +33,11 @@ BAD = [
     "/pipeline/scripts/a.py",
     "pipeline/../collector/a.py",
     "pipeline/scripts/../../collector/a.py",
+    "pipeline/a,b.py",
+    "pipeline/...py",
+    "pipeline/.py",
+    "pipeline/scripts/.hidden.py",
+    "pipeline/my script.py",
     "",
 ]
 
@@ -98,3 +103,10 @@ def test_the_three_argument_call_still_creates_the_backfill_vm(tmp_path):
     )
     assert "howlate-script" not in create
     assert any(c.startswith("scheduler jobs describe howlate-daily") for c in calls)
+
+
+def test_a_run_id_that_could_escape_the_prefix_stops_before_any_gcloud_call(tmp_path):
+    code, calls = run_with_fake_gcloud(
+        tmp_path, "--script", "pipeline/a.py", "--run", "../x", "main", "2026-11-01", "2026-11-02"
+    )
+    assert (code, calls) == (1, [])

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Grade every collected day once, on a temporary VM beside the archive.
 #
-#   bash pipeline/deploy/backfill-vm.sh [--script <path>] <git-ref> <first-day> [last-day]
+#   bash pipeline/deploy/backfill-vm.sh [--script <path> [--run <id>]] <git-ref> <first-day> [last-day]
 #   bash pipeline/deploy/backfill-vm.sh release/v0.3.0 2026-08-18
 #   bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/count_positions.py \
-#     v0.5.2/vm-script-mode 2026-11-20
+#     v0.5.2/vm-script-mode 2026-11-20 2026-11-20
+#
+# One date means through the latest complete service day, which can be several
+# days of 1.2 GB each. Pass the last day too for a one-day run.
 #
 # With --script the VM runs that analysis script once per service day in place
 # of `backfill`, in the same checkout and Python environment. The script is a
@@ -16,10 +19,19 @@
 # It reads raw files through `arrivals.fetch_raw(client, service_date, cache)`,
 # which is free on the VM, and writes its results under --out. After each day
 # the VM copies that day's --out to
-# gs://howlate-derived/logs/scripts/<script-name>/<run-timestamp>/<day>/, then
-# writes a `_done` object beside it, then clears the day's cache. A Spot
-# reclaim loses one day at most, and a restarted VM skips each day that has its
-# `_done`. Script mode writes nowhere else: not gs://howlate-raw and not the
+# gs://howlate-derived/logs/scripts/<script-name>/<run-id>/<day>/, then
+# writes a `_done` object beside it, then clears the day's cache. The wrapper
+# copies only under gs://howlate-derived/logs/scripts/. The script itself is
+# trusted code. It runs with the pipeline service account, which can write
+# anywhere in gs://howlate-derived and can only read gs://howlate-raw.
+#
+# A Spot reclaim deletes the VM, and nothing reboots it, so the day in progress
+# is lost. Running this script again without --run starts the whole range over
+# under a new run id. Running it with --run <id> reuses that id as the output
+# prefix, and the new VM skips each day that has its `_done`. The script prints
+# the run id and the exact resume command when a run starts. A day that fails
+# shows only as "not saved" in the run log, so check the log and the `_done`
+# objects. Script mode writes nowhere else: not gs://howlate-raw and not the
 # arrivals/, trips/, reports/ or site/ prefixes.
 #
 # Why a VM: the raw archive is about 1.2 GB a day. Reading it from inside
@@ -27,7 +39,8 @@
 #
 # Why Spot: it costs a fraction of a normal VM, and the backfill resumes where
 # it stopped, so being reclaimed costs only the day in progress. Run this
-# script again and the next VM picks up from there.
+# script again and the next VM picks up from there. Script mode needs --run
+# to do the same.
 #
 # When the backfill ends the VM powers itself off. Powered off, it no longer
 # bills for CPU but its 50 GB disk still bills, about $5 a month, until it is
@@ -47,13 +60,22 @@
 
 set -euo pipefail
 
-# True for a path the VM may run: inside pipeline/, ending in .py, with no
-# `..` part that could climb out of it. Checked here because a bad path found on
-# the VM costs a boot and a package install before it fails.
+# True for a path the VM may run: inside pipeline/, ending in .py, made only of
+# letters, digits, underscore, hyphen, dot and slash, with no `..` part that
+# could climb out of it and no file name that starts with a dot. A comma would
+# split `--metadata` and the name becomes part of the output prefix. Checked
+# here because a bad path found on the VM costs a boot and a package install
+# before it fails.
 valid_script_path() {
   case "$1" in
     pipeline/*.py) ;;
     *) return 1 ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9_./-]*) return 1 ;;
+  esac
+  case "/$1" in
+    */.[!/]*.py | */.py) return 1 ;;
   esac
   case "/$1/" in
     */../*) return 1 ;;
@@ -61,12 +83,36 @@ valid_script_path() {
   return 0
 }
 
+# True for a run id that stays one path part of the output prefix and cannot
+# break the comma-separated `--metadata`.
+valid_run_id() {
+  case "$1" in
+    "" | *[!A-Za-z0-9_-]*) return 1 ;;
+  esac
+  return 0
+}
+
 SCRIPT_PATH=
-if [ "${1:-}" = --script ]; then
-  SCRIPT_PATH=${2:?repo-relative path to a script under pipeline/, e.g. pipeline/scripts/count_positions.py}
+RUN_ID=
+while [ "${1:-}" = --script ] || [ "${1:-}" = --run ]; do
+  if [ "$1" = --script ]; then
+    SCRIPT_PATH=${2:?repo-relative path to a script under pipeline/, e.g. pipeline/scripts/count_positions.py}
+  else
+    RUN_ID=${2:?run id to resume, e.g. 20261122T180000Z}
+  fi
   shift 2
-  if ! valid_script_path "$SCRIPT_PATH"; then
-    echo "$SCRIPT_PATH must be under pipeline/ and end in .py" >&2
+done
+if [ -n "$SCRIPT_PATH" ] && ! valid_script_path "$SCRIPT_PATH"; then
+  echo "$SCRIPT_PATH must be under pipeline/, end in .py and use only letters, digits, _, -, . and /" >&2
+  exit 1
+fi
+if [ -n "$RUN_ID" ]; then
+  if [ -z "$SCRIPT_PATH" ]; then
+    echo "--run needs --script" >&2
+    exit 1
+  fi
+  if ! valid_run_id "$RUN_ID"; then
+    echo "$RUN_ID must use only letters, digits, _ and -" >&2
     exit 1
   fi
 fi
@@ -92,13 +138,15 @@ trap 'rm -f "$STARTUP" "$SHUTDOWN"' EXIT
 cat >"$STARTUP" <<'SCRIPT'
 #!/usr/bin/env bash
 # Runs as root on the VM at every boot. A reboot reruns the backfill, which
-# skips every day already in the bucket.
+# skips every day already in the bucket. A Spot reclaim deletes the VM instead
+# of rebooting it, so a script run resumes only when this script is run again
+# with --run and the same id.
 set -uo pipefail
 meta() { curl -sf -H "Metadata-Flavor: Google" \
   "http://metadata.google.internal/computeMetadata/v1/instance/attributes/$1"; }
 REF=$(meta howlate-ref); FIRST=$(meta howlate-first); LAST=$(meta howlate-last)
 # Absent in backfill mode, which leaves both empty. RUN is fixed when the VM is
-# created, so a reboot after a Spot reclaim resumes under the same prefix.
+# created, so a reboot resumes under the same prefix.
 SCRIPT=$(meta howlate-script || true); RUN=$(meta howlate-run || true)
 LOG=/var/log/howlate-backfill.log
 # One name per boot, written down so the shutdown script uploads to the same
@@ -248,10 +296,13 @@ fi
 
 META="howlate-ref=$REF,howlate-first=$FIRST,howlate-last=$LAST"
 if [ -n "$SCRIPT_PATH" ]; then
-  RUN=$(date -u +%Y%m%dT%H%M%SZ)
+  RUN=${RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}
   META="$META,howlate-script=$SCRIPT_PATH,howlate-run=$RUN"
   echo "==> Script $SCRIPT_PATH, $FIRST to $LAST, from $REF on $NAME"
+  echo "    run id: $RUN"
   echo "    output: gs://howlate-derived/logs/scripts/$(basename "$SCRIPT_PATH" .py)/$RUN/"
+  echo "    if Spot reclaims the VM, resume the days not yet done with:"
+  echo "    bash pipeline/deploy/backfill-vm.sh --script $SCRIPT_PATH --run $RUN $REF $FIRST $LAST"
 else
   echo "==> Backfill $FIRST to $LAST from $REF on $NAME"
 fi
