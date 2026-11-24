@@ -108,28 +108,58 @@ run.
 `pipeline/scripts/rail_runs.py` rebuilds each rail vehicle's runs from latitude
 and longitude alone, ignoring the reported `trip_id`, and fits each run to the
 running trips of its route and direction by the times at the stations it
-passed. It then classes the ids the vehicle reported during the run as the
-fitted trip, the vehicle's previous trip (stale), another trip on the same route
-and direction (with the offset in trips and minutes), another route or
-direction, a trip whose service is not running that day, or no id. It also
-counts the records with a position, the ids per run and where in the run the id
-changes. A rail vehicle id names a set of cars and one train can appear under more
-than one id, so it also counts runs with a twin, another vehicle id fitted to the
-same trip at the same time. It is an investigation tool and writes nothing the site reads.
+passed. A route that the timetable runs as separate pieces, as 801 did on
+2026-11-13 (a 13 stop piece and a 30 stop piece), gets one station list for each
+piece. The unit is one run, and the id counted for it is the most common id the
+vehicle reported during the run. The script classes that id as the fitted trip,
+the vehicle's previous trip (stale), another trip on the same route and
+direction (with the offset in trips within one piece, and in minutes), another
+route or direction, a trip whose service is not running that day, or no id. It
+also counts the records with a position, the ids per run, where in the run the id
+changes, and how the run fits the later-start trips that run on that weekday. A
+rail vehicle id names a set of cars and one train can appear under more than one
+id, so it also counts runs with a twin, another vehicle id fitted to the same
+trip at the same time. It is an investigation tool and writes nothing the site
+reads.
+
+Archive runs happen only on the backfill VM, which reads the raw archive for
+free. Never run the script against the buckets from a laptop.
 
 ```bash
 bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_runs.py \
   <git-ref> 2026-11-13 2026-11-15
 ```
 
-Each day writes `rail_runs_<day>.json` (a summary per route) and
-`rail_runs_<day>.csv` (one row per run) under
-`gs://howlate-derived/logs/scripts/rail_runs/<run-id>/<day>/`. A fit is
+Each day writes `rail_runs_<day>.json` (a summary per route), `rail_runs_<day>.csv`
+(one row per run) and `rail_timetable_<day>.json` (the trips each timetable copy
+lists by service and stop pattern, and the stops the vehicles reached beyond the
+station lists) under
+`gs://howlate-derived/logs/scripts/rail_runs/<run-id>/<day>/`. The timetable copy
+is chosen as the pipeline chooses it, with the trip ids the vehicles reported
+that day, and only that copy's running services are candidates. A fit is
 confident when the best trip is within 120 seconds and the next trip is at
-least 120 seconds worse. The summary reports every class for all runs and for
-the confident runs, because a vehicle late by half a headway fits two trips
-equally. To try it with no bucket access, build a raw directory and an unpacked
-rail timetable and pass `--raw-dir` and `--gtfs-dir` in place of `--cache`.
+least 120 seconds worse. That keeps only runs within 120 seconds of a trip, so
+the confident set selects on-time trains. The summary reports every class for all
+runs and for the confident runs, because a vehicle late by half a headway fits
+two trips equally.
+
+To repeat the local check on a hand-built day, with no bucket access, make two
+folders from the pattern in `pipeline/tests/fixture_day.py`. In RAW, write
+`vehicle_positions/dt=YYYY-MM-DD/hh=HH/*.jsonl.gz` as `build_raw` does, but with
+`agency` set to `LACMTA_Rail` and `payload.vehicle.position.latitude` and
+`longitude`, `trip.startTime` and `trip.routeId` on each record. In GTFS_RAIL,
+write `calendar.txt`, `trips.txt` (with `direction_id`), `stop_times.txt` and
+`stops.txt` (with coordinates about 1.8 km apart) as `build_timetable` does.
+Then run
+
+```bash
+python pipeline/scripts/rail_runs.py --service-date YYYYMMDD --out OUT \
+  --raw-dir RAW --gtfs-dir GTFS_RAIL
+```
+
+and read `OUT/rail_runs_<day>.csv`. A vehicle that reports trip A while running
+trip B shows `class` `same_line` or `stale`, and one that reports a trip under
+a service that starts later shows `not_in_force`.
 
 The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and

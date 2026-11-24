@@ -19,6 +19,9 @@ missing for GAP_S, starts a new run. Where two routes share track, the route
 that explains the most stations wins. The reported trip_id is never used to cut
 runs.
 
+A route that the timetable in force runs as separate pieces has one station list
+for each, keyed "801" and "801#2".
+
 Each run is then fitted to the running trips of its route and direction. The
 fit of a trip is the median, over the stations both pass, of the seconds between
 the vehicle's time and the scheduled time. The trip with the lowest median is the
