@@ -205,11 +205,17 @@ def map_trip(trip: Trip, stations: list, coords: dict) -> dict:
 
 
 def build_routes(trips: dict, coords: dict) -> dict:
-    """For each running route, its stations in order and its trips as {station: times}.
+    """The reference station lists, one for each stop pattern of each running route.
 
-    The stations are the stops of the running trip with the most stops. Every
-    trip's stops are mapped onto them by coordinates, not by stop_id, because
-    the two directions can use different platform ids at one station.
+    A route can run as separate pieces. On 2026-11-13 the timetable in force
+    split route 801 into a 13 stop trip from Downtown Long Beach and a 30 stop
+    trip to Pomona North, with 117 trips each way in each piece. One list from
+    the longest trip would hold only one piece and leave the other without runs.
+    So trips are taken longest first, and a trip with under half its stops
+    within MAP_M of any list so far starts a new list, keyed "801#2". Every trip
+    is mapped onto its list by coordinates, not by stop_id, because the two
+    directions can use different platform ids at one station.
+
     `later_fits` holds the later-start trips that run on this weekday, mapped
     onto the same stations, so a fit to them tests the times and not the pattern.
     """
@@ -217,22 +223,35 @@ def build_routes(trips: dict, coords: dict) -> dict:
     for trip in trips.values():
         if trip.active and trip.direction is not None:
             by_route[trip.route].append(trip)
-    routes = {}
+    routes: dict = {}
     for route, listed in by_route.items():
-        ref = max(listed, key=lambda t: len(t.stops))
-        stations = [coords[s[1]] for s in ref.stops if s[1] in coords]
-        fits, later_fits = defaultdict(list), defaultdict(list)
-        for trip in listed:
-            fits[trip.direction].append((trip, map_trip(trip, stations, coords)))
-        for trip in trips.values():
-            if trip.route == route and trip.weekday and trip.direction is not None:
-                later_fits[trip.direction].append((trip, map_trip(trip, stations, coords)))
-        routes[route] = {
-            "stations": stations,
-            "ref_direction": ref.direction,
-            "fits": fits,
-            "later_fits": later_fits,
-        }
+        for trip in sorted(listed, key=lambda t: (-len(t.stops), t.trip_id)):
+            best = None
+            for key, info in routes.items():
+                if info["route"] == route:
+                    mapped = map_trip(trip, info["stations"], coords)
+                    if best is None or len(mapped) > len(best[1]):
+                        best = (key, mapped)
+            if best is None or 2 * len(best[1]) < len(trip.stops):
+                count = sum(1 for info in routes.values() if info["route"] == route)
+                key = route if not count else f"{route}#{count + 1}"
+                stations = [coords[s[1]] for s in trip.stops if s[1] in coords]
+                routes[key] = {
+                    "route": route,
+                    "stations": stations,
+                    "ref_direction": trip.direction,
+                    "fits": defaultdict(list),
+                    "later_fits": defaultdict(list),
+                }
+                best = (key, map_trip(trip, stations, coords))
+            routes[best[0]]["fits"][trip.direction].append((trip, best[1]))
+    for trip in trips.values():
+        if trip.weekday and trip.direction is not None:
+            for info in routes.values():
+                if info["route"] == trip.route:
+                    mapped = map_trip(trip, info["stations"], coords)
+                    if len(mapped) >= MIN_COMMON:
+                        info["later_fits"][trip.direction].append((trip, mapped))
     return routes
 
 
@@ -289,14 +308,15 @@ def overlaps(a: dict, b: dict) -> bool:
 def vehicle_runs(samples: list, routes: dict) -> list[dict]:
     """The runs of one vehicle, each route's candidates pruned by stations explained."""
     candidates = []
-    for route, info in routes.items():
+    for key, info in routes.items():
         for sign, run in split_runs(stretches(samples, info["stations"])):
             direction = info["ref_direction"] if sign > 0 else 1 - info["ref_direction"]
             times = {run[0].k: run[0].last, run[-1].k: run[-1].first}
             times.update({s.k: s.best for s in run[1:-1]})
             candidates.append(
                 {
-                    "route": route,
+                    "route": info["route"],
+                    "ref": key,
                     "direction": direction,
                     "start": run[0].last,
                     "end": run[-1].first,
@@ -384,12 +404,10 @@ def analyse(con, trips: dict, routes: dict, coords: dict, base: int) -> tuple[li
         by_vehicle[row[0]].append(row)
 
     order = {}
-    for key in {(t.route, t.direction) for t in trips.values() if t.active}:
-        listed = sorted(
-            (t for t in trips.values() if t.active and (t.route, t.direction) == key),
-            key=lambda t: (t.first_dep, t.trip_id),
-        )
-        order.update({t.trip_id: i for i, t in enumerate(listed)})
+    for key, info in routes.items():
+        for listed in info["fits"].values():
+            ranked = sorted(listed, key=lambda pair: (pair[0].first_dep, pair[0].trip_id))
+            order.update({trip.trip_id: (key, i) for i, (trip, _) in enumerate(ranked)})
 
     points = {(round(lat, 4), round(lon, 4)): stop_id for stop_id, (lat, lon) in coords.items()}
     near: dict = {}
@@ -411,7 +429,7 @@ def analyse(con, trips: dict, routes: dict, coords: dict, base: int) -> tuple[li
                     visited[home][near[key]][0] += 1
                     visited[home][near[key]][1].add(vehicle)
         for run in runs:
-            info = routes[run["route"]]
+            info = routes[run["ref"]]
             run.update(fit_run(run, info["fits"][run["direction"]], base))
             later = fit_run(run, info["later_fits"][run["direction"]], base)
             run["later"] = later if later["best"] is not None else None
@@ -444,8 +462,8 @@ def analyse(con, trips: dict, routes: dict, coords: dict, base: int) -> tuple[li
             signed = None
             if info is not None and info.route == run["route"]:
                 mapped = cache.setdefault(
-                    (run["route"], reported),
-                    map_trip(info, routes[run["route"]]["stations"], coords),
+                    (run["ref"], reported),
+                    map_trip(info, routes[run["ref"]]["stations"], coords),
                 )
                 found = residuals(run, mapped, base)
                 if len(found) >= MIN_COMMON:
@@ -459,8 +477,8 @@ def analyse(con, trips: dict, routes: dict, coords: dict, base: int) -> tuple[li
                 and info.direction == run["direction"]
             ):
                 offset_min = (info.first_dep - best.first_dep) / 60
-                if info.active:
-                    offset_trips = order[reported] - order[best.trip_id]
+                if info.active and order[reported][0] == run["ref"]:
+                    offset_trips = order[reported][1] - order[best.trip_id][1]
             elif info is not None and not info.active and info.route == run["route"]:
                 offset_min = (info.first_dep - best.first_dep) / 60
 
@@ -468,6 +486,7 @@ def analyse(con, trips: dict, routes: dict, coords: dict, base: int) -> tuple[li
                 {
                     "vehicle": vehicle,
                     "route": run["route"],
+                    "ref": run["ref"],
                     "direction": run["direction"],
                     "start": run["start"],
                     "end": run["end"],
@@ -694,8 +713,9 @@ def timetable_summary(trips: dict, routes: dict, coords: dict, names: dict, visi
         dict(zip(keys.split(), k, strict=True), trips=n) for k, n in sorted(groups.items(), key=str)
     ]
     report = {}
-    for route, info in routes.items():
-        stations = info["stations"]
+    for route in sorted({info["route"] for info in routes.values()}):
+        refs = {k: i for k, i in routes.items() if i["route"] == route}
+        stations = [st for i in refs.values() for st in i["stations"]]
         beyond, inside = [], set()
         for stop_id, (count, vehicles) in visited.get(route, {}).items():
             lat, lon = coords[stop_id]
@@ -714,7 +734,13 @@ def timetable_summary(trips: dict, routes: dict, coords: dict, names: dict, visi
                     }
                 )
         report[route] = {
-            "reference_stations": len(stations),
+            "references": {
+                k: {
+                    "stations": len(i["stations"]),
+                    "trips": {str(d): len(v) for d, v in sorted(i["fits"].items())},
+                }
+                for k, i in refs.items()
+            },
             "visited_reference_stations": len(inside),
             "beyond": sorted(beyond, key=lambda b: -b["samples"]),
         }
