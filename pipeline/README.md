@@ -161,6 +161,42 @@ and read `OUT/rail_runs_<day>.csv`. A vehicle that reports trip A while running
 trip B shows `class` `same_line` or `stale`, and one that reports a trip under
 a service that starts later shows `not_in_force`.
 
+### Grading rail by position
+
+Rail trip ids are wrong on days when a line runs as split pieces (#177), so
+`arrivals.match_rail_runs` grades each rail run on the trip it ran when the id
+does not check out. `railmatch.py` rebuilds the runs from latitude and longitude
+and decides each one. The reasons and the thresholds are in
+`docs/adr/0002-match-rail-runs-by-position-when-the-id-fails.md`.
+
+- Trusted. The most common reported id is a trip of the copy in force with a
+  running service, and the most common startTime is within 120 seconds of its
+  first departure. The run is graded as before.
+- Matched. Otherwise the run is fitted to the trips in force on its station
+  list and direction. A fit is confident when the best trip is within 120
+  seconds and the next trip is at least 120 seconds worse. The run is graded
+  against that trip, and its rows have `source` `matched`.
+- Ungraded. Any other run, and any rail report outside every run, is dropped
+  before grading.
+
+The report lists the three counts per line as `rail_matching`. `railmatch.ENABLED`
+ships `False`, which grades every rail run on its reported trip, because the
+matcher agreed with the reported id in under 95% of confident fits on lines 801,
+804 and 805 on the normal weekdays 2026-11-13 and 11-20 (#178). Set it to `True`
+to grade by position.
+
+Two scripts measure it on the backfill VM, as `rail_runs.py` does.
+`rail_hide_and_compare.py` hides the id of each trusted run, fits it by position
+and counts how often the confident fit is the reported trip. `rail_regrade.py`
+grades one day with the matcher off and on, writes both days under `--out` with no
+upload, and counts what became of the trip ids that sit only under later-start
+services.
+
+```bash
+bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_regrade.py \
+  <git-ref> 2026-11-13 2026-11-15
+```
+
 The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and
 accepts the cost. Only the owner uses it. The guard covers vehicle positions
@@ -446,7 +482,8 @@ cannot be hidden. A line that is only partly explained passes, as route 801 did
 on 2026-11-14 with 338 explained trips and 233 matched ones.
 
 `rail_misfit_pct` catches a rail trip id that names the wrong run. A run is one
-vehicle on one reported trip. For each run, the check takes the median gap
+vehicle on one trip of the grader's observations, which is the trip it graded
+(see "Grading rail by position"). For each run, the check takes the median gap
 between when the vehicle first stopped at each stop and when a trip scheduled
 it, and does this for the reported trip and for every other trip on the same
 route and direction. A run is a misfit when another trip is within 60 seconds

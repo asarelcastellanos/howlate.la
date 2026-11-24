@@ -28,9 +28,14 @@ CONFIDENT_MARGIN_S = 120
 LAYOVER_S = 3600
 
 # The one switch for grading rail by position. Off, every rail run is graded on
-# the trip id it reported, as before the matcher. It stays a constant so a
-# matcher that fails its measured threshold can ship wired and off.
-ENABLED = True
+# the trip id it reported, as before the matcher. It ships off because it fell
+# short of the threshold set on #178, which was 95% agreement with the reported
+# id on every line with 30 or more trusted runs on a normal weekday. On
+# 2026-11-13 and 11-20 the confident fits of trusted runs agreed in 91.6% to
+# 100% of cases, and lines 801 (92.5% on 11-20), 804 (94.6%, 91.6%) and 805
+# (92.7%, 93.9%) were under 95%. Turn it on only after the owner reads those
+# numbers on #178.
+ENABLED = False
 
 # How far a reported startTime may sit from its trip's first departure before the
 # id is no longer trusted. On 2026-11-13 and 11-20, lines 802 to 807 had the

@@ -6,6 +6,11 @@ from fixture_rail import RAIL, run_rail_day
 from howlate_pipeline import railmatch, report
 
 
+@pytest.fixture(autouse=True)
+def matcher_on(monkeypatch):
+    monkeypatch.setattr(railmatch, "ENABLED", True)
+
+
 @pytest.fixture
 def con(tmp_path):
     return run_rail_day(tmp_path)
