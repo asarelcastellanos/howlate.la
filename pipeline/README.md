@@ -103,6 +103,32 @@ and the `_done` objects. The log goes to `gs://howlate-derived/logs/` as in
 daily schedule is paused. The same reminder applies, delete the VM after each
 run.
 
+### Finding why rail trip ids disagree
+
+`pipeline/scripts/rail_runs.py` rebuilds each rail vehicle's runs from latitude
+and longitude alone, ignoring the reported `trip_id`, and fits each run to the
+running trips of its route and direction by the times at the stations it
+passed. It then classes the ids the vehicle reported during the run as the
+fitted trip, the vehicle's previous trip (stale), another trip on the same route
+and direction (with the offset in trips and minutes), another route or
+direction, a trip whose service is not running that day, or no id. It also
+counts the records with a position, the ids per run and where in the run the id
+changes. It is an investigation tool and writes nothing the site reads.
+
+```bash
+bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_runs.py \
+  <git-ref> 2026-11-13 2026-11-15
+```
+
+Each day writes `rail_runs_<day>.json` (a summary per route) and
+`rail_runs_<day>.csv` (one row per run) under
+`gs://howlate-derived/logs/scripts/rail_runs/<run-id>/<day>/`. A fit is
+confident when the best trip is within 120 seconds and the next trip is at
+least 120 seconds worse. The summary reports every class for all runs and for
+the confident runs, because a vehicle late by half a headway fits two trips
+equally. To try it with no bucket access, build a raw directory and an unpacked
+rail timetable and pass `--raw-dir` and `--gtfs-dir` in place of `--cache`.
+
 The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and
 accepts the cost. Only the owner uses it. The guard covers vehicle positions
