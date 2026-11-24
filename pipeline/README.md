@@ -203,6 +203,10 @@ bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_regrade.py \
   <git-ref> 2026-11-13 2026-11-15
 ```
 
+`pipeline/scripts/hash_day.py` grades one day with the checkout's code and
+writes the row count and an order-independent hash of every column of `arrivals`
+and `trips`. Run it from two refs and compare the files.
+
 The
 `--allow-egress` flag on `arrivals` and `backfill` forces the download and
 accepts the cost. Only the owner uses it. The guard covers vehicle positions
