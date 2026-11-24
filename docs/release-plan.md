@@ -407,7 +407,7 @@ Goal: close the data gaps the 0.5.1 review found.
 
 ## 0.5.3 Redesign
 
-Goal: the site's visual redesign. The scope is set when the version starts.
+Skipped on 2026-11-24. The redesign moved to 0.9.0 (#189).
 
 ## 0.6.0 Commute tool
 
@@ -569,6 +569,8 @@ release candidate.
 - Build the homepage: your story, the replay, and the headline. (Low)
 - Polish: accessibility audit, performance budget, error and empty states, a
   404 page, and a full pass on a phone and a laptop. (Low to Medium)
+- Redesign the site's visuals (#189). The scope is set with the owner before
+  any design work starts. (Low)
 
 ### Tests
 
