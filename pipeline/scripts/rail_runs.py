@@ -445,11 +445,12 @@ def analyse(con, trips: dict, routes: dict, base: int) -> list[dict]:
 
 
 def mark_twins(runs: list[dict]) -> None:
-    """Count the other vehicles that ran the same trip at the same time.
+    """Count the other vehicle ids that ran the same trip at the same time.
 
-    Rail vehicle ids name a set of cars, such as "1095-1100-1110", and two
-    coupled sets report one train under two ids. A twin is a run on the same
-    route and direction, fitted to the same trip, overlapping in time.
+    A rail vehicle id names a set of cars, such as "1095-1100-1110", and on
+    2026-11-13 route 801 had 83 ids for 229 trips. A twin is a run on the same
+    route and direction, fitted to the same trip, overlapping in time. It is one
+    train under two ids, or a fragment cut off by an id that changed.
     """
     groups = defaultdict(list)
     for run in runs:

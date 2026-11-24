@@ -113,9 +113,9 @@ fitted trip, the vehicle's previous trip (stale), another trip on the same route
 and direction (with the offset in trips and minutes), another route or
 direction, a trip whose service is not running that day, or no id. It also
 counts the records with a position, the ids per run and where in the run the id
-changes. A rail vehicle id names a set of cars, and two coupled sets can report
-one train, so it also counts runs with a twin, another vehicle id on the same
-trip at the same time. It is an investigation tool and writes nothing the site reads.
+changes. A rail vehicle id names a set of cars and one train can appear under more
+than one id, so it also counts runs with a twin, another vehicle id fitted to the
+same trip at the same time. It is an investigation tool and writes nothing the site reads.
 
 ```bash
 bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_runs.py \
