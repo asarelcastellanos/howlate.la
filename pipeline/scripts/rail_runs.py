@@ -93,7 +93,6 @@ class Trip:
     trip_id: str
     route: str
     direction: int | None
-    service: str
     active: bool
     later: bool
     stops: list
@@ -158,7 +157,6 @@ def load_timetable(directories: list[Path], service_date: str) -> tuple[dict, di
                 trip_id,
                 row["route_id"],
                 int(direction) if direction.isdigit() else None,
-                row["service_id"],
                 row["service_id"] in active,
                 row["service_id"] in later,
                 rows,
