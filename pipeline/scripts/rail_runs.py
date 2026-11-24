@@ -52,6 +52,7 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -93,8 +94,11 @@ class Trip:
     trip_id: str
     route: str
     direction: int | None
+    service: str
+    source: str
     active: bool
     later: bool
+    weekday: bool
     stops: list
     first_dep: int
 
@@ -122,20 +126,27 @@ def read_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(handle))
 
 
-def load_timetable(directories: list[Path], service_date: str) -> tuple[dict, dict]:
-    """Every trip any copy lists, running or not, and every stop's coordinates.
+def load_timetable(directories: list[Path], service_date: str) -> tuple[dict, dict, dict]:
+    """Every trip any copy lists, and every stop's coordinates and name.
 
-    The first copy wins for a trip id. A trip id never differs between copies
-    (#166), so a later copy only adds the trips the first one lacks.
+    Only the first copy, the one grading uses, has running trips. A trip another
+    copy adds is listed but never active, so the candidates for a fit are the
+    timetable in force and nothing else. `weekday` is true for a later-start
+    service whose calendar row runs on this date's weekday, which is the set a
+    later timetable would offer if it were already in force.
     """
     trips: dict[str, Trip] = {}
     coords: dict[str, tuple[float, float]] = {}
-    for directory in directories:
-        active = gtfs.active_services(directory, service_date)
+    names: dict[str, str] = {}
+    day = gtfs.DOW[datetime.strptime(service_date, "%Y%m%d").weekday()]
+    for position, directory in enumerate(directories):
+        active = gtfs.active_services(directory, service_date) if position == 0 else set()
         later = gtfs.later_start_services(directory, service_date)
+        calendar = {r["service_id"]: r for r in read_rows(directory / "calendar.txt")}
         for row in read_rows(directory / "stops.txt"):
             try:
                 coords.setdefault(row["stop_id"], (float(row["stop_lat"]), float(row["stop_lon"])))
+                names.setdefault(row["stop_id"], row.get("stop_name", ""))
             except ValueError:
                 continue
         meta = {r["trip_id"]: r for r in read_rows(directory / "trips.txt")}
@@ -153,16 +164,20 @@ def load_timetable(directories: list[Path], service_date: str) -> tuple[dict, di
             row = meta[trip_id]
             rows.sort()
             direction = row.get("direction_id", "")
+            service = row["service_id"]
             trips[trip_id] = Trip(
                 trip_id,
                 row["route_id"],
                 int(direction) if direction.isdigit() else None,
-                row["service_id"] in active,
-                row["service_id"] in later,
+                service,
+                directory.name,
+                service in active,
+                service in later,
+                service in later and calendar.get(service, {}).get(day) == "1",
                 rows,
                 rows[0][3],
             )
-    return trips, coords
+    return trips, coords, names
 
 
 def metres(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -178,12 +193,25 @@ def nearest(lat: float, lon: float, stations: list) -> tuple[int, float]:
     )
 
 
+def map_trip(trip: Trip, stations: list, coords: dict) -> dict:
+    """The trip's times by reference station, matched by coordinates."""
+    mapped = {}
+    for _, stop_id, arr, dep in trip.stops:
+        if stop_id in coords:
+            k, dist = nearest(*coords[stop_id], stations)
+            if dist <= MAP_M:
+                mapped.setdefault(k, (arr, dep))
+    return mapped
+
+
 def build_routes(trips: dict, coords: dict) -> dict:
     """For each running route, its stations in order and its trips as {station: times}.
 
     The stations are the stops of the running trip with the most stops. Every
     trip's stops are mapped onto them by coordinates, not by stop_id, because
     the two directions can use different platform ids at one station.
+    `later_fits` holds the later-start trips that run on this weekday, mapped
+    onto the same stations, so a fit to them tests the times and not the pattern.
     """
     by_route = defaultdict(list)
     for trip in trips.values():
@@ -193,16 +221,18 @@ def build_routes(trips: dict, coords: dict) -> dict:
     for route, listed in by_route.items():
         ref = max(listed, key=lambda t: len(t.stops))
         stations = [coords[s[1]] for s in ref.stops if s[1] in coords]
-        fits = defaultdict(list)
+        fits, later_fits = defaultdict(list), defaultdict(list)
         for trip in listed:
-            mapped = {}
-            for _, stop_id, arr, dep in trip.stops:
-                if stop_id in coords:
-                    k, dist = nearest(*coords[stop_id], stations)
-                    if dist <= MAP_M:
-                        mapped.setdefault(k, (arr, dep))
-            fits[trip.direction].append((trip, mapped))
-        routes[route] = {"stations": stations, "ref_direction": ref.direction, "fits": fits}
+            fits[trip.direction].append((trip, map_trip(trip, stations, coords)))
+        for trip in trips.values():
+            if trip.route == route and trip.weekday and trip.direction is not None:
+                later_fits[trip.direction].append((trip, map_trip(trip, stations, coords)))
+        routes[route] = {
+            "stations": stations,
+            "ref_direction": ref.direction,
+            "fits": fits,
+            "later_fits": later_fits,
+        }
     return routes
 
 
@@ -282,15 +312,20 @@ def vehicle_runs(samples: list, routes: dict) -> list[dict]:
     return sorted(chosen, key=lambda r: r["start"])
 
 
-def fit_run(run: dict, routes: dict, base: int) -> dict:
-    """Fit a run to every running trip on its route and direction."""
+def residuals(run: dict, mapped: dict, base: int) -> list[int]:
+    """Seconds the run was late at each station it shares with a trip, signed."""
+    return [
+        ts - base - (mapped[k][1] if k == run["origin"] else mapped[k][0])
+        for k, ts in run["times"].items()
+        if k in mapped
+    ]
+
+
+def fit_run(run: dict, candidates: list, base: int) -> dict:
+    """Fit a run to each candidate trip, as (trip, mapped stations)."""
     scored = []
-    for trip, mapped in routes[run["route"]]["fits"][run["direction"]]:
-        signed = []
-        for k, ts in run["times"].items():
-            if k in mapped:
-                arr, dep = mapped[k]
-                signed.append(ts - base - (dep if k == run["origin"] else arr))
+    for trip, mapped in candidates:
+        signed = residuals(run, mapped, base)
         if len(signed) >= MIN_COMMON:
             scored.append(
                 (
@@ -339,7 +374,7 @@ def classify(reported, run: dict, trips: dict, prev_best) -> tuple[str, str]:
     return "same_line", ""
 
 
-def analyse(con, trips: dict, routes: dict, base: int) -> list[dict]:
+def analyse(con, trips: dict, routes: dict, coords: dict, base: int) -> tuple[list[dict], dict]:
     rows = con.execute(
         "SELECT DISTINCT vehicle_id, ts, lat, lon, trip_id, start_time, route_id, direction_id "
         "FROM rail WHERE vehicle_id IS NOT NULL ORDER BY vehicle_id, ts"
@@ -356,12 +391,30 @@ def analyse(con, trips: dict, routes: dict, base: int) -> list[dict]:
         )
         order.update({t.trip_id: i for i, t in enumerate(listed)})
 
+    points = {(round(lat, 4), round(lon, 4)): stop_id for stop_id, (lat, lon) in coords.items()}
+    near: dict = {}
+    visited: dict = defaultdict(lambda: defaultdict(lambda: [0, set()]))
+    cache: dict = {}
+
     out = []
     for vehicle, records in by_vehicle.items():
         samples = [(r[1], r[2], r[3]) for r in records if r[2] is not None and r[3] is not None]
         runs = vehicle_runs(samples, routes)
+        if runs:
+            home = max(runs, key=lambda r: r["stations"])["route"]
+            for _, lat, lon in samples:
+                key = (round(lat, 4), round(lon, 4))
+                if key not in near:
+                    point = min(points, key=lambda p: metres(lat, lon, *p))
+                    near[key] = points[point] if metres(lat, lon, *point) <= RADIUS_M else None
+                if near[key]:
+                    visited[home][near[key]][0] += 1
+                    visited[home][near[key]][1].add(vehicle)
         for run in runs:
-            run.update(fit_run(run, routes, base))
+            info = routes[run["route"]]
+            run.update(fit_run(run, info["fits"][run["direction"]], base))
+            later = fit_run(run, info["later_fits"][run["direction"]], base)
+            run["later"] = later if later["best"] is not None else None
         runs = [r for r in runs if r["best"] is not None]
         stamps = [r[1] for r in records]
         previous_end = None
@@ -387,6 +440,17 @@ def analyse(con, trips: dict, routes: dict, base: int) -> list[dict]:
             ]
             floor = max(previous_end if previous_end is not None else 0, run["start"] - LAYOVER_S)
             before = [r[4] for r in records[bisect.bisect_left(stamps, floor) : lo] if r[4]]
+
+            signed = None
+            if info is not None and info.route == run["route"]:
+                mapped = cache.setdefault(
+                    (run["route"], reported),
+                    map_trip(info, routes[run["route"]]["stations"], coords),
+                )
+                found = residuals(run, mapped, base)
+                if len(found) >= MIN_COMMON:
+                    signed = statistics.median(found)
+            later = run["later"]
 
             offset_trips = offset_min = None
             if (
@@ -435,11 +499,17 @@ def analyse(con, trips: dict, routes: dict, base: int) -> list[dict]:
                     "start_time_min_vs_reported": None
                     if start_time is None or info is None
                     else round((start_time - info.first_dep) / 60, 1),
+                    "reported_signed_s": None if signed is None else round(signed),
+                    "later_best_trip": later and later["best"].trip_id,
+                    "later_best_miss_s": later and round(later["miss"]),
+                    "later_best_delay_s": later and round(later["delay"]),
+                    "later_confident": later and later["confident"],
+                    "reported_is_later_best": bool(later and reported == later["best"].trip_id),
                 }
             )
             previous_end = run["end"]
     mark_twins(out)
-    return out
+    return out, visited
 
 
 def mark_twins(runs: list[dict]) -> None:
@@ -470,6 +540,24 @@ def quantiles(values: list) -> dict | None:
 
 def share(count: int, total: int) -> float:
     return round(100 * count / total, 1) if total else 0.0
+
+
+def later_summary(group: list[dict]) -> dict:
+    """How the runs fit the weekday-matched later-start trips, if they were in force."""
+    fitted = [r for r in group if r["later_best_trip"]]
+    sure = [r for r in fitted if r["later_confident"]]
+    return {
+        "runs_with_a_later_fit": len(fitted),
+        "later_confident": len(sure),
+        "later_fits_better_than_current_pct": share(
+            sum(1 for r in fitted if r["later_best_miss_s"] < r["miss_s"]), len(fitted)
+        ),
+        "reported_is_later_best_pct_of_confident": share(
+            sum(1 for r in sure if r["reported_is_later_best"]), len(sure)
+        ),
+        "later_best_miss_s": quantiles([r["later_best_miss_s"] for r in fitted]),
+        "later_best_delay_s": quantiles([r["later_best_delay_s"] for r in fitted]),
+    }
 
 
 def summarise(runs: list[dict], records: dict, scheduled: Counter) -> dict:
@@ -567,9 +655,70 @@ def summarise(runs: list[dict], records: dict, scheduled: Counter) -> dict:
                     sum(1 for r in group if r["start_time_min_vs_reported"] is not None),
                 ),
                 "miss_s": quantiles([r["miss_s"] for r in group]),
+                "reported_signed_s": {
+                    c: quantiles(
+                        [
+                            r["reported_signed_s"]
+                            for r in group
+                            if r["class"] == c and r["reported_signed_s"] is not None
+                        ]
+                    )
+                    for c in ("match", "same_line", "not_in_force")
+                },
+                "later_timetable": later_summary(group),
             }
         out[route] = entry
     return out
+
+
+def timetable_summary(trips: dict, routes: dict, coords: dict, names: dict, visited: dict) -> dict:
+    """What each copy lists per route, and which stops the vehicles reached.
+
+    Trips are grouped by source copy, service, direction and stop pattern. A
+    visited stop is within RADIUS_M of the vehicle's samples. `beyond` holds the
+    stops visited by a route's vehicles that are not within MAP_M of any station
+    of the route's reference trip, which is a pattern the timetable in force
+    does not hold.
+    """
+    groups: Counter = Counter()
+    for t in trips.values():
+        first, last = t.stops[0][1], t.stops[-1][1]
+        groups[
+            (t.route, t.source, t.service, t.direction, t.active, t.later, t.weekday)
+            + (len(t.stops), first, names.get(first, ""), last, names.get(last, ""))
+        ] += 1
+    keys = (
+        "route source service direction active later weekday stops first first_name last last_name"
+    )
+    listed = [
+        dict(zip(keys.split(), k, strict=True), trips=n) for k, n in sorted(groups.items(), key=str)
+    ]
+    report = {}
+    for route, info in routes.items():
+        stations = info["stations"]
+        beyond, inside = [], set()
+        for stop_id, (count, vehicles) in visited.get(route, {}).items():
+            lat, lon = coords[stop_id]
+            k, dist = nearest(lat, lon, stations)
+            if dist <= MAP_M:
+                inside.add(k)
+            elif count >= 20:
+                beyond.append(
+                    {
+                        "stop_id": stop_id,
+                        "name": names.get(stop_id, ""),
+                        "lat": lat,
+                        "lon": lon,
+                        "samples": count,
+                        "vehicles": len(vehicles),
+                    }
+                )
+        report[route] = {
+            "reference_stations": len(stations),
+            "visited_reference_stations": len(inside),
+            "beyond": sorted(beyond, key=lambda b: -b["samples"]),
+        }
+    return {"trips": listed, "visited": report}
 
 
 def count_records(con) -> dict:
@@ -601,9 +750,9 @@ def run(service_date: str, files: list[str], timetable, out: Path) -> None:
         ).fetchall()
     }
     directories, name = timetable(reported)
-    trips, coords = load_timetable(directories, service_date)
+    trips, coords, names = load_timetable(directories, service_date)
     routes = build_routes(trips, coords)
-    runs = analyse(con, trips, routes, base)
+    runs, visited = analyse(con, trips, routes, coords, base)
 
     out.mkdir(parents=True, exist_ok=True)
     summary = {
@@ -612,6 +761,17 @@ def run(service_date: str, files: list[str], timetable, out: Path) -> None:
         "routes": summarise(runs, records, Counter(t.route for t in trips.values() if t.active)),
     }
     (out / f"rail_runs_{service_date}.json").write_text(json.dumps(summary, indent=2) + "\n")
+    (out / f"rail_timetable_{service_date}.json").write_text(
+        json.dumps(
+            {
+                "service_date": service_date,
+                "copies": [d.name for d in directories],
+                **timetable_summary(trips, routes, coords, names, visited),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     with (out / f"rail_runs_{service_date}.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(runs[0]) if runs else ["none"])
         writer.writeheader()
