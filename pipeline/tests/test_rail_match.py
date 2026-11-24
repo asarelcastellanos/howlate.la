@@ -125,3 +125,85 @@ def test_a_run_that_looks_trusted_and_is_a_misfit_is_matched(con):
         "SELECT reported_trip, trip_id, outcome FROM rail_runs WHERE vehicle_id = 'V6'"
     ).fetchone()
     assert row == ("R1", "R4", "matched")
+
+
+@pytest.fixture
+def graded(tmp_path, monkeypatch):
+    import json
+
+    from fixture_day import REPORTS, SERVICE_DATE, build_raw, build_timetable
+    from fixture_rail import build_rail_raw, build_rail_timetable
+
+    from howlate_pipeline import BUS_AGENCY
+    from howlate_pipeline import __main__ as cli
+
+    raw = build_raw(tmp_path / "raw", REPORTS)
+    build_rail_raw(raw)
+    timetables = {
+        BUS_AGENCY: build_timetable(tmp_path / "gtfs_bus"),
+        RAIL: build_rail_timetable(tmp_path / "gtfs_rail"),
+    }
+    monkeypatch.setattr(report, "MIN_LINE_RUNS", 1)
+    real_checks = report.checks
+
+    def only_rail_fails(con, s):
+        return [
+            c | {"ok": True} if c["name"] != "rail_misfit_pct" else c for c in real_checks(con, s)
+        ]
+
+    monkeypatch.setattr(report, "checks", only_rail_fails)
+
+    def grade(*, other_check_fails=False):
+        if other_check_fails:
+            monkeypatch.setattr(
+                report,
+                "checks",
+                lambda con, s: [
+                    c | {"ok": False} if c["name"] == "feeds" else c
+                    for c in only_rail_fails(con, s)
+                ],
+            )
+        code = cli.grade_day(
+            lambda: pytest.fail("made a client"),
+            SERVICE_DATE,
+            cache=tmp_path / "cache",
+            out=tmp_path / "out",
+            raw_dir=raw,
+            timetables=timetables,
+            upload=False,
+        )
+        saved = json.loads((tmp_path / "out" / cli.report_path(SERVICE_DATE)).read_text())
+        return code, saved
+
+    return grade
+
+
+def rail_check(saved):
+    return next(c for c in saved["checks"] if c["name"] == "rail_misfit_pct")
+
+
+def test_a_failing_rail_check_is_advisory_while_the_matcher_is_off(graded, monkeypatch, capsys):
+    monkeypatch.setattr(railmatch, "ENABLED", False)
+    code, saved = graded()
+    assert (code, saved["ok"]) == (0, True)
+    assert rail_check(saved)["ok"] is False
+    assert saved["rail_misfits"] == [{"line": "801", "misfits": 2, "runs": 4}]
+    out = capsys.readouterr().out
+    assert "advisory while the rail matcher is off" in out
+    assert any(
+        line.lstrip().startswith("CHECK") and "fit another trip" in line
+        for line in out.splitlines()
+    )
+
+
+def test_a_failing_rail_check_fails_the_day_once_the_matcher_is_on(graded, monkeypatch):
+    monkeypatch.setattr(railmatch, "ENABLED", True)
+    monkeypatch.setattr(report, "rail_misfits", lambda con: [("801", 4, 2)])
+    code, saved = graded()
+    assert (code, saved["ok"], rail_check(saved)["ok"]) == (2, False, False)
+
+
+def test_a_day_that_fails_another_check_still_fails_with_the_matcher_off(graded, monkeypatch):
+    monkeypatch.setattr(railmatch, "ENABLED", False)
+    code, saved = graded(other_check_fails=True)
+    assert (code, saved["ok"], rail_check(saved)["ok"]) == (2, False, False)

@@ -497,6 +497,12 @@ above 10%. It is per line because all rail dilutes it: on 2026-11-13 route 801
 had 71 misfits in 331 runs (21.5%) and all rail had 5.3%. The report lists
 every line's runs and misfits as `rail_misfits`.
 
+While the rail matcher is off, `rail_misfit_pct` is advisory. It still runs, prints
+`CHECK` with a note when it fails, and is saved as failed in the report and in
+`health.json`. But it does not make the day's `ok` false, so `grade_day` returns 0,
+`daily` exits 0 and the heartbeat is not sent as failed. Every other check fails the
+day as before. Setting `railmatch.ENABLED` to true makes the check binding again.
+
 This is a half-archive validation. It was measured on 48 of the 91 days from
 2026-08-18 to 2026-11-16: 08-18 to 09-18 except 09-19, 09-20 to 09-27, 10-24,
 10-25, 10-31, 11-07, 11-10, 11-13, 11-14 and 11-15. The highest line was a
