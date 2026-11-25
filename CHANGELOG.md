@@ -20,7 +20,7 @@ matcher missed its bar and stays off. All 98 graded days were regraded on
   first download. It prints the file count, the gigabytes, the estimated cost at
   $0.12 a GiB and the `backfill-vm.sh` command. `--allow-egress` on `arrivals`
   and `backfill` overrides it, and `daily` has no flag. Inside Google Cloud it
-  downloads as before. A laptop run from 2026-11-16 to 2026-11-18 cost $19.11 in
+  downloads as before. Laptop runs from 2026-11-16 to 2026-11-18 cost $19.11 in
   egress, which is why the guard exists (ADR-0001, #184).
 - A rule in `CLAUDE.md` that no session downloads the raw archive outside Google
   Cloud, passes `--allow-egress`, or skips `pipeline/deploy/backfill-vm.sh`.
