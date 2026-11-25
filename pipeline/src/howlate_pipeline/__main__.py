@@ -549,9 +549,13 @@ def build_site(
     def timetable(day: str) -> Path:
         if timetables:
             return timetables[BUS_AGENCY]
-        return gtfs.prepare(bucket(), day, cache / "gtfs", {BUS_AGENCY: seen.get(day, set())})[
-            BUS_AGENCY
-        ]
+        return gtfs.prepare(
+            bucket(),
+            day,
+            cache / "gtfs",
+            {BUS_AGENCY: seen.get(day, set())},
+            feeds={"gtfs_bus": BUS_AGENCY},
+        )[BUS_AGENCY]
 
     types = commute.day_types(window_days, timetable)
     commute_names, over, stats = commute.build(con, arrivals_dir, latest, types, catalogue, out)
