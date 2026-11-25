@@ -250,7 +250,7 @@ def test_a_day_with_no_raw_files_raises_the_alarm_and_names_the_day(monkeypatch,
     done = [f"202611{day:02d}" for day in range(1, 7)]
     run = Run(monkeypatch, tmp_path, done=done, real=("grade",))
     monkeypatch.setattr(cli.gtfs, "prepare", lambda client, day, cache: {})
-    monkeypatch.setattr(cli.arrivals, "fetch_raw", lambda client, day, cache: [])
+    monkeypatch.setattr(cli.arrivals, "fetch_raw", lambda client, day, cache, allow_egress: [])
     assert run() == 1
     assert run.pings == [False]
     # The heartbeat summary only counts days. The day is named in the log.

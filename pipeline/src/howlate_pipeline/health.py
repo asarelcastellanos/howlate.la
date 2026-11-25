@@ -12,13 +12,15 @@ added here.
 name the join check `join_rate` and have no explained_* stats. Days graded by
 0.4.0 name it `matched_rate` and have them. A missing explained_* stat reads as
 0, which is true, because the pipeline did not count the trips then.
+A report from before bus stops were estimated has no `interpolated_pct`, and
+that reads as 0 for the same reason.
 """
 
 import json
 import re
 from pathlib import Path
 
-from howlate_pipeline import __version__
+from howlate_pipeline import __version__, report
 
 # The page lists two weeks. The fetch downloads this many reports and no more.
 RECENT_DAYS = 14
@@ -36,8 +38,13 @@ def parse(document: object) -> tuple[dict, list[dict]] | None:
         row = {
             "service_date": document["service_date"],
             "ok": document["ok"],
-            "failed": [check["name"] for check in document["checks"] if not check["ok"]],
+            "failed": [
+                check["name"]
+                for check in document["checks"]
+                if not check["ok"] and report.binding(check)
+            ],
             "coverage_pct": round(stats["coverage"], 1),
+            "estimated_pct": round(stats.get("interpolated_pct", 0), 1),
             "explained_trips": stats.get("explained_trips", 0),
             "explained_pct": round(stats.get("explained_pct", 0), 1),
             "observations": stats["observations"],
@@ -51,8 +58,14 @@ def parse(document: object) -> tuple[dict, list[dict]] | None:
 
 
 def check_row(check: dict) -> dict:
-    """A check with the fields of its kind. A count's `expect` is called `expected` here."""
+    """A check with the fields of its kind. A count's `expect` is called `expected` here.
+
+    `advisory` is true on a check that does not fail the day right now, so the
+    row keeps its real `ok` and the day's `failed` still lists binding checks only.
+    """
     row = {key: check[key] for key in ("name", "kind", "label", "ok", "value")}
+    if not report.binding(check):
+        row["advisory"] = True
     if check["kind"] == "count":
         return row | {"expected": check["expect"]}
     return row | {"low": check["low"], "high": check["high"]}

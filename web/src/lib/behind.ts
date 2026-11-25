@@ -4,12 +4,13 @@ import type { HealthDay, HealthFile } from './data/types';
 import { addDays, daysBetween } from './date.ts';
 
 /**
- * The daily job runs at 05:00 Pacific and grades today minus 2. From 00:00 until
- * that run finishes, about 5 hours every night, the newest graded day is 3 days
- * old. A gap of 3 is therefore normal and the panel warns from 4. The
- * pipeline's own alarm is `MAX_LAG_DAYS = 4` in r2.py, and this matches it.
+ * The daily job runs at 08:00 Pacific and grades yesterday. From 00:00 until
+ * that run finishes, about 8 hours every night, the newest graded day is 2 days
+ * old. A gap of 2 is therefore normal and the panel warns from 3, after one
+ * missed run. The pipeline's own alarm is `MAX_LAG_DAYS = 3` in r2.py. It runs
+ * only right after a run, when the normal gap is 1, and forgives two failed days.
  */
-export const STALE_AFTER_DAYS = 3;
+export const STALE_AFTER_DAYS = 2;
 
 /** The strip shows as many days as health.json lists at most. */
 export const STRIP_DAYS = 14;
@@ -51,16 +52,27 @@ export function buildStrip(
 export const newestDay = (health: HealthFile): HealthDay | undefined =>
 	health.recent.find((day) => day.service_date === health.last_day);
 
-export type CheckRow = { label: string; ok: boolean; measured: string; rule: string };
+export type CheckRow = {
+	label: string;
+	ok: boolean;
+	advisory: boolean;
+	measured: string;
+	rule: string;
+};
 
 // A value has many decimal places. Under 1, a second decimal keeps 0.01 from reading as 0.
 const round = (value: number): string => String(Number(value.toFixed(Math.abs(value) < 1 ? 2 : 1)));
 
-/** One check in plain words. The label is the pipeline's, so a renamed check needs no change here. */
+/**
+ * One check in plain words. The label is the pipeline's, so a renamed check needs no change here.
+ * `advisory` is true only for an advisory check that is over its limit. It keeps its real `ok`,
+ * and the day's `ok` and `failed` leave it out, so the page must not count it as a failure.
+ */
 export function checkRow(check: HealthFile['checks'][number]): CheckRow {
 	return {
 		label: check.label.charAt(0).toUpperCase() + check.label.slice(1),
 		ok: check.ok,
+		advisory: check.advisory === true && !check.ok,
 		measured: round(check.value),
 		rule:
 			check.kind === 'range'

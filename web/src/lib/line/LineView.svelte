@@ -15,6 +15,7 @@
 	import { LINE_LIST } from '#lib/data/lines.ts';
 	import type { LineFile } from '#lib/data/types.ts';
 	import Headline from '#lib/design/Headline.svelte';
+	import EstimatedNote from '#lib/design/EstimatedNote.svelte';
 	import Kicker from '#lib/design/Kicker.svelte';
 	import LineBullet from '#lib/design/LineBullet.svelte';
 	import OntimeMark from '#lib/design/OntimeMark.svelte';
@@ -102,6 +103,7 @@
 		{#each line.directions as d, i (d.id)}
 			<li class="border-t py-4">
 				{headline(d, i, line.mode, showRailOntime)}{#if ontime}<OntimeMark />{/if}
+				<EstimatedNote n={d.all.n} est={d.all.est} class="mt-1" />
 			</li>
 		{/each}
 	</ul>

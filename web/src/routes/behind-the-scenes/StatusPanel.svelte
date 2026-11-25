@@ -55,9 +55,9 @@
 				Warning. The newest graded day is {age.daysOld} days before today in Los Angeles.
 			</p>
 			<p class="caption text-ink-muted mt-1">
-				The daily job runs at 5 am Pacific and grades the day before yesterday, so for a few hours
-				each night the newest day is {STALE_AFTER_DAYS} days old. A gap of {STALE_AFTER_DAYS} days is
-				normal. A longer gap means the job has not finished lately.
+				The daily job runs at 8 am Pacific and grades yesterday, so from midnight until the run
+				finishes the newest day is {STALE_AFTER_DAYS} days old. A gap of {STALE_AFTER_DAYS} days is normal.
+				A longer gap means the job has not finished lately.
 			</p>
 		{/if}
 
@@ -79,8 +79,10 @@
 				</ul>
 			{/if}
 			<p class="mt-2">
-				<span class="font-bold tabular-nums">{report.coverage_pct}%</span> of scheduled stops measured
-				on that day.
+				<span class="font-bold tabular-nums">{report.coverage_pct}%</span> of scheduled stops
+				measured on that day. {#if report.estimated_pct > 0}A further
+					<span class="font-bold tabular-nums">{report.estimated_pct}%</span> were estimated from where
+					the bus was between two reports.{/if}
 			</p>
 		{:else}
 			<p class="mt-4">No report is saved for this day.</p>
@@ -104,9 +106,18 @@
 							<span>{row.label}</span>
 							<span class="sm:text-right">
 								<span class="tabular-nums">{row.measured}, {row.rule}.</span>
-								<strong class={row.ok ? '' : 'text-destructive'}
-									>{row.ok ? 'Passed' : 'Failed'}</strong
-								>
+								{#if row.advisory}
+									<strong>Advisory</strong>
+								{:else}
+									<strong class={row.ok ? '' : 'text-destructive'}
+										>{row.ok ? 'Passed' : 'Failed'}</strong
+									>
+								{/if}
+								{#if row.advisory}
+									<span class="caption text-ink-muted block" data-advisory-note
+										>Over its limit. This does not fail the day while rail matching is off.</span
+									>
+								{/if}
 							</span>
 						</li>
 					{/each}

@@ -66,17 +66,21 @@ export interface HealthDay {
 	 */
 	service_date: string;
 	/**
-	 * True when every check passed for this day. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day.
+	 * True when every binding check passed for this day. A failing advisory check does not make it false. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day.
 	 */
 	ok: boolean;
 	/**
-	 * The names of the checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate.
+	 * The names of the binding checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate.
 	 */
 	failed: string[];
 	/**
-	 * Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place.
+	 * Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place. It leaves out the stops in estimated_pct.
 	 */
 	coverage_pct: number;
+	/**
+	 * Percent of the day's scheduled stops that the feed never reported and the pipeline placed between two position reports of the same bus, to one decimal place. These have a delay but were not measured. 0 on days graded before the pipeline estimated them.
+	 */
+	estimated_pct: number;
 	/**
 	 * Trips that vehicles reported but that have no scheduled stops to grade against, because the timetable lists them only under a service that is not running that day. 0 on days graded before the pipeline counted them.
 	 */
@@ -122,6 +126,10 @@ export interface RangeCheck {
 	 * The highest value that passes.
 	 */
 	high: number;
+	/**
+	 * Present and true only on a check that does not fail the day right now, as rail_misfit_pct while the rail matcher is off. ok keeps the check's real result, so a failing advisory check has ok false and advisory true and is not in the day's failed list. Absent on every other check.
+	 */
+	advisory?: true;
 }
 /**
  * A check that passes when a count equals the number expected.
@@ -151,6 +159,10 @@ export interface CountCheck {
 	 * The count that passes.
 	 */
 	expected: number;
+	/**
+	 * Present and true only on a check that does not fail the day right now, as rail_misfit_pct while the rail matcher is off. ok keeps the check's real result, so a failing advisory check has ok false and advisory true and is not in the day's failed list. Absent on every other check.
+	 */
+	advisory?: true;
 }
 
 /**
@@ -201,6 +213,10 @@ export interface IndexEntry {
 	 * Arrivals with a measured delay, over all days.
 	 */
 	n: number;
+	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival.
+	 */
+	est: number;
 	/**
 	 * Scheduled stops over all days, measured or not. Divide n by this for coverage.
 	 */
@@ -316,6 +332,10 @@ export interface Delays {
 	 */
 	n: number;
 	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival.
+	 */
+	est: number;
+	/**
 	 * Median delay in seconds. Positive means late and negative means early.
 	 */
 	med: number;
@@ -387,6 +407,10 @@ export interface Stop {
 	 * Arrivals with a measured delay at this stop, over all days. It counts every daypart and can be 0.
 	 */
 	n: number;
+	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival.
+	 */
+	est: number;
 	/**
 	 * Scheduled stops here, measured or not. It also counts dayparts missing from cells, so a gap in cells is not a gap in the timetable.
 	 */
@@ -476,6 +500,10 @@ export interface NetworkDelays {
 	 */
 	n: number;
 	/**
+	 * Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival. It is 0 when n is 0, and 0 for rail, which is never estimated this way.
+	 */
+	est: number;
+	/**
 	 * Median delay in seconds. Positive means late and negative means early. Null when n is 0.
 	 */
 	med: number | null;
@@ -550,7 +578,11 @@ export interface SiteStatus {
 	 */
 	measured_arrivals: number;
 	/**
-	 * measured_arrivals as a percent of scheduled_stops, to one decimal place.
+	 * Of measured_arrivals, the stops placed between two position reports of the same bus because the feed never reported them. The rest were seen at the stop or timed from an approach report.
+	 */
+	estimated_arrivals: number;
+	/**
+	 * measured_arrivals as a percent of scheduled_stops, to one decimal place. It includes estimated_arrivals.
 	 */
 	coverage_pct: number;
 	/**

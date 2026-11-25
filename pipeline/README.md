@@ -45,6 +45,174 @@ reads the arrivals from `gs://howlate-derived`, and without `--gtfs-dir` it
 reads the timetables from `gs://howlate-raw`. Both are read-only, and the
 timetables are what name the lines and give each line its mode.
 
+Outside Google Cloud, `arrivals`, `backfill` and `daily` refuse to download raw
+files that are not already in the cache. Reading `gs://howlate-raw` from the
+internet costs about $0.12 per GiB, and 259 GiB read from a laptop on
+2026-11-16 to 2026-11-18 cost $19.11 in egress and $3.49 in Coldline retrieval.
+The refusal comes before the first download and states the number of files,
+their size in GiB, the estimated cost, and that the read is free on the backfill
+VM. Runs that find every file in the cache, and `--raw-dir` runs, are not
+refused. The guard passes at once when `CLOUD_RUN_JOB` is set, as it is on every Cloud
+Run job. Otherwise it asks the metadata server for the project id, so Compute
+Engine VMs pass.
+
+To grade from the archive, run `bash pipeline/deploy/backfill-vm.sh`. It
+creates a temporary Spot VM in `us-west1-b`, runs `backfill` over a range of
+days from a git ref, copies its log to `gs://howlate-derived/logs/`, and powers
+off. A powered-off VM still bills for its disk, so delete it after each run:
+
+```bash
+gcloud compute instances delete howlate-backfill --zone us-west1-b
+```
+
+To run an analysis script over the raw archive instead, pass `--script` with a
+repo-relative path under `pipeline/` that ends in `.py` and exists at the git
+ref:
+
+```bash
+bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/count_positions.py \
+  <git-ref> 2026-11-20 2026-11-20
+```
+
+With one date, the range runs through the latest complete service day, which
+can be several days of 1.2 GB each. Pass the first and the last day for a
+one-day run.
+
+The VM runs the script once per service day in the range, in the same checkout
+and Python environment as `backfill`, as
+`python <script> --service-date YYYYMMDD --cache <dir> --out <dir>`. The script
+reads raw files through `arrivals.fetch_raw` and writes its results under
+`--out`. After each day the VM copies them to
+`gs://howlate-derived/logs/scripts/<script-name>/<run-id>/<day>/` and
+clears that day's raw cache. The wrapper copies only under
+`gs://howlate-derived/logs/scripts/`. The analysis script itself is trusted
+code that runs with the pipeline service account, which can write anywhere in
+`gs://howlate-derived` and can only read `gs://howlate-raw`.
+
+A Spot reclaim deletes the VM and loses the day in progress. Running the
+command again without `--run` starts the whole range over under a new run id.
+Add `--run <id>` to reuse that id as the output prefix, and the new VM skips
+each day that already has its `_done` object. The run prints its id and the
+exact resume command when it starts. The id may hold only letters, digits,
+`_` and `-`, and `--run` needs `--script`.
+
+A day that fails shows only as "not saved" in the run log, so check the log
+and the `_done` objects. The log goes to `gs://howlate-derived/logs/` as in
+`backfill` mode. Script mode writes nothing to `gs://howlate-raw` or to
+`arrivals/`, `trips/`, `reports/` and `site/`, so it skips the check that the
+daily schedule is paused. The same reminder applies, delete the VM after each
+run.
+
+### Finding why rail trip ids disagree
+
+`pipeline/scripts/rail_runs.py` rebuilds each rail vehicle's runs from latitude
+and longitude alone, ignoring the reported `trip_id`, and fits each run to the
+running trips of its route and direction by the times at the stations it
+passed. A route that the timetable runs as separate pieces, as 801 did on
+2026-11-13 (a 13 stop piece and a 30 stop piece), gets one station list for each
+piece. The unit is one run, and the id counted for it is the most common id the
+vehicle reported during the run. The script classes that id as the fitted trip,
+the vehicle's previous trip (stale), another trip on the same route and
+direction (with the offset in trips within one piece, and in minutes), another
+route or direction, a trip whose service is not running that day, or no id. It
+also counts the records with a position, the ids per run, where in the run the id
+changes, and how the run fits the later-start trips that run on that weekday. A
+rail vehicle id names a set of cars and one train can appear under more than one
+id, so it also counts runs with a twin, another vehicle id fitted to the same
+trip at the same time. It is an investigation tool and writes nothing the site
+reads.
+
+Archive runs happen only on the backfill VM, which reads the raw archive for
+free. Never run the script against the buckets from a laptop.
+
+```bash
+bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_runs.py \
+  <git-ref> 2026-11-13 2026-11-15
+```
+
+Each day writes `rail_runs_<day>.json` (a summary per route), `rail_runs_<day>.csv`
+(one row per run) and `rail_timetable_<day>.json` (the trips each timetable copy
+lists by service and stop pattern, and the stops the vehicles reached beyond the
+station lists) under
+`gs://howlate-derived/logs/scripts/rail_runs/<run-id>/<day>/`. The timetable copy
+is chosen as the pipeline chooses it, with the trip ids the vehicles reported
+that day, and only that copy's running services are candidates. A fit is
+confident when the best trip is within 120 seconds and the next trip is at
+least 120 seconds worse. That keeps only runs within 120 seconds of a trip, so
+the confident set selects on-time trains. The summary reports every class for all
+runs and for the confident runs, because a vehicle late by half a headway fits
+two trips equally.
+
+To repeat the local check on a hand-built day, with no bucket access, make two
+folders from the pattern in `pipeline/tests/fixture_day.py`. In RAW, write
+`vehicle_positions/dt=YYYY-MM-DD/hh=HH/*.jsonl.gz` as `build_raw` does, but with
+`agency` set to `LACMTA_Rail` and `payload.vehicle.position.latitude` and
+`longitude`, `trip.startTime` and `trip.routeId` on each record. In GTFS_RAIL,
+write `calendar.txt`, `trips.txt` (with `direction_id`), `stop_times.txt` and
+`stops.txt` (with coordinates about 1.8 km apart) as `build_timetable` does.
+Then run
+
+```bash
+python pipeline/scripts/rail_runs.py --service-date YYYYMMDD --out OUT \
+  --raw-dir RAW --gtfs-dir GTFS_RAIL
+```
+
+and read `OUT/rail_runs_<day>.csv`. A vehicle that reports trip A while running
+trip B shows `class` `same_line` or `stale`, and one that reports a trip under
+a service that starts later shows `not_in_force`.
+
+### Grading rail by position
+
+The rail matcher is built and ships switched off (`railmatch.ENABLED` is
+`False`), because it missed the 95 percent agreement rule on 2026-11-18 and
+2026-11-19 (#178). While it is off, every rail run is graded on its reported
+trip, as before, and `rail_misfit_pct` is advisory. It still runs, prints and
+saves, but a failure does not fail the day.
+
+Rail trip ids are wrong on days when a line runs as split pieces (#177). With the
+matcher on, `arrivals.match_rail_runs` grades each rail run on the trip it ran
+when the id does not check out. `railmatch.py` rebuilds the runs from latitude
+and longitude and decides each one. The reasons and the thresholds are in
+`docs/adr/0002-match-rail-runs-by-position-when-the-id-fails.md`.
+
+- Trusted. The most common reported id is a trip of the copy in force with a
+  running service, and the most common startTime is within 120 seconds of its
+  first departure, and the run is not a misfit under the `rail_misfit_pct`
+  rule. The run is graded as before. A misfit goes on to the next rule.
+- Matched. Otherwise the run is fitted to the trips in force on its station
+  list and direction. A fit is confident when the best trip is within 120
+  seconds and the next trip is at least 120 seconds worse. The run is graded
+  against that trip, and its rows have `source` `matched`.
+- Ungraded. Any other run, and any rail report outside every run, is dropped
+  before grading.
+
+With the matcher on, the report lists the three counts per line as
+`rail_matching`, and `rail_misfit_pct` fails the day again. The agreement numbers
+behind the decision to leave it off are on #178. Set `ENABLED` to `True` to grade
+by position.
+
+Two scripts measure it on the backfill VM, as `rail_runs.py` does.
+`rail_hide_and_compare.py` hides the id of each trusted run, fits it by position
+and counts how often the confident fit is the reported trip. `rail_regrade.py`
+grades one day with the matcher off and on, writes both days under `--out` with no
+upload, and counts what became of the trip ids that sit only under later-start
+services.
+
+```bash
+bash pipeline/deploy/backfill-vm.sh --script pipeline/scripts/rail_regrade.py \
+  <git-ref> 2026-11-13 2026-11-15
+```
+
+`pipeline/scripts/hash_day.py` grades one day with the checkout's code and
+writes the row count and an order-independent hash of every column of `arrivals`
+and `trips`. Run it from two refs and compare the files.
+
+The
+`--allow-egress` flag on `arrivals` and `backfill` forces the download and
+accepts the cost. Only the owner uses it. The guard covers vehicle positions
+under `vehicle_positions/`. Timetables under `gtfs/` are not guarded because the
+whole prefix is 0.2 GB, and `gs://howlate-derived` is not guarded.
+
 Nothing is published yet. Roughly a month of collection is where patterns
 separate from noise, so there is no hurry.
 
@@ -102,6 +270,15 @@ Every cell carries what was measured *and* what was scheduled, because only
 about half of all scheduled stops can be observed and a cell resting on three
 sightings must not look like one resting on three hundred.
 
+Bus stops that the vehicle feed never reported get a time from the reports on
+either side (`arrivals.interpolate`, source `interpolated`). Those delays are in
+`n`, the median and `ontime` like any other. Each entry in `index.json`, each
+direction's `all`, each stop and each scope's `all` in `network.json` carries
+`est`, how many of its `n` arrivals were estimated, and `status.json` carries
+`estimated_arrivals`. Hour and daypart cells do not, to keep the line files
+small. The estimate is bus only. `pipeline/scripts/hide_and_compare.py` checks
+it against stops that have a real report and prints the error by gap size.
+
 Each profile hour, each stop's `all`, each direction's `all`, each entry in
 `index.json` and each network profile hour also carries `ontime`, the percent of
 measured arrivals from 60 seconds early to 300 seconds late, both included.
@@ -116,7 +293,8 @@ and the pages read `med` from them.
 `last_day` and `days` from the run, `recent`, and `checks`. `recent` has one
 entry for each of the newest 14 service days that have a saved report, newest
 first, with `ok`, the names of the checks that `failed`, `coverage_pct`,
-`explained_trips`, `explained_pct` and `observations`. `checks` is the checks of the
+`estimated_pct` (the share of scheduled stops that were estimated, not in
+`coverage_pct`), `explained_trips`, `explained_pct` and `observations`. `checks` is the checks of the
 report for `last_day`, with the report's own labels, either a range (`value`,
 `low`, `high`) or a count (`value`, `expected`). It is empty when `last_day` has
 no readable report, even if `recent` lists older days. The file is public, so
@@ -223,9 +401,9 @@ After a copy that moves R2's pointer, `daily` checks the public address from
 outside. It fetches `site/current.json` with a changing query, to get past its 60
 second cache, then the `status.json` the pointer names. It fails the run when a
 fetch fails or is not 200, a body is not JSON, the pointer names an older run
-than the one copied, or `last_day` is more than 4 days before today's date in
-Los Angeles. The job grades up to two days back at 05:00 Pacific, so a gap of 2
-is normal. The check compares with the calendar, not with the site the job just
+than the one copied, or `last_day` is more than 3 days before today's date in
+Los Angeles. The job grades yesterday at 08:00 Pacific, so right after a run
+the gap is 1, and a gap of 2 is normal for a run started by hand before 07:00. The check compares with the calendar, not with the site the job just
 built, because the public file is that same build. A newer run passes. Each
 fetch has a 10 second timeout and one retry.
 
@@ -312,6 +490,42 @@ rail is about 4% of observations. `explained_lines` fails when any line has at
 least 5 observed trips and every one of them is explained, so a whole line
 cannot be hidden. A line that is only partly explained passes, as route 801 did
 on 2026-11-14 with 338 explained trips and 233 matched ones.
+
+`rail_misfit_pct` catches a rail trip id that names the wrong run. A run is one
+vehicle on one trip of the grader's observations, which is the trip it graded
+(see "Grading rail by position"). For each run, the check takes the median gap
+between when the vehicle first stopped at each stop and when a trip scheduled
+it, and does this for the reported trip and for every other trip on the same
+route and direction. A run is a misfit when another trip is within 60 seconds
+and the reported trip is 300 seconds or more worse. Only runs timed at 5 or
+more non-origin stops count, and a trip with no scheduled stops cannot be
+judged, so later-start trips stay with `explained_pct`. The check is the
+highest misfit share on any rail line with at least 30 judged runs, and fails
+above 10%. It is per line because all rail dilutes it: on 2026-11-13 route 801
+had 71 misfits in 331 runs (21.5%) and all rail had 5.3%. The report lists
+every line's runs and misfits as `rail_misfits`.
+
+While the rail matcher is off, `rail_misfit_pct` is advisory. It still runs, prints
+`CHECK` with a note when it fails, and is saved as failed in the report and in
+`health.json`. But it does not make the day's `ok` false, so `grade_day` returns 0,
+`daily` exits 0 and the heartbeat is not sent as failed. Every other check fails the
+day as before. Setting `railmatch.ENABLED` to true makes the check binding again.
+
+This is a half-archive validation. It was measured on 48 of the 91 days from
+2026-08-18 to 2026-11-16: 08-18 to 09-18 except 09-19, 09-20 to 09-27, 10-24,
+10-25, 10-31, 11-07, 11-10, 11-13, 11-14 and 11-15. The highest line was a
+median 2.6%. Six days were over 10%: 2026-08-22 (14.5%, route 805), 09-15
+(10.8%, 805), 09-18 (11.2%, 805), 11-13 (21.5%, 801), 11-14 (24.4%, 801) and
+11-15 (18.3%, 801). The other 42 were at most 9.0%. Raising the fit window from
+60 to 120 seconds put the median at 7.9% and 14 days over the limit, because a
+train a few minutes late is close to the trip behind it. A train that really ran
+a headway late also fits the trip behind it, so some of the baseline is real
+lateness and not a bad id. The other 43 days were not measured, 2026-09-19
+among them because it failed to load. The days were read from the raw files
+only to 07:59 UTC the next day, which leaves out the end of the service day after
+local midnight on the days after 1 November. The full pipeline on 2026-11-13
+found 70 misfits in 342 runs on route 801 (20.5%), against 71 in 331 (21.5%) in
+the measurement, so a share near the limit can differ by about a point.
 
 The six bus lines that never appeared were exactly the six in `EVENT_ONLY` in
 `collector/src/howlate_collector/routes.py`. Nothing else was missing.

@@ -398,7 +398,8 @@ the 0.5.1 entry of `CHANGELOG.md`.
 
 Goal: close the data gaps the 0.5.1 review found.
 
-- Grade yesterday at 05:00 Pacific, not two days back (#164).
+- Run the daily job at 08:00 Pacific and grade yesterday, not two days back (#164).
+  Bus service runs to 05:45, so 05:00 was too early.
 - Estimate the bus stops the feed skipped between two reports, to raise bus
   coverage from 71.35 percent (#165).
 - Account for ungraded rail trips (#166).
@@ -406,7 +407,7 @@ Goal: close the data gaps the 0.5.1 review found.
 
 ## 0.5.3 Redesign
 
-Goal: the site's visual redesign. The scope is set when the version starts.
+Skipped on 2026-11-24. The redesign moved to 0.9.0 (#189).
 
 ## 0.6.0 Commute tool
 
@@ -568,6 +569,8 @@ release candidate.
 - Build the homepage: your story, the replay, and the headline. (Low)
 - Polish: accessibility audit, performance budget, error and empty states, a
   404 page, and a full pass on a phone and a laptop. (Low to Medium)
+- Redesign the site's visuals (#189). The scope is set with the owner before
+  any design work starts. (Low)
 
 ### Tests
 

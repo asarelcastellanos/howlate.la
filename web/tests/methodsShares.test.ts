@@ -54,6 +54,33 @@ test('the sentence names both modes, the date and the days, and has no dash', ()
 	assert.doesNotMatch(text!, /[—–]/);
 });
 
+test('the bus estimate count is read from the bus scope, and a file without it adds nothing', async () => {
+	const withEst = { all: { n: 1000, est: 234, ontime: 60.4 }, profile: [] };
+	const result = await loadShares(
+		BASE,
+		serve({ 'network.json': network(withEst, scope(64.4)), 'status.json': status })
+	);
+	assert.deepEqual(result.ok && result.data.busArrivals, { n: 1000, est: 234 });
+	const old = await loadShares(
+		BASE,
+		serve({ 'network.json': network(scope(60.4), scope(64.4)), 'status.json': status })
+	);
+	assert.equal(old.ok && 'busArrivals' in old.data, false);
+});
+
+test('the sentence says how much of the bus share was estimated, and leaves it out when none was', () => {
+	const base = { bus: 60.4, rail: null, days: 90, last_day: '2026-11-15' };
+	const text = sharesText({ ...base, busArrivals: { n: 1000, est: 234 } });
+	assert.ok(
+		text!.endsWith(
+			'23 percent of the measured bus arrivals were estimated from where the bus was between two reports.'
+		)
+	);
+	assert.doesNotMatch(text!, /[—–]/);
+	assert.ok(!sharesText({ ...base, busArrivals: { n: 1000, est: 0 } })!.includes('estimated'));
+	assert.ok(!sharesText(base)!.includes('estimated'));
+});
+
 test('a share under 100 never prints as 100.0', () => {
 	const text = sharesText({ bus: 99.96, rail: 100, days: 1, last_day: '2026-11-15' });
 	assert.ok(text!.includes('99.9 percent of measured bus'));

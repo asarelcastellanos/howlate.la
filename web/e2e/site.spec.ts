@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 import { MIN_RANKED_ARRIVALS } from '../src/lib/ranking.ts';
 import { longDate } from '../src/lib/date.ts';
+import { ESTIMATE_HREF, estimatedNote } from '../src/lib/estimated.ts';
 import { shareText } from '../src/lib/share.ts';
 import { health, index, network, readLine, status } from './fixture.ts';
 import { lineLoaded, watchConsole } from './helpers.ts';
@@ -166,6 +167,30 @@ test('a rail page shows the on-time sentence like a bus page', async ({ page }) 
 	}
 });
 
+// The counts are in the fixture, so the sentence under each direction's headline is built from
+// them here and a bus line says how much of it was estimated, while rail, never estimated, says nothing.
+test('a bus page says how much of each direction was estimated, and a rail page says nothing', async ({
+	page
+}) => {
+	const bus = entries.find((e) => e.line === '720')!;
+	await page.goto(`/lines/${bus.line}`);
+	await expect(lineLoaded(page)).toBeVisible();
+	for (const direction of readLine(bus.line).directions) {
+		const note = estimatedNote(direction.all.n, direction.all.est)!;
+		expect(note).toBeTruthy();
+		await expect(page.locator('main li', { hasText: note }).first()).toBeVisible();
+	}
+	await expect(page.getByRole('link', { name: 'How we estimate' }).first()).toHaveAttribute(
+		'href',
+		ESTIMATE_HREF
+	);
+
+	const rail = entries.find((e) => e.mode === 'rail')!;
+	await page.goto(`/lines/${rail.line}`);
+	await expect(lineLoaded(page)).toBeVisible();
+	await expect(page.locator('main')).not.toContainText('were estimated from where the bus was');
+});
+
 // The asterisk is hidden from a screen reader, so the tests find it by its test id.
 const MARK = 'ontime-mark';
 const SHORT_NOTE =
@@ -318,12 +343,47 @@ async function openWithLag(page: Page, lag: number) {
 	await expect(page.locator('[data-cell]')).toHaveCount(14);
 }
 
-test('a newest day 4 days old shows the warning, and 3 days old does not', async ({ page }) => {
-	await openWithLag(page, 4);
+test('a newest day 3 days old shows the warning, and 2 days old does not', async ({ page }) => {
+	await openWithLag(page, 3);
 	const warning = page.locator('[data-warning]');
 	await expect(warning).toBeVisible();
-	await expect(warning).toContainText('4 days before today');
+	await expect(warning).toContainText('3 days before today');
 	await page.unrouteAll();
-	await openWithLag(page, 3);
+	await openWithLag(page, 2);
 	await expect(page.locator('[data-warning]')).toHaveCount(0);
+});
+
+test('an advisory check over its limit reads Advisory while the day reads passed', async ({
+	page
+}) => {
+	const rail = {
+		name: 'rail_misfit_pct',
+		kind: 'range',
+		label: 'rail observations far from their stop',
+		ok: false,
+		value: 7.6543,
+		low: 0,
+		high: 2,
+		advisory: true
+	};
+	const newest = health.recent.find((day) => day.service_date === health.last_day);
+	const recent = health.recent.map((day) =>
+		day === newest ? { ...day, ok: true, failed: [] } : day
+	);
+	await page.clock.setFixedTime(new Date(`${daysAfter(health.last_day, 1)}${AFTERNOON_UTC}`));
+	await page.route('**/health.json', (route) =>
+		route.fulfill({
+			json: { ...health, recent, checks: [...health.checks.filter((c) => c.ok), rail] }
+		})
+	);
+	const problems = watchConsole(page);
+	await page.goto('/behind-the-scenes');
+	await expect(page.locator('[data-cell]')).toHaveCount(14);
+	const row = page.locator('[data-check="rail_misfit_pct"]');
+	await expect(row).toContainText('Advisory');
+	await expect(row).toContainText('7.7, passes from 0 to 2.');
+	await expect(row).toContainText('does not fail the day while rail matching is off');
+	await expect(page.getByText('All checks passed.')).toBeVisible();
+	await expect(page.getByText(/^\d+ checks? failed\.$/)).toHaveCount(0);
+	expect(problems).toEqual([]);
 });

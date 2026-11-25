@@ -16,7 +16,7 @@
     "entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["line", "agency", "label", "via", "mode", "n", "sched", "med", "p90", "pct5", "ontime", "to"],
+      "required": ["line", "agency", "label", "via", "mode", "n", "est", "sched", "med", "p90", "pct5", "ontime", "to"],
       "properties": {
         "line": {"type": "string", "minLength": 1, "description": "The line id, as in Metro's timetable. It names the line's file, lines/<line>.json."},
         "agency": {"enum": ["LACMTA", "LACMTA_Rail"], "description": "Which Metro feed the line is in. LACMTA is bus and LACMTA_Rail is rail. The same line id could appear in both."},
@@ -24,6 +24,7 @@
         "via": {"type": "string", "description": "The corridor the line runs along, in title case. Empty for rail."},
         "mode": {"enum": ["bus", "rail"], "description": "Bus or rail."},
         "n": {"type": "integer", "minimum": 1, "description": "Arrivals with a measured delay, over all days."},
+        "est": {"type": "integer", "minimum": 0, "description": "Of n, the arrivals placed between two position reports of the same bus because the feed never reported this stop (source interpolated in the arrivals table). The rest were seen at the stop or timed from an approach report. The estimate is in n, the median and the on-time share like any other arrival."},
         "sched": {"type": "integer", "minimum": 1, "description": "Scheduled stops over all days, measured or not. Divide n by this for coverage."},
         "med": {"type": "integer", "description": "Median delay in seconds. Positive means late and negative means early."},
         "p90": {"type": "integer", "description": "90th percentile delay in seconds. One measured arrival in ten was later than this."},

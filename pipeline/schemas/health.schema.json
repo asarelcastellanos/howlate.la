@@ -18,12 +18,13 @@
       "description": "One service day's result.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["service_date", "ok", "failed", "coverage_pct", "explained_trips", "explained_pct", "observations"],
+      "required": ["service_date", "ok", "failed", "coverage_pct", "estimated_pct", "explained_trips", "explained_pct", "observations"],
       "properties": {
         "service_date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "The service day, as YYYY-MM-DD, in Los Angeles time."},
-        "ok": {"type": "boolean", "description": "True when every check passed for this day. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day."},
-        "failed": {"type": "array", "items": {"type": "string"}, "description": "The names of the checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate."},
-        "coverage_pct": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place."},
+        "ok": {"type": "boolean", "description": "True when every binding check passed for this day. A failing advisory check does not make it false. A day that failed a check is still published, so ok false is a flag for the reader and not a missing day."},
+        "failed": {"type": "array", "items": {"type": "string"}, "description": "The names of the binding checks that failed, in the order the pipeline runs them. Empty when ok is true. Days graded by older pipeline versions can carry names that checks does not list, such as join_rate, which became matched_rate."},
+        "coverage_pct": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of the day's scheduled stops where a vehicle was seen and the delay measured, to one decimal place. It leaves out the stops in estimated_pct."},
+        "estimated_pct": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of the day's scheduled stops that the feed never reported and the pipeline placed between two position reports of the same bus, to one decimal place. These have a delay but were not measured. 0 on days graded before the pipeline estimated them."},
         "explained_trips": {"type": "integer", "minimum": 0, "description": "Trips that vehicles reported but that have no scheduled stops to grade against, because the timetable lists them only under a service that is not running that day. 0 on days graded before the pipeline counted them."},
         "explained_pct": {"type": "number", "minimum": 0, "maximum": 100, "description": "Percent of the day's vehicle observations that were on those trips, to one decimal place. 0 on days graded before the pipeline counted them."},
         "observations": {"type": "integer", "minimum": 0, "description": "Stops that vehicles reported on, counted once per trip and stop, whether or not the stop matches the timetable. This can be more than the stops measured."}
@@ -41,7 +42,8 @@
         "ok": {"type": "boolean", "description": "True when value is from low to high."},
         "value": {"type": "number", "description": "What the newest day measured. It has many decimal places, so round it before showing it."},
         "low": {"type": "number", "description": "The lowest value that passes."},
-        "high": {"type": "number", "description": "The highest value that passes."}
+        "high": {"type": "number", "description": "The highest value that passes."},
+        "advisory": {"const": true, "description": "Present and true only on a check that does not fail the day right now, as rail_misfit_pct while the rail matcher is off. ok keeps the check's real result, so a failing advisory check has ok false and advisory true and is not in the day's failed list. Absent on every other check."}
       }
     },
     "countCheck": {
@@ -55,7 +57,8 @@
         "label": {"type": "string", "description": "What is counted, in plain words."},
         "ok": {"type": "boolean", "description": "True when value equals expected."},
         "value": {"type": "integer", "minimum": 0, "description": "The count the newest day measured."},
-        "expected": {"type": "integer", "minimum": 0, "description": "The count that passes."}
+        "expected": {"type": "integer", "minimum": 0, "description": "The count that passes."},
+        "advisory": {"const": true, "description": "Present and true only on a check that does not fail the day right now, as rail_misfit_pct while the rail matcher is off. ok keeps the check's real result, so a failing advisory check has ok false and advisory true and is not in the day's failed list. Absent on every other check."}
       }
     }
   }

@@ -280,5 +280,6 @@ def run_day(
         other = {"LACMTA": [build_timetable(root / "gtfs_bus_other", services=False)]}
     arrivals.load_schedule(con, {"LACMTA": timetable}, SERVICE_DATE, other)
     arrivals.match(con, SERVICE_DATE)
+    arrivals.interpolate(con)
     arrivals.trips(con)
     return con

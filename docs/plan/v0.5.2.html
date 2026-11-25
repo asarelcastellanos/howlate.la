@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Plan v0.5.2</title>
+<style>
+:root{--bg:#FFFFFF;--fg:#151515;--muted:#5C5C5C;--line:#8A8A8A;--fill:#F3F3F3;--strong:#151515;--on-strong:#FFFFFF;
+  --f:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--m:ui-monospace,Menlo,Consolas,monospace}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#161616;--fg:#EDEDED;--muted:#A8A8A8;--line:#777777;--fill:#202020;--strong:#EDEDED;--on-strong:#161616;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#161616;--fg:#EDEDED;--muted:#A8A8A8;--line:#777777;--fill:#202020;--strong:#EDEDED;--on-strong:#161616;color-scheme:dark}
+*{box-sizing:border-box}
+html{scrollbar-color:var(--line) var(--bg);-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--f);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+::selection{background:var(--strong);color:var(--on-strong)}
+.wrap{max-width:1000px;margin:0 auto;padding-block:32px 72px;display:flex;flex-direction:column;gap:40px}
+h1{font-size:1.9rem;margin:0;line-height:1.2;overflow-wrap:anywhere}
+h2{font-size:1.3rem;margin:0}
+h3{font-size:1.1rem;margin:0;line-height:1.35}
+p{margin:0;max-width:70ch}
+section{display:flex;flex-direction:column;gap:12px}
+code{font-family:var(--m);font-size:.85em;overflow-wrap:anywhere}
+a{color:var(--fg);text-underline-offset:.2em}
+a:hover{text-decoration-thickness:2px}
+a:focus-visible{outline:2px solid var(--strong);outline-offset:3px;border-radius:2px}
+header{display:flex;flex-direction:column;gap:10px}
+.note{color:var(--muted);font-size:.9rem}
+.t{overflow-x:auto;border:1px solid var(--line)}
+.t:focus-visible{outline:2px solid var(--strong);outline-offset:2px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.9rem}
+th,td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
+thead th{border-top:0;background:var(--fill);font-weight:600}
+td:first-child{font-weight:600}
+.diagram{border:1px solid var(--line);padding:12px;display:flex;justify-content:center}
+.diagram svg{display:block;width:100%;max-width:520px;height:auto;font-family:var(--f)}
+.diagram .box{fill:var(--fill);stroke:var(--line);stroke-width:1.5}
+.diagram .first .box{fill:var(--strong);stroke:var(--strong)}
+.diagram .t1{fill:var(--fg);font-size:13px;font-weight:600}
+.diagram .t2{fill:var(--muted);font-size:12px;font-family:var(--m)}
+.diagram .first .t1,.diagram .first .t2{fill:var(--on-strong)}
+.diagram .seq{stroke:var(--muted);stroke-width:1.5;fill:none}
+.diagram .dep{stroke:var(--strong);stroke-width:1.75;stroke-dasharray:5 3;fill:none}
+.diagram .head{fill:var(--muted)}
+.diagram .head-dep{fill:var(--strong)}
+.hint{display:none;font-size:.85rem;color:var(--muted)}
+@media (max-width:720px){.hint{display:block}}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font-size:.85rem;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:16px}
+.card{border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.opts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.opts li{padding:8px 10px;border:1px solid var(--line);font-size:.92rem}
+.opts li.chosen{border:2px solid var(--strong);background:var(--fill)}
+.tag{display:block;font-size:.8rem;font-weight:700}
+.lbl{font-size:.8rem;color:var(--muted);display:block}
+ul.plain{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px;max-width:70ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Plan v0.5.2</h1>
+  <p>v0.5.2 guards the raw archive against paid downloads, finds why rail trip ids disagree with the timetable, matches rail runs to scheduled trips, and regrades the archive once. Ten features, each one issue and one PR, merge into release/v0.5.2.</p>
+  <p class="note">Status: Draft for the owner's approval. Spec: <a href="../spec/v0.5.2.md">v0.5.2</a>. Grill record: <a href="../grill/2026-11-24-reach-v0.6.0.md">reach v0.6.0</a>.</p>
+</header>
+
+<section>
+  <h2>What it adds</h2>
+  <div class="t" tabindex="0" role="region" aria-label="What it adds"><table>
+    <thead><tr><th scope="col">Part</th><th scope="col">What it is</th><th scope="col">Claims</th></tr></thead>
+    <tbody>
+      <tr><td>Egress guard</td><td><code>arrivals</code>, <code>backfill</code> and <code>daily</code> refuse raw downloads outside Google Cloud, and <code>CLAUDE.md</code> carries the rule</td><td>C1, C2, C3</td></tr>
+      <tr><td>VM script mode</td><td><code>backfill-vm.sh</code> runs a named analysis script on the VM and saves its output</td><td>C15, C18</td></tr>
+      <tr><td>Rail id cause</td><td>A measured answer to why rail trip ids disagree with the timetable, and a draft of questions for Metro</td><td>C4, C5</td></tr>
+      <tr><td>Rail check</td><td>A daily report check that fails a day when a rail line has too many misfit runs</td><td>C10</td></tr>
+      <tr><td>Rail matcher</td><td>Rail runs matched to scheduled trips by direction, stop sequence and time</td><td>C6, C7, C8</td></tr>
+      <tr><td>Later-start trips</td><td>The 1,133 ungraded rail trips graded or recorded as impossible</td><td>C9</td></tr>
+      <tr><td>Regrade and re-measure</td><td>One full regrade, then the rail on-time share and the bus coverage gain</td><td>C11, C12</td></tr>
+      <tr><td>Trip updates research</td><td>Whether Metro offers a trip updates feed, and a decision on a collector task</td><td>C13</td></tr>
+      <tr><td>Measured cost</td><td>The README states the measured monthly cost</td><td>C14</td></tr>
+      <tr><td>Release</td><td>Changelog, version bump, release plan change and the review package</td><td>C16, C17</td></tr>
+    </tbody>
+  </table></div>
+  <p class="hint">Scroll the table sideways to see every column.</p>
+</section>
+
+<section>
+  <h2>Build order</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 400 728" role="img" aria-labelledby="order-title order-desc">
+      <title id="order-title">Build order</title>
+      <desc id="order-desc">Ten boxes from top to bottom in build order. 1, Egress guard, depends on nothing. 2, Rail check, depends on nothing. 3, VM script mode, depends on 1. 4, Rail id cause, depends on 3. 5, Rail matcher, depends on 4. 6, Later-start trips, depends on 5. 7, Regrade and re-measure, depends on 2, 5, 6. 8, Trip updates research, depends on nothing. 9, Measured cost, depends on nothing. 10, Release, depends on 1, 2, 3, 4, 5, 6, 7, 8, 9.</desc>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker>
+        <marker id="ahd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-dep" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <g class="first" transform="translate(88 8)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">1. Egress guard</text>
+        <text class="t2" x="12" y="39">v0.5.2/egress-guard, C1-C3</text>
+      </g>
+      <g class="" transform="translate(88 80)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">2. Rail check</text>
+        <text class="t2" x="12" y="39">v0.5.2/rail-match-check, C10</text>
+      </g>
+      <g class="" transform="translate(88 152)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">3. VM script mode</text>
+        <text class="t2" x="12" y="39">v0.5.2/vm-script-mode, C15, C18</text>
+      </g>
+      <g class="" transform="translate(88 224)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">4. Rail id cause</text>
+        <text class="t2" x="12" y="39">v0.5.2/rail-id-cause, C4, C5</text>
+      </g>
+      <g class="" transform="translate(88 296)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">5. Rail matcher</text>
+        <text class="t2" x="12" y="39">v0.5.2/rail-matcher, C6-C8</text>
+      </g>
+      <g class="" transform="translate(88 368)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">6. Later-start trips</text>
+        <text class="t2" x="12" y="39">v0.5.2/later-start-trips, C9</text>
+      </g>
+      <g class="" transform="translate(88 440)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">7. Regrade and re-measure</text>
+        <text class="t2" x="12" y="39">v0.5.2/remeasure, C11, C12</text>
+      </g>
+      <g class="" transform="translate(88 512)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">8. Trip updates research</text>
+        <text class="t2" x="12" y="39">no branch, C13</text>
+      </g>
+      <g class="" transform="translate(88 584)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">9. Measured cost</text>
+        <text class="t2" x="12" y="39">v0.5.2/measured-cost, C14</text>
+      </g>
+      <g class="" transform="translate(88 656)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">10. Release</text>
+        <text class="t2" x="12" y="39">v0.5.2/release-prep, C16, C17</text>
+      </g>
+      <path class="seq" d="M238 60V79" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 132V151" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 204V223" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 276V295" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 348V367" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 420V439" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 492V511" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 564V583" marker-end="url(#ah)"/>
+      <path class="seq" d="M238 636V655" marker-end="url(#ah)"/>
+      <path class="dep" d="M88 160C66 160 66 18 86 18" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 232C75 232 75 162 86 162" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 304C75 304 75 234 86 234" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 376C75 376 75 306 86 306" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 448C39 448 39 90 86 90" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 452C66 452 66 310 86 310" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 456C75 456 75 378 86 378" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 664C4 664 4 22 86 22" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 668C12 668 12 94 86 94" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 672C21 672 21 166 86 166" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 676C30 676 30 238 86 238" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 680C39 680 39 314 86 314" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 684C48 684 48 382 86 382" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 688C57 688 57 450 86 450" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 692C66 692 66 522 86 522" marker-end="url(#ahd)"/>
+      <path class="dep" d="M88 696C75 696 75 594 86 594" marker-end="url(#ahd)"/>
+    </svg>
+  </div>
+  <div class="legend"><span>Solid arrow: next in order.</span><span>Dashed arrow: depends on.</span><span>Filled box: first.</span></div>
+  <p>Feature 1 comes first because the guard makes the VM the only place archive work runs. Features 8 and 9 depend on nothing and run beside features 3 to 6. Feature 7 does one full pass over the archive for both its claims. Feature 10 depends on every feature above it.</p>
+</section>
+
+<section>
+  <h2>Who builds what</h2>
+  <div class="t" tabindex="0" role="region" aria-label="Who builds what"><table>
+    <thead><tr><th scope="col">Feature</th><th scope="col">Claims</th><th scope="col">Builds it</th><th scope="col">Checks it</th></tr></thead>
+    <tbody>
+      <tr><td>Egress guard</td><td>C1, C2, C3</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Rail check</td><td>C10</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>VM script mode</td><td>C15, C18</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Rail id cause</td><td>C4, C5</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Rail matcher</td><td>C6, C7, C8</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Later-start trips</td><td>C9</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Regrade and re-measure</td><td>C11, C12</td><td>coder, then ui-builder for the methods page</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Trip updates research</td><td>C13</td><td>researcher</td><td>qa-runner</td></tr>
+      <tr><td>Measured cost</td><td>C14</td><td>writer</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Release</td><td>C16, C17</td><td>writer</td><td>owner</td></tr>
+    </tbody>
+  </table></div>
+  <p class="hint">Scroll the table sideways to see every column.</p>
+</section>
+
+<section>
+  <h2>Decisions</h2>
+  <p>Each card is a decision with real options. The chosen option is marked and has a heavy border. Cards run in number order.</p>
+  <div class="cards">
+    <article class="card">
+      <h3>0001. Refuse raw downloads outside Google Cloud</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Refuse every raw download outside Google Cloud, with an <code>--allow-egress</code> flag for a person</li>
+        <li><span class="tag">Considered</span>Refuse every raw download outside Google Cloud, with no override</li>
+        <li><span class="tag">Considered</span>Refuse only downloads above one service day</li>
+        <li><span class="tag">Considered</span>Warn and continue</li>
+      </ul>
+      <p><span class="lbl">Why</span>The November cost came from many one-day runs that a size limit would have passed, and the owner still needs a way to force a download without a code change.</p>
+      <p class="note"><a href="../adr/0001-refuse-raw-downloads-outside-google-cloud.md">ADR-0001</a></p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <h2>Grill answers</h2>
+  <p>A Q is a question from the grill record. Each card is an answer that chose between real options.</p>
+  <div class="cards">
+    <article class="card">
+      <h3>Q1. Where the push stops</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Ready to start v0.6.0. Finish and release v0.5.2, handle v0.5.3, and stop when v0.6.0 is the next version to build.</li>
+      </ul>
+      <p><span class="lbl">Why</span>The owner confirmed that the target is v0.6.0, the commute tool.</p>
+      <p class="note"><a href="../grill/2026-11-24-reach-v0.6.0.md">Grill record, Q1</a></p>
+    </article>
+    <article class="card">
+      <h3>Q2. What happens to the v0.5.3 redesign</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Skip it and go to v0.6.0.</li>
+      </ul>
+      <p><span class="lbl">Why</span>The v0.5.3 redesign had no scope and no issues.</p>
+      <p class="note"><a href="../grill/2026-11-24-reach-v0.6.0.md">Grill record, Q2</a></p>
+    </article>
+    <article class="card">
+      <h3>Q3. VM budget for the rail matching work</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Yes, up to $5 total. Agents delete the VM after each run and stop to ask if the running total would pass $5.</li>
+      </ul>
+      <p><span class="lbl">Why</span>The rail matching work (#177, #178, #166, #179) reads the archive, and ADR-0001 sends archive work to the backfill VM, so the agents need a spend limit on it.</p>
+      <p class="note"><a href="../grill/2026-11-24-reach-v0.6.0.md">Grill record, Q3</a></p>
+    </article>
+    <article class="card">
+      <h3>Q4. How far the trip updates feed goes</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Research and decide only. Any new collector task becomes its own issue in a later version.</li>
+      </ul>
+      <p><span class="lbl">Why</span>This keeps #167 in v0.5.2 to a research answer and leaves any collector change for a later version.</p>
+      <p class="note"><a href="../grill/2026-11-24-reach-v0.6.0.md">Grill record, Q4</a></p>
+    </article>
+    <article class="card">
+      <h3>Q5. Where the redesign goes in the release plan</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Fold it into the v0.9.0 polish pass. The v0.5.3 milestone is closed and the redesign is issue #189 in v0.9.0.</li>
+      </ul>
+      <p><span class="lbl">Why</span>The redesign moves to the v0.9.0 polish pass, and the closed v0.5.3 milestone no longer holds it.</p>
+      <p class="note"><a href="../grill/2026-11-24-reach-v0.6.0.md">Grill record, Q5</a></p>
+    </article>
+    <article class="card">
+      <h3>Q6. Whether the measured cost ships in v0.5.2</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Yes, add #123 to v0.5.2.</li>
+      </ul>
+      <p><span class="lbl">Why</span>The confirmed plan includes correcting the cost claim in the README, so #123 is part of v0.5.2.</p>
+      <p class="note"><a href="../grill/2026-11-24-reach-v0.6.0.md">Grill record, Q6</a></p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <h2>Risks</h2>
+  <ul class="plain">
+    <li><strong>The matcher agrees too rarely with known-good ids.</strong> It does not ship. #166 records the 1,133 trips as impossible, the rail figures keep their footnote, and v0.5.2 releases with the check and the cause only.</li>
+    <li><strong>The guard reads the daily Cloud Run job as outside Google Cloud.</strong> The first daily run after the release fails and healthchecks.io alarms. The next run grades the missed day, because <code>daily</code> grades the last seven days. The fix is a revert on <code>main</code>.</li>
+    <li><strong>VM spend passes $5.</strong> A full pass over the archive pays about $1.70 in Coldline retrieval. Work stops and I ask the owner before a run that would pass the limit.</li>
+    <li><strong>The four problem days turn 30 days old.</strong> From 2026-12-07 each read of 2026-11-07 pays the Coldline fee. Features 4 to 6 use those days and should finish before then.</li>
+    <li><strong>Spot reclaims the VM mid-run.</strong> A <code>backfill</code> run resumes on the next start. A script run starts over, so scripts work one day at a time and save output per day.</li>
+    <li><strong>#177 finds that positions cannot rebuild a run.</strong> The matcher in feature 5 has no ground truth. Work stops and I ask the owner how to proceed.</li>
+    <li><strong>An agent downloads the archive anyway.</strong> The guard refuses, and <code>CLAUDE.md</code> forbids <code>--allow-egress</code>. The rule reaches <code>main</code> only when v0.5.2 releases, so sessions on <code>main</code> before then do not see it.</li>
+  </ul>
+</section>
+
+</div>
+</body>
+</html>

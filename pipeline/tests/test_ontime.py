@@ -148,11 +148,11 @@ def test_one_delay_at_each_edge_gives_the_share_by_hand(tmp_path):
 
 
 def test_the_size_cuts_hold_in_every_line_file(three):
-    """Cells carry no ontime and a stop's all carries no n. Both cost size and add nothing."""
+    """Cells carry no ontime or est, and a stop's all carries no n or est. Each costs size."""
     _, out = three
     for line in ("720", "754", "801"):
         for direction in read(out, f"lines/{line}.json")["directions"]:
-            assert set(direction["all"]) == {"n", "med", "p90", "pct5", "ontime"}
+            assert set(direction["all"]) == {"n", "est", "med", "p90", "pct5", "ontime"}
             for stop in direction["stops"]:
                 assert set(stop["all"]) == {"med", "p90", "pct5", "ontime"}
                 for cell in stop["cells"]:
@@ -170,6 +170,7 @@ def test_a_stop_with_nothing_measured_has_an_all_object_of_nulls(tmp_path):
         for stop in direction["stops"]
     }
     assert stops["D"]["n"] == 0
+    assert stops["D"]["est"] == 0
     assert stops["D"]["all"] == {"med": None, "p90": None, "pct5": None, "ontime": None}
     assert stops["B"]["n"] == 1
 
@@ -240,11 +241,44 @@ def test_a_mode_with_no_measured_arrival_is_empty_not_missing(tmp_path):
     aggregate.build(con, catalogue, out, *span)
     rail = read(out, "network.json")["rail"]
     assert rail == {
-        "all": {"n": 0, "med": None, "p90": None, "pct5": None, "ontime": None},
+        "all": {"n": 0, "est": 0, "med": None, "p90": None, "pct5": None, "ontime": None},
         "profile": [],
     }
     bus = read(out, "network.json")["bus"]
     assert bus["all"]["n"] == read(out, "network.json")["network"]["all"]["n"] == 3
+
+
+def test_est_counts_the_interpolated_arrivals_at_every_level_that_has_an_n(tmp_path):
+    """B and C are interpolated and D is marked interpolated with no delay. Only B and C count."""
+    con, catalogue, span = fixture(tmp_path)
+    con.execute("""
+        CREATE OR REPLACE VIEW a AS
+        SELECT * REPLACE (CASE WHEN stop_id IN ('B', 'C', 'D') THEN 'interpolated'
+                               ELSE source END AS source)
+        FROM base
+    """)
+    out = tmp_path / "site"
+    aggregate.build(con, catalogue, out, *span)
+
+    # n is 3 for B, C and F. F was seen, so 2 of the 3 are estimated.
+    entry = read(out, "index.json")["lines"][0]
+    assert (entry["n"], entry["est"]) == (3, 2)
+    (direction,) = read(out, "lines/720.json")["directions"]
+    assert (direction["all"]["n"], direction["all"]["est"]) == (3, 2)
+    stops = {stop["id"]: (stop["n"], stop["est"]) for stop in direction["stops"]}
+    assert stops == {"B": (1, 1), "C": (1, 1), "D": (0, 0), "F": (1, 0)}
+    network = read(out, "network.json")
+    assert (network["network"]["all"]["n"], network["network"]["all"]["est"]) == (3, 2)
+    assert (network["bus"]["all"]["est"], network["rail"]["all"]["est"]) == (2, 0)
+    status = read(out, "status.json")
+    assert (status["measured_arrivals"], status["estimated_arrivals"]) == (3, 2)
+
+
+def test_est_is_zero_when_nothing_was_interpolated(three):
+    _, out = three
+    assert {entry["est"] for entry in read(out, "index.json")["lines"]} == {0}
+    assert read(out, "status.json")["estimated_arrivals"] == 0
+    assert set(find(read(out, "network.json"), "est")) == {0}
 
 
 def test_the_pointer_counts_network_json(tmp_path):

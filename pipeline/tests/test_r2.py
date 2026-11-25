@@ -378,15 +378,15 @@ def test_a_half_set_environment_still_names_what_is_missing_when_required():
         )
 
 
-# The daily job runs at 05:00 Pacific and grades up to two days back, so on a
-# healthy day the public last_day is two days before today.
+# The daily job runs at 08:00 Pacific and grades yesterday, and the probe runs
+# right after it, so on a healthy day the public last_day is one day before today.
 TODAY = date(2026, 11, 9)
 
 
 class Web:
     """The public address as the probe sees it, with every URL it was asked for."""
 
-    def __init__(self, *, run=NEW, last_day="2026-11-07", pointer=None, status=None):
+    def __init__(self, *, run=NEW, last_day="2026-11-08", pointer=None, status=None):
         self.urls = []
         prefix = f"site/runs/{run}/"
         self.pages = {
@@ -436,7 +436,7 @@ def test_the_probe_asks_for_the_pointer_with_the_current_time_as_its_query(monke
         (Web(last_day="soon"), "status.json has no valid last_day"),
         (Web(last_day=""), "status.json has no valid last_day"),
         (Web(status=(200, '{"last_day": 20261107}')), "status.json has no valid last_day"),
-        (Web(last_day="2026-11-04"), "last_day 2026-11-04 is 5 days before today, more than 4"),
+        (Web(last_day="2026-11-05"), "last_day 2026-11-05 is 4 days before today, more than 3"),
     ],
 )
 def test_the_probe_fails_and_says_which_check_failed(web, message):
@@ -454,8 +454,8 @@ def test_the_probe_refuses_a_pointer_whose_prefix_names_a_different_run():
         r2.probe(PUBLIC, NEW, TODAY, web)
 
 
-@pytest.mark.parametrize("last_day", ["2026-11-07", "2026-11-05"])
-def test_the_probe_allows_a_last_day_two_and_four_days_before_today(last_day):
+@pytest.mark.parametrize("last_day", ["2026-11-08", "2026-11-07", "2026-11-06"])
+def test_the_probe_allows_a_last_day_one_to_three_days_before_today(last_day):
     r2.probe(PUBLIC, NEW, TODAY, Web(last_day=last_day))
 
 
@@ -545,9 +545,9 @@ def test_a_stale_public_site_fails_the_copy(tmp_path):
 
 def test_the_copy_judges_the_public_site_by_today_in_los_angeles(tmp_path, monkeypatch):
     # The clock reads 2026-11-10 07:30 UTC, which is 2026-11-09 23:30 Pacific. A
-    # last_day of 2026-11-05 is 4 days behind the Pacific date and 5 behind the
+    # last_day of 2026-11-06 is 3 days behind the Pacific date and 4 behind the
     # UTC one, so only the Pacific date passes.
-    derived, web = publish_runs(tmp_path, NEW), Web(last_day="2026-11-05")
+    derived, web = publish_runs(tmp_path, NEW), Web(last_day="2026-11-06")
 
     class Clock(datetime):
         @classmethod

@@ -16,8 +16,14 @@ from pathlib import Path
 
 import duckdb
 
-from howlate_pipeline import __version__
+from howlate_pipeline import RAIL_AGENCY, __version__, railmatch
 from howlate_pipeline.gtfs import line_code
+from howlate_pipeline.railmatch import FIT_MARGIN, FIT_SECONDS, MIN_RUN_STOPS
+
+# A stop a vehicle reported at, as opposed to one placed between two reports. The
+# coverage numbers and the silent-lines check count only these, so a bug that
+# stopped the feed reaching a line cannot be hidden by estimates around it.
+SEEN = "source NOT IN ('none', 'interpolated')"
 
 # Measured on 2026-08-18 across all 120 lines. Ranges, not points, because real
 # days differ: weekends run less service and holidays run almost none.
@@ -49,8 +55,16 @@ EXPECTED = {
         "observations on trips listed only under a later-start service",
     ),
     "stop_id_match": (99.9, 100.0, "reported stop_id agreeing with the timetable"),
-    "coverage": (55.0, 90.0, "scheduled stops with a timed arrival"),
-    "stopped_pct": (35.0, 75.0, "of those, timed from a STOPPED_AT record"),
+    "coverage": (
+        55.0,
+        90.0,
+        "scheduled stops with a timed arrival, not counting interpolated ones",
+    ),
+    # Raised from 75 to 90. In the regraded reports it was 50% to 59% through
+    # 2026-11-19, then 75.13%, 75.10%, 74.71% and 75.64% on 11-20 to 11-23, while
+    # coverage rose from 75.6% to about 87%. The feed sends more STOPPED_AT
+    # records, so the rise is not a break.
+    "stopped_pct": (35.0, 90.0, "of those, timed from a STOPPED_AT record"),
     "median_delay_min": (-1.0, 6.0, "median delay, mid-route"),
     "absurd_pct": (0.0, 0.5, "delays beyond an hour"),
     "early_pct": (0.0, 2.0, "mid-route arrivals over 5 min early"),
@@ -59,6 +73,32 @@ EXPECTED = {
     # stays wide until weekends and holidays have been measured.
     "vehicle_known": (99.9, 100.0, "timed arrivals naming a vehicle"),
     "trips_seen": (90.0, 100.0, "scheduled trips with any report"),
+    # The highest share, on any one rail line with MIN_LINE_RUNS or more judged
+    # runs, of runs that fit another trip of the line much better than the trip
+    # they reported (see rail_misfits). Per line because a network-wide share
+    # dilutes: on 2026-11-13 route 801 had 21.5% (71 of 331 runs) and all rail
+    # 5.3%. Measured on 48 of the archive's 91 days, so a half-archive sample:
+    # 2026-08-18 to 09-18 (09-19 failed to load), 09-20 to 09-27, 10-24, 10-25,
+    # 10-31, 11-07, 11-10, 11-13, 11-14 and 11-15. The highest line was a median
+    # 2.6%. 42 days stayed at or under 9.0%, and 6 were over 10%: 2026-08-22 (14.5%
+    # on route 805), 09-15 (10.8%, 805), 09-18 (11.2%, 805), 11-13 (21.5%, 801),
+    # 11-14 (24.4%, 801) and 11-15 (18.3%, 801). The three highest of the 42 were
+    # 7.9% (08-26), 8.2% (09-20) and 9.0% (09-13). On 09-13 the 8 misfit runs on route
+    # 802 reported a trip 20 to 60 minutes off, so those days are not clean, and 10
+    # is where the measured days stop being close to each other. The A line (801)
+    # was over the limit on 3 of the 4 days of #177 and not on 2026-11-07, where
+    # its mismatches are later-start ids with no timetable to fit, which
+    # explained_pct counts. Those days read the raw files only to 07:59 UTC the
+    # next day, which leaves out the end of the service day after local midnight on
+    # the days after 1 November. The full pipeline on 2026-11-13 found 70 misfits in
+    # 342 runs on route 801 (20.5%) against 71 in 331 here, so the shares near the
+    # limit can differ by about a point.
+    "rail_misfit_pct": (
+        0.0,
+        10.0,
+        "rail runs that fit another trip's timetable much better than their reported trip, "
+        "on the worst line",
+    ),
 }
 
 
@@ -83,12 +123,15 @@ EXPECTED = {
 EVENT_ONLY = frozenset({"9", "22"})
 
 
-def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
+def summarise(
+    con: duckdb.DuckDBPyConnection, rail: list[tuple[str, int, int]] | None = None
+) -> dict[str, float]:
     """Every headline number for the day, in one pass over the joined table."""
-    row = con.sql("""
+    row = con.sql(f"""
         SELECT
           count(*)                                                  AS scheduled_stops,
-          count(*) FILTER (WHERE source <> 'none')                  AS measured,
+          count(*) FILTER (WHERE {SEEN})                            AS measured,
+          count(*) FILTER (WHERE source = 'interpolated')           AS interpolated,
           count(*) FILTER (WHERE source = 'stopped_at')            AS stopped,
           count(*) FILTER (WHERE source = 'approach')              AS approached,
           count(*) FILTER (WHERE is_terminus AND source = 'stopped_at') AS terminus_stopped,
@@ -108,6 +151,7 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     keys = [
         "scheduled_stops",
         "measured",
+        "interpolated",
         "stopped",
         "approached",
         "terminus_stopped",
@@ -158,6 +202,7 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     stats["coverage"] = (
         100 * stats["measured"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
     )
+    stats["interpolated_pct"] = pct(stats["interpolated"], stats["scheduled_stops"])
     stats["stopped_pct"] = (
         100 * stats["stopped"] / stats["scheduled_stops"] if stats["scheduled_stops"] else 0
     )
@@ -182,8 +227,15 @@ def summarise(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
     ).fetchall()[0]
     stats["trips_seen"] = 100 * trips_seen / trips_total if trips_total else 0
     stats["early_pct"] = 100 * stats["early"] / stats["with_delay"] if stats["with_delay"] else 0
+    if rail is None:
+        rail = rail_misfits(con)
+    stats["rail_misfit_pct"] = max(
+        (pct(misfits, runs) for _, runs, misfits in rail if runs >= MIN_LINE_RUNS), default=0.0
+    )
     return stats
 
+
+ADVISORY_NOTE = "advisory while the rail matcher is off, so a failure here does not fail the day"
 
 EXPLAINED_NOTE = (
     "These trips are in every timetable copy that lists them only under a service whose "
@@ -257,6 +309,88 @@ def fully_explained_lines(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     )
 
 
+# Fewest judged runs on a line before it can fail the check. Lines had 60 to 459
+# judged runs a day on the measured days, apart from 2026-08-21, when the archive
+# held 190 of the day's 382 files and each line had 24 to 52. Below 30, one run
+# is over 3%.
+MIN_LINE_RUNS = 30
+
+
+def rail_misfits(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int]]:
+    """For each rail line, the runs judged and how many fit another trip much better.
+
+    A run is one vehicle on one trip_id of `observations`, which is the trip the
+    grader used. With the matcher on, a run `arrivals.match_rail_runs` moved to
+    its fitted trip is judged on that trip and a run it dropped is not judged, so
+    a day when the feed labels trains with the wrong ids fails only for the runs
+    the matcher trusted. Its miss against a trip is the
+    median, over the stops it was timed at, of the seconds between its first
+    STOPPED_AT and the trip's scheduled arrival. The run is a misfit when another
+    trip on the same route and direction, scheduled at every stop the run was timed
+    at, has a miss of at most FIT_SECONDS and the reported trip's miss is at least
+    FIT_MARGIN worse. Only runs timed at MIN_RUN_STOPS or more non-origin stops are
+    judged, and a run on a trip with no scheduled stops cannot be, so a later-start
+    trip is left to explained_pct. The line is the judged trip's route_id.
+
+    A failing `rail_misfit_pct` is advisory while `railmatch.ENABLED` is False
+    (see `binding`): it shows as failed here and in the saved report but does not
+    fail the day.
+    """
+    return con.execute(
+        """
+        WITH timed AS (
+            SELECT o.vehicle_id, o.trip_id, s.stop_id, s.route_id, s.direction_id,
+                   min(o.ts) AS ts
+            FROM observations o
+            JOIN scheduled s
+              ON s.agency = o.agency AND s.trip_id = o.trip_id
+             AND s.stop_sequence = o.stop_sequence
+            WHERE o.agency = ? AND o.status = 'STOPPED_AT'
+              AND o.vehicle_id IS NOT NULL AND NOT s.is_origin
+            GROUP BY ALL
+        ),
+        runs AS (
+            SELECT vehicle_id, trip_id, count(*) AS stops
+            FROM timed GROUP BY ALL HAVING count(*) >= ?
+        ),
+        fits AS (
+            SELECT t.vehicle_id, t.trip_id, t.route_id, c.trip_id AS fitted,
+                   median(abs(t.ts - c.scheduled_arrival)) AS miss
+            FROM timed t
+            JOIN runs r USING (vehicle_id, trip_id)
+            JOIN scheduled c
+              ON c.agency = ? AND c.route_id = t.route_id AND c.direction_id = t.direction_id
+             AND c.stop_id = t.stop_id AND NOT c.is_origin
+            GROUP BY t.vehicle_id, t.trip_id, t.route_id, c.trip_id, r.stops
+            HAVING count(*) = r.stops
+        ),
+        judged AS (
+            SELECT route_id,
+                   min(miss) FILTER (WHERE fitted = trip_id) AS reported,
+                   min(miss) FILTER (WHERE fitted <> trip_id) AS other
+            FROM fits GROUP BY vehicle_id, trip_id, route_id
+        )
+        SELECT route_id, count(*),
+               count(*) FILTER (WHERE other <= ? AND reported - other >= ?)
+        FROM judged GROUP BY route_id ORDER BY route_id
+        """,
+        [RAIL_AGENCY, MIN_RUN_STOPS, RAIL_AGENCY, FIT_SECONDS, FIT_MARGIN],
+    ).fetchall()
+
+
+def rail_matching(con: duckdb.DuckDBPyConnection) -> list[tuple[str, int, int, int]]:
+    """For each rail line, the runs trusted, matched by position, and left ungraded.
+
+    Empty when the matcher is off or the day had no rail runs.
+    """
+    return con.sql("""
+        SELECT line, count(*) FILTER (WHERE outcome = 'trusted'),
+               count(*) FILTER (WHERE outcome = 'matched'),
+               count(*) FILTER (WHERE outcome = 'ungraded')
+        FROM rail_runs GROUP BY line ORDER BY line
+    """).fetchall()
+
+
 def notes(stats: dict) -> list[str]:
     """One plain sentence for each thing on this day that explains a number."""
     return [EXPLAINED_NOTE] if stats["explained"] else []
@@ -271,18 +405,19 @@ def by_agency(con: duckdb.DuckDBPyConnection) -> list[tuple]:
     only the join rate dipped, which reads like a data problem rather than a
     missing feed.
     """
-    return con.sql("""
+    return con.sql(f"""
         SELECT agency, count(DISTINCT line) AS lines, count(*) AS scheduled_stops,
-               count(*) FILTER (WHERE source <> 'none') AS measured
+               count(*) FILTER (WHERE {SEEN}) AS measured,
+               count(*) FILTER (WHERE source = 'interpolated') AS interpolated
         FROM arrivals GROUP BY agency ORDER BY agency
     """).fetchall()
 
 
 def _never_seen(con: duckdb.DuckDBPyConnection) -> list[tuple]:
-    return con.sql("""
+    return con.sql(f"""
         SELECT agency, line, count(*) AS scheduled_stops
         FROM arrivals GROUP BY agency, line
-        HAVING count(*) FILTER (WHERE source <> 'none') = 0
+        HAVING count(*) FILTER (WHERE {SEEN}) = 0
         -- Ties broken by name, so the saved report is the same on every run.
         ORDER BY scheduled_stops DESC, agency, line
     """).fetchall()
@@ -320,7 +455,8 @@ def minutes(seconds: float | None) -> str:
 
 def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
     """Print the report. Returns True if everything was within expectations."""
-    s = summarise(con)
+    rail = rail_misfits(con)
+    s = summarise(con, rail)
 
     print(
         f"\n  {service_date}: {s['lines']} lines, {s['trips']:,} trips, "
@@ -335,15 +471,22 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
         f"{s['scheduled_stops'] - s['measured']:,} never seen"
     )
     print(
+        f"  of those never seen, {s['interpolated']:,} bus stops were placed between two "
+        f"reports ({s['interpolated_pct']:.1f}% of scheduled stops), so "
+        f"{s['measured'] + s['interpolated']:,} have a delay "
+        f"({pct(s['measured'] + s['interpolated'], s['scheduled_stops']):.1f}%)"
+    )
+    print(
         f"  delay mid-route: median {minutes(s['median_delay'])} | p75 {minutes(s['p75'])} "
         f"| p95 {minutes(s['p95'])} | p99 {minutes(s['p99'])} min"
     )
 
     print()
-    for agency, lines, stops, measured in by_agency(con):
+    for agency, lines, stops, measured, interpolated in by_agency(con):
         print(
             f"  {agency:<12} {lines:>4} lines  {stops:>8,} scheduled  "
-            f"{measured:>8,} measured ({pct(measured, stops):.1f}%)"
+            f"{measured:>8,} measured ({pct(measured, stops):.1f}%)  "
+            f"{interpolated:>8,} interpolated ({pct(interpolated, stops):.1f}%)"
         )
 
     if s["explained"]:
@@ -359,9 +502,8 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             print(f"  {note}")
 
     print()
-    ok = True
-    for check in checks(con, s):
-        ok &= check["ok"]
+    found = checks(con, s)
+    for check in found:
         mark = "ok  " if check["ok"] else "CHECK"
         if check["kind"] == "range":
             print(
@@ -370,6 +512,8 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             )
         else:
             print(f"  {mark} {check['value']:8,}  {check['label']} (expect {check['expect']})")
+        if not binding(check) and not check["ok"]:
+            print(f"          {ADVISORY_NOTE}")
     for agency, line, stops in silent_lines(con)[:10]:
         print(f"          {agency} {line}: {stops:,} scheduled stops, nothing observed")
     for agency, line, stops in silent_event_lines(con):
@@ -377,7 +521,35 @@ def show(con: duckdb.DuckDBPyConnection, service_date: str) -> bool:
             f"          info {agency} {line}: event-only line, {stops:,} scheduled stops, "
             "nothing observed, not checked"
         )
-    return ok
+    for line, trusted, matched, ungraded in rail_matching(con):
+        print(
+            f"          {RAIL_AGENCY} {line}: {trusted:,} runs graded on their reported trip, "
+            f"{matched:,} matched by position, {ungraded:,} left ungraded"
+        )
+    limit = EXPECTED["rail_misfit_pct"][1]
+    for line, runs, misfits in rail:
+        if runs >= MIN_LINE_RUNS and pct(misfits, runs) > limit:
+            print(
+                f"          {RAIL_AGENCY} {line}: {misfits:,} of {runs:,} runs fit another trip better"
+            )
+    return day_ok(found)
+
+
+def binding(check: dict) -> bool:
+    """Whether a failure of this check fails the day.
+
+    `rail_misfit_pct` judges the trip ids the feed reported while the rail matcher
+    is off. On a split-service day such as 2026-11-13 it reads 20.5% on route 801
+    against the 10% limit, and nothing in the pipeline can fix that cause. It is
+    reported and saved but does not fail the day. Turning the matcher on makes it
+    binding again.
+    """
+    return railmatch.ENABLED or check["name"] != "rail_misfit_pct"
+
+
+def day_ok(found: list[dict]) -> bool:
+    """Whether every binding check passed."""
+    return all(check["ok"] for check in found if binding(check))
 
 
 def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
@@ -425,7 +597,7 @@ def checks(con: duckdb.DuckDBPyConnection, s: dict) -> list[dict]:
             "label": "feeds contributing scheduled stops",
             "value": len(feeds),
             "expect": 2,
-            "ok": len(feeds) == 2 and all(stops > 0 for _, _, stops, _ in feeds),
+            "ok": len(feeds) == 2 and all(stops > 0 for _, _, stops, _, _ in feeds),
         }
     )
 
@@ -463,15 +635,22 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
     No wall-clock time goes in, so regrading an unchanged day writes the same
     bytes.
     """
-    s = summarise(con)
+    rail = rail_misfits(con)
+    s = summarise(con, rail)
     found = checks(con, s)
     return {
         "service_date": f"{service_date[:4]}-{service_date[4:6]}-{service_date[6:]}",
         "pipeline_version": __version__,
         "stats": s,
         "agencies": [
-            {"agency": agency, "lines": lines, "scheduled_stops": stops, "measured": measured}
-            for agency, lines, stops, measured in by_agency(con)
+            {
+                "agency": agency,
+                "lines": lines,
+                "scheduled_stops": stops,
+                "measured": measured,
+                "interpolated": interpolated,
+            }
+            for agency, lines, stops, measured, interpolated in by_agency(con)
         ],
         "silent_lines": [
             {"agency": agency, "line": line, "scheduled_stops": stops}
@@ -481,13 +660,20 @@ def document(con: duckdb.DuckDBPyConnection, service_date: str) -> dict:
             {"agency": agency, "line": line, "scheduled_stops": stops}
             for agency, line, stops in silent_event_lines(con)
         ],
+        "rail_misfits": [
+            {"line": line, "runs": runs, "misfits": misfits} for line, runs, misfits in rail
+        ],
+        "rail_matching": [
+            {"line": line, "trusted": trusted, "matched": matched, "ungraded": ungraded}
+            for line, trusted, matched, ungraded in rail_matching(con)
+        ],
         "explained_unmatched": [
             {"agency": agency, "observations": observations, "trips": trips}
             for agency, observations, trips in explained_unmatched(con)
         ],
         "notes": notes(s),
         "checks": found,
-        "ok": all(check["ok"] for check in found),
+        "ok": day_ok(found),
     }
 
 

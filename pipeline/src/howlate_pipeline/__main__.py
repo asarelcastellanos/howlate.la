@@ -23,6 +23,10 @@ backfill over the last few days, then `aggregate` over everything graded.
 --gtfs-dir and --no-upload, touch no Cloud Storage, so both run on local files
 without credentials. `backfill` and `daily` always read the buckets.
 
+Outside Google Cloud, `arrivals`, `backfill` and `daily` refuse to download raw
+files that are not already in the cache, because internet egress costs about
+$0.12 per GiB. `--allow-egress` on `arrivals` and `backfill` forces it.
+
 `daily` ends by copying the run it published to Cloudflare R2, and `publish-r2`
 does that copy for an existing run on demand; see r2.py. Neither runs `arrivals`
 or `aggregate`. Without R2 settings in the environment `daily` skips the copy,
@@ -38,33 +42,48 @@ import re
 import sys
 import time
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from datetime import time as clock_time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from google.cloud import storage
 
 from howlate_pipeline import (
     DERIVED_BUCKET,
+    ZONE,
     aggregate,
     arrivals,
     backfill,
     gtfs,
     labels,
-    pacific_today,
     r2,
     report,
 )
 
+# Measured 2026-11-13 to 2026-11-16: the last bus report for a service day came
+# between 05:49 and 06:12 Pacific the next morning, because the timetable has
+# bus stops until 29:45 (05:45). Files reach the archive a median 17 s and at
+# most 36 s after their last record, and a vehicle's own timestamp can trail
+# the collector by about 610 s. The scheduled run at 08:00 therefore starts
+# about 1h45 after the last bus report. A manual run may start from 07:00, which
+# is still 47 minutes after the latest of those reports. Grading at 05:00 left
+# 283 and 472 bus arrivals ungraded on the two days compared (0.05 to 0.09
+# percent), and a saved report stops a day being graded again.
+DAY_COMPLETE_FROM = clock_time(7, 0)
+
 
 def yesterday(now: datetime | None = None) -> str:
-    """The default day to measure.
+    """The default day to measure: the latest service day that is complete.
 
-    Two days back, not one. A service day is not over until about 3am the
-    following morning, and the UTC partition holding its evening is only complete
-    once that morning has passed. The count starts from the Pacific date, because
-    a manual run after 16:00 Pacific sees tomorrow's date on a UTC machine.
+    That is one day back from 07:00 Pacific, and two days back before it, when
+    yesterday's buses may still be running. The scheduled run is at 08:00, so it
+    always gets one day back. The count starts from the Pacific date, because a
+    manual run after 16:00 Pacific sees tomorrow's date on a UTC machine.
     """
-    return (pacific_today(now) - timedelta(days=2)).strftime("%Y%m%d")
+    local = (now or datetime.now(UTC)).astimezone(ZoneInfo(ZONE))
+    back = 1 if local.time() >= DAY_COMPLETE_FROM else 2
+    return (local.date() - timedelta(days=back)).strftime("%Y%m%d")
 
 
 def require_complete(service_date: str) -> str:
@@ -131,6 +150,7 @@ def run_arrivals(args: argparse.Namespace) -> int:
         raw_dir=args.raw_dir,
         timetables=local_timetables(args.gtfs_dir, upload=not args.no_upload),
         upload=not args.no_upload,
+        allow_egress=args.allow_egress,
     )
 
 
@@ -143,6 +163,7 @@ def grade_day(
     raw_dir: Path | None = None,
     timetables: dict[str, Path] | None = None,
     upload: bool = True,
+    allow_egress: bool = False,
 ) -> int:
     """Grade one service day, write it, and upload it unless told not to."""
     started = time.monotonic()
@@ -152,7 +173,7 @@ def grade_day(
         files = arrivals.local_files(raw_dir, service_date)
         print(f"  raw: {len(files)} files from {raw_dir}")
     else:
-        files = arrivals.fetch_raw(bucket(), service_date, cache)
+        files = arrivals.fetch_raw(bucket(), service_date, cache, allow_egress)
     if not files:
         sys.exit(f"no raw files found for {service_date}")
 
@@ -168,7 +189,9 @@ def grade_day(
         bucket(), service_date, cache / "gtfs", arrivals.observed_trip_ids(con), read
     )
     arrivals.load_schedule(con, directories, service_date, read)
+    arrivals.match_rail_runs(con, directories, service_date)
     arrivals.match(con, service_date)
+    arrivals.interpolate(con)
     arrivals.trips(con)
 
     # The old report goes first. Until the new one is saved, nothing on disk
@@ -223,7 +246,14 @@ def run_backfill(args: argparse.Namespace) -> int:
 
     result = backfill.run(
         days,
-        grade=lambda day: grade_day(bucket, day, cache=args.cache, out=args.out, upload=upload),
+        grade=lambda day: grade_day(
+            bucket,
+            day,
+            cache=args.cache,
+            out=args.out,
+            upload=upload,
+            allow_egress=args.allow_egress,
+        ),
         is_done=report_exists(bucket, args.out, upload),
         after_day=lambda day: backfill.prune_cache(args.cache, day),
     )
@@ -540,7 +570,7 @@ def main() -> None:
     one.add_argument(
         "--service-date",
         default=yesterday(),
-        help="YYYY-MM-DD or YYYYMMDD. Defaults to two days ago.",
+        help="YYYY-MM-DD or YYYYMMDD. Defaults to the latest complete day, yesterday from 07:00 Pacific.",
     )
     one.add_argument("--out", type=Path, default=Path("out"), help="where the Parquet goes")
     one.add_argument(
@@ -555,6 +585,11 @@ def main() -> None:
         "--gtfs-dir",
         type=Path,
         help="unpacked timetables under DIR/gtfs_bus and DIR/gtfs_rail, instead of the archive",
+    )
+    one.add_argument(
+        "--allow-egress",
+        action="store_true",
+        help="download raw files from outside Google Cloud, which costs about $0.12 per GiB",
     )
     one.set_defaults(run=run_arrivals)
 
@@ -587,13 +622,21 @@ def main() -> None:
     )
     many.add_argument("--from", dest="first", required=True, help="first service day, YYYY-MM-DD")
     many.add_argument(
-        "--to", dest="last", default=yesterday(), help="last service day. Defaults to two days ago."
+        "--to",
+        dest="last",
+        default=yesterday(),
+        help="last service day. Defaults to the latest complete day, yesterday from 07:00 Pacific.",
     )
     many.add_argument("--out", type=Path, default=Path("out"), help="where the Parquet goes")
     many.add_argument(
         "--no-upload",
         action="store_true",
         help="write locally; a day counts as done when its report is on local disk",
+    )
+    many.add_argument(
+        "--allow-egress",
+        action="store_true",
+        help="download raw files from outside Google Cloud, which costs about $0.12 per GiB",
     )
     many.set_defaults(run=run_backfill)
 

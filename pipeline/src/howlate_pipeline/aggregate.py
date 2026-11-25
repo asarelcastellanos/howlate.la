@@ -110,6 +110,15 @@ ONTIME = f"""
     round(100.0 * count(*) FILTER (WHERE delay_seconds BETWEEN {ONTIME_FROM} AND {ONTIME_TO})
           / nullif(count(*) FILTER (WHERE delay_seconds IS NOT NULL), 0), 1) AS ontime
 """
+# How many of those delays were placed between two reports, because the vehicle
+# never reported the stop (source interpolated), and not seen there. They are in
+# n, the median and the on-time share like every other delay, so each total that
+# carries an n carries this beside it, and a reader can see how much of the
+# figure is estimated. Hour and daypart cells do not carry it, to keep the line
+# files small: 54 KB of line 92's 70 KB gzipped is its daypart cells.
+ESTIMATED = """
+    count(*) FILTER (WHERE source = 'interpolated' AND delay_seconds IS NOT NULL) AS est
+"""
 DELAYS = f"{SPREAD}, {ONTIME}"
 METRICS = f"count(*) AS sched, {DELAYS}"
 # A daypart cell has no ontime. Of line 92's 70 KB gzipped, its 4,167 cells were
@@ -159,7 +168,7 @@ def stop_cells(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
         f"""
         SELECT agency, line, direction_id, stop_id,
                CAST(round(median(stop_sequence)) AS INTEGER) AS seq,
-               count(*) AS sched, {DELAYS}
+               count(*) AS sched, {DELAYS}, {ESTIMATED}
         FROM a GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 5, 4
     """,
     ):
@@ -168,6 +177,7 @@ def stop_cells(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
         out.setdefault(key, {})[stop] = {
             "seq": row.pop("seq"),
             "n": row.pop("n"),
+            "est": row.pop("est"),
             "sched": row.pop("sched"),
             "all": row,
             "cells": [],
@@ -194,7 +204,7 @@ def direction_totals(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
         for row in rows(
             con,
             f"""
-            SELECT agency, line, direction_id, {DELAYS} FROM a GROUP BY 1, 2, 3
+            SELECT agency, line, direction_id, {DELAYS}, {ESTIMATED} FROM a GROUP BY 1, 2, 3
             HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
         """,
         )
@@ -208,7 +218,7 @@ def headlines(con: duckdb.DuckDBPyConnection) -> dict[tuple, dict]:
         for row in rows(
             con,
             f"""
-            SELECT agency, line, {METRICS} FROM a GROUP BY 1, 2
+            SELECT agency, line, {METRICS}, {ESTIMATED} FROM a GROUP BY 1, 2
             HAVING count(*) FILTER (WHERE delay_seconds IS NOT NULL) > 0
             ORDER BY 1, 2
         """,
@@ -233,13 +243,15 @@ def network(con: duckdb.DuckDBPyConnection, modes: dict[tuple, str]) -> dict:
     joined = "FROM a JOIN line_modes USING (agency, line)"
     out = {
         scope: {
-            "all": {"n": 0, "med": None, "p90": None, "pct5": None, "ontime": None},
+            "all": {"n": 0, "est": 0, "med": None, "p90": None, "pct5": None, "ontime": None},
             "profile": [],
         }
         for scope in ("network", "bus", "rail")
     }
     for row in rows(
-        con, f"SELECT mode, {DELAYS} {joined} GROUP BY GROUPING SETS ((mode), ()) ORDER BY mode"
+        con,
+        f"SELECT mode, {DELAYS}, {ESTIMATED} {joined} "
+        "GROUP BY GROUPING SETS ((mode), ()) ORDER BY mode",
     ):
         out[row.pop("mode") or "network"]["all"] = row
     for row in rows(
@@ -379,6 +391,7 @@ def build(
                     "lon": catalogue["stops"].get((agency, stop_id), {}).get("lon"),
                     "seq": record["seq"],
                     "n": record["n"],
+                    "est": record["est"],
                     "sched": record["sched"],
                     "all": record["all"],
                     "cells": record["cells"],
@@ -422,7 +435,8 @@ def build(
 
     totals = con.sql("""
         SELECT count(*), count(*) FILTER (WHERE delay_seconds IS NOT NULL),
-               count(DISTINCT line), count(DISTINCT trip_id)
+               count(DISTINCT line), count(DISTINCT trip_id),
+               count(*) FILTER (WHERE source = 'interpolated' AND delay_seconds IS NOT NULL)
         FROM a
     """).fetchone()
     write_json(
@@ -433,6 +447,7 @@ def build(
             "days": days,
             "scheduled_stops": totals[0],
             "measured_arrivals": totals[1],
+            "estimated_arrivals": totals[4],
             "coverage_pct": round(100 * totals[1] / totals[0], 1),
             "lines": totals[2],
             "trips": totals[3],

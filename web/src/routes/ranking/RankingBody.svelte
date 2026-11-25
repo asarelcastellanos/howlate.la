@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Notice from '#lib/charts/Notice.svelte';
 	import type { SiteIndex } from '#lib/data/types.ts';
+	import EstimatedNote from '#lib/design/EstimatedNote.svelte';
 	import Headline from '#lib/design/Headline.svelte';
 	import OntimeNote from '#lib/design/OntimeNote.svelte';
 	import Rule from '#lib/design/Rule.svelte';
@@ -18,6 +19,9 @@
 	const bus = $derived(index.lines.filter((line) => line.mode === 'bus'));
 	const rail = $derived(index.lines.filter((line) => line.mode === 'rail'));
 	const result = $derived(rankLines(bus, 'ontime'));
+	// A published file from before the count has no `est`, and then the note is left out.
+	const busArrivals = $derived(bus.reduce((sum, line) => sum + line.n, 0));
+	const busEstimated = $derived(bus.reduce((sum, line) => sum + (line.est ?? 0), 0));
 	const edges = $derived(ends(result.ranked, EDGE));
 	// Fewer than 2 * EDGE ranked lines leave the bottom panel short or empty, so
 	// the caption counts the lines it lists.
@@ -58,6 +62,12 @@
 			delay and 90th percentile, a line closer to on time ranks higher, whether it runs early or
 			late, and inside the on-time window the smaller delay ranks higher.
 		</p>
+		<EstimatedNote
+			n={busArrivals}
+			est={busEstimated}
+			what="the measured arrivals counted here"
+			class="mt-2"
+		/>
 		<OntimeNote class="mt-2 mb-4" />
 		<RankedTable entries={bus} />
 	</section>
