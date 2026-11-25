@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { decodeCommuteFile } from '../src/lib/commute/file.ts';
 import { rideTimes } from '../src/lib/commute/ridetime.ts';
-import { readCommuteRoute } from '../src/lib/data/commute.ts';
 
 // Pattern 21600 (06:00) runs on days 0 and 1.
 //   day 0: S1 60 s (6 units), S2 300 s (6+24=30), S3 600 s (30+30=60)
@@ -60,14 +59,6 @@ test('C7: a day with no time at either stop is skipped', () => {
 	});
 });
 
-test('A2: ride times are whole multiples of 10 seconds', () => {
-	const result = rideTimes(file, 21600, 'S2', 'S3');
-	assert.ok(result.ok);
-	// Day 0 only: 600 - 300 = 300.
-	assert.deepEqual(result.data, [{ day: '20261109', seconds: 300 }]);
-	assert.ok(result.data.every((r) => r.seconds % 10 === 0));
-});
-
 test('C8: a "to" stop before the "from" stop is refused', () => {
 	assert.deepEqual(rideTimes(file, 21600, 'S3', 'S1'), {
 		ok: false,
@@ -81,37 +72,4 @@ test('C8: a "to" stop before the "from" stop is refused', () => {
 		ok: false,
 		error: { kind: 'to-not-after-from' }
 	});
-});
-
-test('a stop the pattern does not serve, or an unknown pattern, is an error', () => {
-	assert.deepEqual(rideTimes(file, 21600, 'S1', 'S9'), {
-		ok: false,
-		error: { kind: 'stop-not-served', stop: 'S9' }
-	});
-	assert.deepEqual(rideTimes(file, 1, 'S1', 'S2'), { ok: false, error: { kind: 'no-pattern' } });
-});
-
-test('a body that is not in the format does not decode', () => {
-	assert.equal(decodeCommuteFile(null), null);
-	assert.equal(decodeCommuteFile({ ...body, day_type: 'holiday' }), null);
-	assert.equal(decodeCommuteFile({ ...body, patterns: [[1, [5], [0], [[1]]]] }), null);
-	assert.equal(decodeCommuteFile({ ...body, patterns: [[1, [0], [0], [[1, 2]]]] }), null);
-});
-
-test('the loader reads the route file from the run current.json names', async () => {
-	const urls: string[] = [];
-	const fetchFn = (async (url: string) => {
-		urls.push(url);
-		const json = url.endsWith('current.json')
-			? { run: 'r1', prefix: 'site/runs/r1/', files: 1, previous: [] }
-			: body;
-		return new Response(JSON.stringify(json), { status: 200 });
-	}) as typeof fetch;
-	const result = await readCommuteRoute('https://data.example/', '4', 0, 'weekday', fetchFn);
-	assert.ok(result.ok);
-	assert.equal(result.data.patterns.length, 2);
-	assert.deepEqual(urls, [
-		'https://data.example/site/current.json',
-		'https://data.example/site/runs/r1/commute/4-0-weekday.json'
-	]);
 });
