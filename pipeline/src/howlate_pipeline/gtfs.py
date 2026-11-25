@@ -292,6 +292,7 @@ def prepare(
     cache: Path,
     observed: dict[str, set[str]] | None = None,
     read: dict[str, list[Path]] | None = None,
+    feeds: dict[str, str] | None = None,
 ) -> dict[str, Path]:
     """Fetch and unpack the timetable that actually describes this service day.
 
@@ -324,9 +325,11 @@ def prepare(
     day lists under a service not yet running, as the 2026-11-14 rail copies did:
     both matched 998 of 1,336 reported trips, so the copy in force stayed, and
     142 of the 338 trips that only the later copy lists were absent from it.
+
+    `feeds` limits the fetch to some of FEEDS, by feed name and agency.
     """
     ready = {}
-    for feed, agency in FEEDS.items():
+    for feed, agency in (feeds or FEEDS).items():
         order = candidates(client, feed, service_date)
         blob, directory, services = in_force_copy(feed, order, service_date, cache)
 
