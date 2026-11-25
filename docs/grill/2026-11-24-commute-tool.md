@@ -56,3 +56,19 @@ The options each question offered, with the chosen one first.
 | Q8 | Fixed at 9 in 10. Let the rider pick 3 in 4, 9 in 10 or 19 in 20. |
 | Q9 | One file per route and a stop list. One file per stop. |
 | Q10 | Look it up from GTFS. Add it to graded arrivals as a new column, which makes arrivals v3. |
+
+## Round 4
+
+After approval, `pipeline/scripts/commute_sizing.py` ran twice on the backfill VM over the 56 days ending 2026-11-23 (#34). Exact ride time needs each day's time per stop, and one file per route in that layout was 2,274,796 bytes gzipped for line 4. Split by direction and day type, with 10-second rounding and change-from-the-stop-before coding, 6 of 632 files passed 300 KB, and the largest was 411,809 bytes.
+
+| # | Question | Answer |
+|---|---|---|
+| Q11 | How does ride time work when exact same-trip files are 2.3 MB? | Split files smaller, one per route, direction and day type. [ADR-0004](../adr/0004-split-commute-files-by-direction-and-day-type.md) |
+| Q12 | Round stop times to 10 seconds? | Yes, 10 seconds. |
+| Q13 | What happens to the 6 weekday files over 300 KB? | Allow up to 450 KB. |
+
+| # | Options |
+|---|---|
+| Q11 | Split files smaller. Approximate ride time from the typical time at each stop. Accept files up to 2.3 MB. |
+| Q12 | Yes, 10 seconds. No, keep whole seconds. |
+| Q13 | Allow up to 450 KB. Split by time of day. |

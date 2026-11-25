@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by [ADR-0004](0004-split-commute-files-by-direction-and-day-type.md)
 date: 2026-11-24
 ---
 # 0003. Ship commute data as route files built daily
