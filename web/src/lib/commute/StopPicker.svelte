@@ -1,20 +1,8 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
-	import { moveActive, nearestStop, searchStops, type Stop } from './stops.ts';
+	import { moveActive } from '../search.ts';
+	import { nearestStop, searchStops, type Stop } from './stops.ts';
 
-	let {
-		stops,
-		label = 'Find a stop',
-		locate = true,
-		selected = $bindable(),
-		onpick
-	}: {
-		stops: Stop[];
-		label?: string;
-		locate?: boolean;
-		selected?: Stop;
-		onpick?: (stop: Stop) => void;
-	} = $props();
+	let { stops, selected = $bindable() }: { stops: Stop[]; selected?: Stop } = $props();
 
 	const uid = $props.id();
 	let query = $state('');
@@ -23,7 +11,6 @@
 	let root = $state<HTMLDivElement>();
 	let input = $state<HTMLInputElement>();
 	let phase = $state<'idle' | 'locating' | 'found' | 'none'>('idle');
-	let touched = false;
 
 	const results = $derived(searchStops(stops, query));
 	const showList = $derived(open && results.length > 0);
@@ -31,12 +18,10 @@
 	const optionId = (i: number) => `${uid}-option-${i}`;
 
 	function pick(stop: Stop) {
-		touched = true;
 		selected = stop;
 		phase = 'idle';
 		query = '';
 		open = false;
-		onpick?.(stop);
 	}
 
 	function noLocation() {
@@ -51,10 +36,6 @@
 			(position) => {
 				const stop = nearestStop(stops, position.coords.latitude, position.coords.longitude);
 				if (!stop) return noLocation();
-				if (touched) {
-					phase = 'idle';
-					return;
-				}
 				pick(stop);
 				phase = 'found';
 			},
@@ -62,10 +43,6 @@
 			{ timeout: 10_000, maximumAge: 300_000 }
 		);
 	}
-
-	$effect(() => {
-		if (locate && stops.length > 0) untrack(findNearest);
-	});
 
 	function onkeydown(event: KeyboardEvent) {
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -93,7 +70,15 @@
 		if (!root?.contains(event.relatedTarget as Node | null)) open = false;
 	}}
 >
-	<label for="{uid}-input" class="kicker text-ink-muted block">{label}</label>
+	<button
+		type="button"
+		onclick={findNearest}
+		disabled={phase === 'locating'}
+		class="border-ink bg-paper text-ink font-sans hover:bg-sunk mb-4 min-h-12 border px-4 py-2 text-body disabled:cursor-wait disabled:opacity-60"
+	>
+		{phase === 'locating' ? 'Finding your location' : 'Use my location'}
+	</button>
+	<label for="{uid}-input" class="kicker text-ink-muted block">Find a stop</label>
 	<input
 		bind:this={input}
 		id="{uid}-input"
@@ -110,7 +95,6 @@
 		placeholder="Wilshire / Vermont"
 		bind:value={query}
 		oninput={() => {
-			touched = true;
 			open = true;
 			active = 0;
 		}}
@@ -156,7 +140,7 @@
 		{:else if selected}
 			{phase === 'found' ? 'Nearest stop' : 'Chosen stop'}: {selected.name}, stop {selected.id}.
 		{:else if phase === 'none'}
-			Type part of a stop name to search.
+			We could not get your location. Type part of a stop name to search.
 		{/if}
 	</p>
 </div>

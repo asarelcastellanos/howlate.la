@@ -2,9 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	loadStops,
-	moveActive,
 	nearestStop,
-	normalizeName,
 	searchStops,
 	stopsInDirection,
 	toStops,
@@ -32,7 +30,6 @@ test('finds a stop by part of its name, tolerant of case, punctuation and spacin
 	]) {
 		assert.deepEqual(ids(searchStops(STOPS, q)).slice(0, 2), ['100', '101'], q);
 	}
-	assert.equal(normalizeName('Wilshire / Vermont'), normalizeName('wilshire/vermont'));
 });
 
 test('matches word starts and ignores accents', () => {
@@ -78,12 +75,6 @@ test('a stop in one direction file is not offered in the other', () => {
 
 test('stopsInDirection skips unknown ids and repeats', () => {
 	assert.deepEqual(ids(stopsInDirection(STOPS, ['100', '999', '100', '102'])), ['100', '102']);
-});
-
-test('moveActive wraps', () => {
-	assert.equal(moveActive(0, 'ArrowUp', 3), 2);
-	assert.equal(moveActive(2, 'ArrowDown', 3), 0);
-	assert.equal(moveActive(0, 'ArrowDown', 0), 0);
 });
 
 const BASE = 'https://data.example';

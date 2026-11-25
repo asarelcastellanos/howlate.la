@@ -5,7 +5,7 @@ export type Stop = { id: string; name: string; lat: number; lon: number };
 const MAX_QUERY = 80;
 const DEFAULT_LIMIT = 8;
 const EARTH_RADIUS_M = 6_371_000;
-export const MAX_NEAREST_M = 5000;
+const MAX_NEAREST_M = 5000;
 
 type StopRow = [string | number, string, number, number];
 
@@ -20,7 +20,7 @@ function isStopRow(row: unknown): row is StopRow {
 	);
 }
 
-export function isStopList(body: unknown): body is StopRow[] {
+function isStopList(body: unknown): body is StopRow[] {
 	return Array.isArray(body) && body.every(isStopRow);
 }
 
@@ -47,10 +47,6 @@ function words(text: string): string[] {
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
 		.filter(Boolean);
-}
-
-export function normalizeName(text: string): string {
-	return words(text).join(' ');
 }
 
 function score(name: string[], tokens: string[]): number {
@@ -85,7 +81,7 @@ export function searchStops(stops: readonly Stop[], query: string, limit = DEFAU
 	return ranked.slice(0, limit).map((r) => r.stop);
 }
 
-export function distanceMeters(aLat: number, aLon: number, bLat: number, bLon: number): number {
+function distanceMeters(aLat: number, aLon: number, bLat: number, bLon: number): number {
 	const rad = Math.PI / 180;
 	const dLat = (bLat - aLat) * rad;
 	const dLon = (bLon - aLon) * rad;
@@ -130,9 +126,4 @@ export function stopsInDirection(stops: readonly Stop[], routeStopIds: readonly 
 		}
 	}
 	return out;
-}
-
-export function moveActive(active: number, key: 'ArrowDown' | 'ArrowUp', count: number): number {
-	if (count === 0) return 0;
-	return (active + (key === 'ArrowDown' ? 1 : count - 1)) % count;
 }
