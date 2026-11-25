@@ -57,7 +57,8 @@ def test_two_timetable_versions_with_a_weekday_742_departure_make_one_pattern(tm
     con = loaded(tmp_path, {"20261102": "weekday", "20261110": "weekday"})
     assert commute.patterns(con) == [("720", 0, "weekday", 27720)]
     file = commute.route_file(con, "720", 0, "weekday", ["20261102", "20261110"])
-    assert [(start, days) for start, days, _, _ in file["patterns"]] == [(27720, [0, 1])]
+    assert [(start, days) for start, days, _, _, _ in file["patterns"]] == [(27720, [0, 1])]
+    assert file["patterns"][0][4] == [0, 60]
 
 
 def write_timetable(directory: Path) -> Path:

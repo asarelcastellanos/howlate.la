@@ -29,7 +29,7 @@ Files, under the site run folder:
         [[stop_id, name, lat, lon], ...] for every bus stop, sorted by id
     commute/<line>-<direction>-<day_type>.json
         {"line", "direction", "day_type", "days": ["YYYYMMDD", ...], "stops": [stop_id, ...],
-         "patterns": [[start, day_indexes, stop_indexes, rows], ...]}
+         "patterns": [[start, day_indexes, stop_indexes, rows, scheduled], ...]}
 
 `days` holds the service dates of that day type in the window, oldest first. In a
 pattern, `start` is whole seconds and `day_indexes` lists the entries of `days`
@@ -43,6 +43,14 @@ start for the first. Each time is rounded to a unit before the change is taken,
 so a time is off by up to 5 seconds and a ride time by up to 10. To read a day's
 time at stop k, add the entries of that day's column down to row k, skipping
 nulls, and multiply by 10.
+
+`scheduled` has one entry per entry of `stop_indexes`, in the same order. It is
+the timetable's time at that stop in seconds after the pattern's `start`, rounded
+to a unit and coded as the change from the stop before in the list, and from 0
+for the first, so the sum of the entries down to k, times 10, is the scheduled
+offset at stop k. Where two timetable versions of one pattern differ, the
+earlier offset is kept. A stop is listed only if some day measured it, so the
+change can span stops the pattern also serves but nobody measured.
 
 A file may not pass LIMIT bytes gzipped at level 6. `build` returns the files
 that do, and the daily job fails the day on any. ADR-0004 measured the largest
@@ -203,7 +211,7 @@ def load(
         """
         CREATE TABLE m AS
         SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id,
-               b.act_off - t.start_s AS rel
+               b.act_off - t.start_s AS rel, b.sched_off - t.start_s AS sched_rel
         FROM bus b
         JOIN (SELECT day, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL) t
           USING (day, trip_id)
@@ -238,21 +246,32 @@ def route_file(
     own = {day: index for index, day in enumerate(days)}
     stops: dict[str, int] = {}
     found: dict[int, dict] = {}
-    for start, seq, stop, day, rel in con.execute(
-        "SELECT start_s, stop_sequence, stop_id, day, min(rel) FROM m "
+    for start, seq, stop, day, rel, sched in con.execute(
+        "SELECT start_s, stop_sequence, stop_id, day, min(rel), min(sched_rel) FROM m "
         "WHERE line = ? AND direction_id = ? AND daytype = ? GROUP BY ALL ORDER BY ALL",
         [line, direction, kind],
     ).fetchall():
         index = stops.setdefault(stop, len(stops))
-        pattern = found.setdefault(start, {"days": set(), "cells": {}})
+        pattern = found.setdefault(start, {"days": set(), "cells": {}, "sched": {}})
         pattern["days"].add(own[day])
+        key = (seq, index)
+        pattern["sched"][key] = min(sched, pattern["sched"].get(key, sched))
         pattern["cells"].setdefault((seq, index), {})[own[day]] = rel
     packed = []
     for start, pattern in sorted(found.items()):
         order = sorted(pattern["days"])
         cells = sorted(pattern["cells"].items())
         grid = [[values.get(day) for day in order] for _, values in cells]
-        packed.append([start, order, [index for (_, index), _ in cells], encode(grid)])
+        scheduled = encode([[pattern["sched"][key]] for key, _ in cells])
+        packed.append(
+            [
+                start,
+                order,
+                [index for (_, index), _ in cells],
+                encode(grid),
+                [row[0] for row in scheduled],
+            ]
+        )
     return {
         "line": line,
         "direction": direction,

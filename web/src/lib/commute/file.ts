@@ -7,6 +7,7 @@ export type Pattern = {
 	dayIndexes: number[];
 	stopIndexes: number[];
 	rows: (number | null)[][];
+	scheduled: number[];
 };
 
 export type CommuteFile = {
@@ -27,10 +28,11 @@ const isDayType = (v: unknown): v is DayType =>
 	v === 'weekday' || v === 'saturday' || v === 'sunday';
 
 function decodePattern(raw: unknown, days: number, stops: number): Pattern | null {
-	if (!Array.isArray(raw) || raw.length !== 4) return null;
-	const [start, dayIndexes, stopIndexes, rows] = raw;
+	if (!Array.isArray(raw) || raw.length !== 5) return null;
+	const [start, dayIndexes, stopIndexes, rows, scheduled] = raw;
 	if (!isInt(start) || start < 0 || !ints(dayIndexes) || !ints(stopIndexes) || !Array.isArray(rows))
 		return null;
+	if (!ints(scheduled) || scheduled.length !== stopIndexes.length) return null;
 	if (dayIndexes.some((d) => d < 0 || d >= days)) return null;
 	if (stopIndexes.some((s) => s < 0 || s >= stops)) return null;
 	if (rows.length !== stopIndexes.length) return null;
@@ -38,7 +40,7 @@ function decodePattern(raw: unknown, days: number, stops: number): Pattern | nul
 		if (!Array.isArray(row) || row.length !== dayIndexes.length) return null;
 		if (!row.every((v) => v === null || isInt(v))) return null;
 	}
-	return { start, dayIndexes, stopIndexes, rows };
+	return { start, dayIndexes, stopIndexes, rows, scheduled };
 }
 
 export type Wanted = { line: string; direction: number; dayType: DayType };

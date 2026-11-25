@@ -67,10 +67,8 @@ export function median(values: number[]): number {
 	return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-// The file keeps each stop's actual time as seconds after the pattern's scheduled
-// start and no timetable time for later stops. The scheduled time at a stop is
-// therefore taken as the earliest time seen there in the window, and a delay is
-// the day's time minus that. Only days with a time at both stops count.
+// A delay is the day's actual time at B minus the timetable's time at B, both as
+// seconds after the pattern's scheduled start. Only days with a time at both stops count.
 function candidate(
 	file: CommuteFile,
 	pattern: Pattern,
@@ -82,21 +80,22 @@ function candidate(
 	const order = pattern.stopIndexes.map((i) => file.stops[i]);
 	const a = order.indexOf(from);
 	const b = order.indexOf(to, a + 1);
-	const atA: number[] = [];
 	const atB: number[] = [];
 	pattern.dayIndexes.forEach((_, column) => {
 		const times = columnTimes(pattern, column);
 		const ta = times[a];
 		const tb = times[b];
 		if (ta === null || tb === null) return;
-		atA.push(ta * UNIT);
 		atB.push(tb * UNIT);
 	});
-	const scheduledB = Math.min(...atB);
+	const scheduledAt = (stop: number) =>
+		pattern.scheduled.slice(0, stop + 1).reduce((sum, units) => sum + units, 0) * UNIT;
+	const scheduledA = scheduledAt(a);
+	const scheduledB = scheduledAt(b);
 	const lates = atB.map((t) => t - scheduledB);
 	return {
 		start: pattern.start,
-		departMinute: Math.round((pattern.start + Math.min(...atA)) / 60),
+		departMinute: Math.round((pattern.start + scheduledA) / 60),
 		arrive90Minute: Math.ceil((pattern.start + nearestRank90(atB)) / 60),
 		medianLateSeconds: median(lates),
 		badLateSeconds: nearestRank90(lates),

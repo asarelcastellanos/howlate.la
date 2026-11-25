@@ -454,7 +454,8 @@ At 20 MB a day, about 0.6 GB a month leaves Google Cloud, cents at $0.12/GB.
 The daily site build also writes `commute/`, which the commute page reads. It holds one
 file per bus line, direction and day type, `commute/stops.json` and `commute/index.json`.
 Each file gives every trip's time at every stop on the days of the last 56 service days,
-rounded to 10 seconds and coded as the change from the stop before. The format is in the
+rounded to 10 seconds and coded as the change from the stop before, and each pattern's
+timetable offset at every stop it was measured at, coded the same way. The format is in the
 docstring of `howlate_pipeline/commute.py`, and the reasons and the 450,000 byte limit are in
 [ADR-0004](../docs/adr/0004-split-commute-files-by-direction-and-day-type.md). A file over the
 limit gzipped makes `build_site` return 1, so the daily job reports the day as failed, and the site
