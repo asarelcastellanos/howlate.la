@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Plan v0.6.0</title>
+<style>
+:root{--bg:#FFFFFF;--fg:#151515;--muted:#5C5C5C;--line:#8A8A8A;--fill:#F3F3F3;--strong:#151515;--on-strong:#FFFFFF;
+  --f:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--m:ui-monospace,Menlo,Consolas,monospace}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#161616;--fg:#EDEDED;--muted:#A8A8A8;--line:#777777;--fill:#202020;--strong:#EDEDED;--on-strong:#161616;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#161616;--fg:#EDEDED;--muted:#A8A8A8;--line:#777777;--fill:#202020;--strong:#EDEDED;--on-strong:#161616;color-scheme:dark}
+*{box-sizing:border-box}
+html{scrollbar-color:var(--line) var(--bg);-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 var(--f);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+::selection{background:var(--strong);color:var(--on-strong)}
+.wrap{max-width:1000px;margin:0 auto;padding-block:32px 72px;display:flex;flex-direction:column;gap:40px}
+h1{font-size:1.9rem;margin:0;line-height:1.2;overflow-wrap:anywhere}
+h2{font-size:1.3rem;margin:0}
+h3{font-size:1.1rem;margin:0;line-height:1.35}
+p{margin:0;max-width:70ch}
+section{display:flex;flex-direction:column;gap:12px}
+code{font-family:var(--m);font-size:.85em;overflow-wrap:anywhere}
+a{color:var(--fg);text-underline-offset:.2em}
+a:hover{text-decoration-thickness:2px}
+a:focus-visible{outline:2px solid var(--strong);outline-offset:3px;border-radius:2px}
+header{display:flex;flex-direction:column;gap:10px}
+.note{color:var(--muted);font-size:.9rem}
+.t{overflow-x:auto;border:1px solid var(--line)}
+.t:focus-visible{outline:2px solid var(--strong);outline-offset:2px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.9rem}
+th,td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
+thead th{border-top:0;background:var(--fill);font-weight:600}
+td:first-child{font-weight:600}
+.diagram{border:1px solid var(--line);padding:12px;display:flex;justify-content:center}
+.diagram svg{display:block;width:100%;max-width:520px;height:auto;font-family:var(--f)}
+.diagram .box{fill:var(--fill);stroke:var(--line);stroke-width:1.5}
+.diagram .first .box{fill:var(--strong);stroke:var(--strong)}
+.diagram .t1{fill:var(--fg);font-size:13px;font-weight:600}
+.diagram .t2{fill:var(--muted);font-size:12px;font-family:var(--m)}
+.diagram .first .t1,.diagram .first .t2{fill:var(--on-strong)}
+.diagram .seq{stroke:var(--muted);stroke-width:1.5;fill:none}
+.diagram .dep{stroke:var(--strong);stroke-width:1.75;stroke-dasharray:5 3;fill:none}
+.diagram .head{fill:var(--muted)}
+.diagram .head-dep{fill:var(--strong)}
+.hint{display:none;font-size:.85rem;color:var(--muted)}
+@media (max-width:720px){.hint{display:block}}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;font-size:.85rem;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:16px}
+.card{border:1px solid var(--line);padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.opts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.opts li{padding:8px 10px;border:1px solid var(--line);font-size:.92rem}
+.opts li.chosen{border:2px solid var(--strong);background:var(--fill)}
+.tag{display:block;font-size:.8rem;font-weight:700}
+.lbl{font-size:.8rem;color:var(--muted);display:block}
+ul.plain{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:6px;max-width:70ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Plan v0.6.0</h1>
+  <p>v0.6.0 builds the commute tool. It turns 8 weeks of measured bus arrivals into departure patterns, works out ride time between two stops, and adds a /commute page that says which bus to catch, how long the ride takes and how late it runs. Five features, each one issue and one PR, merge into release/v0.6.0.</p>
+  <p class="note">Status: Draft for the owner's approval. Spec: <a href="../spec/v0.6.0.md">v0.6.0</a>. Grill record: <a href="../grill/2026-11-24-commute-tool.md">commute tool</a>.</p>
+</header>
+
+<section>
+  <h2>What it adds</h2>
+  <div class="t" tabindex="0" role="region" aria-label="What it adds"><table>
+    <thead><tr><th scope="col">Part</th><th scope="col">What it is</th><th scope="col">Claims</th></tr></thead>
+    <tbody>
+      <tr><td>Departure patterns</td><td>The daily job groups 8 weeks of measured bus arrivals by route, direction, day type and start time, and ships one commute file per route and a stop list</td><td>C1 to C6</td></tr>
+      <tr><td>Ride time</td><td>Ride time from stop A to stop B, from the same trip on the same day</td><td>C7, C8</td></tr>
+      <tr><td>Stop search and nearest stop</td><td>Find a stop by name, or the nearest one on the phone</td><td>C9 to C12</td></tr>
+      <tr><td>Commute screen</td><td>The <code>/commute</code> page with Leave at and Arrive by, the answer sentence, and the address that holds the commute</td><td>C13 to C22</td></tr>
+      <tr><td>Release</td><td>Five commutes checked against arrival rows, the phone test, and the review package</td><td>C23 to C25</td></tr>
+    </tbody>
+  </table></div>
+  <p class="hint">Scroll the table sideways to see every column.</p>
+</section>
+
+<section>
+  <h2>Build order</h2>
+  <div class="diagram">
+    <svg viewBox="0 0 360 368" role="img" aria-labelledby="order-title order-desc">
+      <title id="order-title">Build order</title>
+      <desc id="order-desc">Five boxes from top to bottom in build order. 1, Departure patterns, depends on nothing. 2, Ride time, depends on 1. 3, Stop search and nearest stop, depends on 1. 4, Commute screen, depends on 2 and 3. 5, Release, depends on 1, 2, 3, 4.</desc>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head" d="M0 0L10 5L0 10z"/></marker>
+        <marker id="ahd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="head-dep" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <g class="first" transform="translate(48 8)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">1. Departure patterns</text>
+        <text class="t2" x="12" y="39">v0.6.0/patterns, C1-C6</text>
+      </g>
+      <g class="" transform="translate(48 80)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">2. Ride time</text>
+        <text class="t2" x="12" y="39">v0.6.0/ride-time, C7, C8</text>
+      </g>
+      <g class="" transform="translate(48 152)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">3. Stop search and nearest stop</text>
+        <text class="t2" x="12" y="39">v0.6.0/stop-search, C9-C12</text>
+      </g>
+      <g class="" transform="translate(48 224)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">4. Commute screen</text>
+        <text class="t2" x="12" y="39">v0.6.0/commute-screen, C13-C22</text>
+      </g>
+      <g class="" transform="translate(48 296)">
+        <rect class="box" width="300" height="52" rx="4"/>
+        <text class="t1" x="12" y="21">5. Release</text>
+        <text class="t2" x="12" y="39">v0.6.0/release-prep, C23-C25</text>
+      </g>
+      <path class="seq" d="M198 60V79" marker-end="url(#ah)"/>
+      <path class="seq" d="M198 132V151" marker-end="url(#ah)"/>
+      <path class="seq" d="M198 204V223" marker-end="url(#ah)"/>
+      <path class="seq" d="M198 276V295" marker-end="url(#ah)"/>
+      <path class="dep" d="M48 92C40 92 40 20 46 20" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 164C12 164 12 33 46 33" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 236C40 236 40 164 46 164" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 246C24 246 24 92 46 92" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 308C40 308 40 236 46 236" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 318C30 318 30 177 46 177" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 328C18 328 18 105 46 105" marker-end="url(#ahd)"/>
+      <path class="dep" d="M48 338C6 338 6 46 46 46" marker-end="url(#ahd)"/>
+    </svg>
+  </div>
+  <div class="legend"><span>Solid arrow: next in order.</span><span>Dashed arrow: depends on.</span><span>Filled box: first.</span></div>
+  <p>Feature 1 comes first because features 2 and 3 read its pattern files and stop list. Its first step runs a script on the backfill VM that counts, for 56 recent days, the bus services that ran and the day type each one runs on, which settles S1 before any build code. The same script measures the size of a route file for the busiest and an average route, which settles S3. Features 2 and 3 run side by side. Feature 4 depends on both. Feature 5 depends on every feature above it, and C24 is the owner's test with three people.</p>
+</section>
+
+<section>
+  <h2>Who builds what</h2>
+  <div class="t" tabindex="0" role="region" aria-label="Who builds what"><table>
+    <thead><tr><th scope="col">Feature</th><th scope="col">Claims</th><th scope="col">Builds it</th><th scope="col">Checks it</th></tr></thead>
+    <tbody>
+      <tr><td>Departure patterns</td><td>C1 to C6</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Ride time</td><td>C7, C8</td><td>coder</td><td>reviewer, qa-runner</td></tr>
+      <tr><td>Stop search and nearest stop</td><td>C9 to C12</td><td>ui-builder</td><td>reviewer, design-critic, qa-runner</td></tr>
+      <tr><td>Commute screen</td><td>C13 to C22</td><td>ui-builder, with coder for the Leave at and Arrive by rules</td><td>reviewer, design-critic, qa-runner</td></tr>
+      <tr><td>Release</td><td>C23, C25</td><td>coder for the VM script, writer for the changelog</td><td>qa-runner, owner</td></tr>
+      <tr><td>Release</td><td>C24</td><td>owner</td><td>owner</td></tr>
+    </tbody>
+  </table></div>
+  <p class="hint">Scroll the table sideways to see every column.</p>
+</section>
+
+<section>
+  <h2>Decisions</h2>
+  <p>Each card is a decision with real options. The chosen option is marked and has a heavy border. Cards run in number order.</p>
+  <div class="cards">
+    <article class="card">
+      <h3>0003. Ship commute data as route files built daily</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>One file per bus route and one stop list, built by the daily job from the timetable calendar</li>
+        <li><span class="tag">Considered</span>One file per stop, built by the daily job</li>
+        <li><span class="tag">Considered</span>A new arrivals column for the service day type, which makes arrivals v3</li>
+      </ul>
+      <p><span class="lbl">Why</span>A visit loads the stop list and one route file, about 260 KB, and the build needs no change to graded data and no regrade.</p>
+      <p class="note"><a href="../adr/0003-ship-commute-data-as-route-files-built-daily.md">ADR-0003</a></p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <h2>Grill answers</h2>
+  <p>A Q is a question from the grill record. Each card is an answer that chose between real options. Q9 is covered by ADR-0003.</p>
+  <div class="cards">
+    <article class="card">
+      <h3>Q1. Which lines the commute tool covers</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Bus only. The tool says rail is not covered yet.</li>
+        <li><span class="tag">Considered</span>Bus and rail, rail flagged</li>
+        <li><span class="tag">Considered</span>Bus and rail, no flag</li>
+      </ul>
+      <p><span class="lbl">Why</span>Rail trip ids are wrong on split-service days while the rail matcher is off, so a rail answer could not be trusted.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q1</a></p>
+    </article>
+    <article class="card">
+      <h3>Q2. Which stop times feed the answer</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Measured only. Estimated and missing stops are left out.</li>
+        <li><span class="tag">Considered</span>Include estimates</li>
+      </ul>
+      <p><span class="lbl">Why</span>The answer should rest on times a bus was seen at the stop, so rows with source <code>interpolated</code> or <code>none</code> do not count.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q2</a></p>
+    </article>
+    <article class="card">
+      <h3>Q3. Which days an answer is built from</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Last 8 weeks, which is the 56 service days that end with the latest graded day.</li>
+        <li><span class="tag">Considered</span>Every day collected</li>
+        <li><span class="tag">Considered</span>Current timetable only</li>
+      </ul>
+      <p><span class="lbl">Why</span>The owner picked the 8-week window, and a fixed count of days makes the boundary testable.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q3</a></p>
+    </article>
+    <article class="card">
+      <h3>Q4. Where the commute screen lives</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>A new <code>/commute</code> page, linked from the home page and each bus line page.</li>
+        <li><span class="tag">Considered</span>On the home page</li>
+        <li><span class="tag">Considered</span>Inside each line page</li>
+      </ul>
+      <p><span class="lbl">Why</span>The owner picked a page of its own, and the spec tests the links from the home page and from every bus line page.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q4</a></p>
+    </article>
+    <article class="card">
+      <h3>Q5. Below how many observed days a stop says not enough data</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>8 days. The page says how many days an answer rests on.</li>
+        <li><span class="tag">Considered</span>15 days</li>
+        <li><span class="tag">Considered</span>5 days</li>
+      </ul>
+      <p><span class="lbl">Why</span>An answer under 8 days would show a number the data cannot carry, so it reads "not enough data" instead.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q5</a></p>
+    </article>
+    <article class="card">
+      <h3>Q6. How holidays count in the 8-week window</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>By the timetable Metro ran that day.</li>
+        <li><span class="tag">Considered</span>Leave holidays out</li>
+        <li><span class="tag">Considered</span>By calendar day</li>
+      </ul>
+      <p><span class="lbl">Why</span>A Thursday holiday that runs Sunday service belongs with Sunday departures, because those are the buses that ran.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q6</a></p>
+    </article>
+    <article class="card">
+      <h3>Q7. How the nearest stop is found</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>In the browser only. The location never leaves the phone, and a denied prompt falls back to search.</li>
+        <li><span class="tag">Considered</span>Drop nearest stop</li>
+      </ul>
+      <p><span class="lbl">Why</span>No request from the page carries the rider's latitude or longitude, and a rider who says no still gets stop search with no error.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q7</a></p>
+    </article>
+    <article class="card">
+      <h3>Q8. Whether the 9 in 10 level can change</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>Fixed at 9 in 10.</li>
+        <li><span class="tag">Considered</span>Let the rider pick 3 in 4, 9 in 10 or 19 in 20</li>
+      </ul>
+      <p><span class="lbl">Why</span>One fixed level keeps the answer sentence and the Arrive by boundary simple to test.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q8</a></p>
+    </article>
+    <article class="card">
+      <h3>Q10. How the build finds the timetable that ran on a date</h3>
+      <ul class="opts">
+        <li class="chosen"><span class="tag">Chosen</span>It looks the date up in Metro's stored GTFS calendar.</li>
+        <li><span class="tag">Considered</span>Add it to graded arrivals as a new column, which makes arrivals v3</li>
+      </ul>
+      <p><span class="lbl">Why</span>Graded arrivals stay v2, so the build changes no stored data and no day is regraded.</p>
+      <p class="note"><a href="../grill/2026-11-24-commute-tool.md">Grill record, Q10</a></p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <h2>Risks</h2>
+  <ul class="plain">
+    <li><strong>Ride time needs same-trip pairs.</strong> A spread of times at each stop does not give the spread of A to B ride times. The route file may need each day's time at each stop, not quantiles alone, which can make files several times larger than ADR-0003 estimated. Feature 1 measures the size of both layouts on the VM. If the larger layout passes about 300 KB gzipped for the busiest route, I ask the owner before building.</li>
+    <li><strong>A bus service runs on more than one day type.</strong> Then a date has no single day type and S1 fails. Feature 1 counts such services first. If any exist, I ask the owner how to classify them.</li>
+    <li><strong>A timetable change starts new patterns.</strong> A departure moved by one minute has under 8 days of data, so it reads "not enough data" for up to 8 weeks. The page then says so for that departure. Matching near start times across versions is not in this version.</li>
+    <li><strong>The daily job slows or runs out of memory.</strong> The pattern build groups about 49 million rows. Feature 1 runs it on 56 real days in the VM and reports time and peak memory before it merges. The daily job's timeout is 3 hours, so a slow build delays the site but does not fail the run.</li>
+    <li><strong>The site's daily upload to R2 grows.</strong> It goes from about 3.8 MB to about 10 to 11 MB gzipped. R2 charges nothing for egress and little for writes at this size, so the bill stays near $1.50 a month.</li>
+    <li><strong>An agent downloads data to a laptop to check a commute.</strong> The egress guard refuses raw files, and <code>CLAUDE.md</code> forbids it. C23 runs on the VM.</li>
+    <li><strong>Location denial behaves differently in Playwright than on a phone.</strong> C11 then needs a manual check on a phone, which I add to the owner's test in C24.</li>
+  </ul>
+</section>
+
+</div>
+</body>
+</html>
