@@ -67,6 +67,45 @@ export function median(values: number[]): number {
 	return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+function scheduledOffset(pattern: Pattern, stop: number): number {
+	return pattern.scheduled.slice(0, stop + 1).reduce((sum, units) => sum + units, 0) * UNIT;
+}
+
+export type Spread = {
+	/** Seconds after the service day's base instant, as the pattern's start is. */
+	scheduled: number;
+	nineInTen: number;
+	arrivals: number[];
+};
+
+// The chart's data for one chosen departure. It reads the same days and the same
+// nearest-rank value as `answer`, so the 9-in-10 mark is the time the answer used.
+export function arrivalSpread(
+	file: CommuteFile,
+	start: number,
+	from: string,
+	to: string
+): Spread | null {
+	const pattern = file.patterns.find((p) => p.start === start);
+	if (!pattern) return null;
+	const order = pattern.stopIndexes.map((i) => file.stops[i]);
+	const a = order.indexOf(from);
+	const b = order.indexOf(to, a + 1);
+	if (a < 0 || b < 0) return null;
+	const arrivals: number[] = [];
+	pattern.dayIndexes.forEach((_, column) => {
+		const times = columnTimes(pattern, column);
+		if (times[a] === null || times[b] === null) return;
+		arrivals.push(start + (times[b] as number) * UNIT);
+	});
+	if (arrivals.length === 0) return null;
+	return {
+		scheduled: start + scheduledOffset(pattern, b),
+		nineInTen: nearestRank90(arrivals),
+		arrivals
+	};
+}
+
 // A delay is the day's actual time at B minus the timetable's time at B, both as
 // seconds after the pattern's scheduled start. Only days with a time at both stops count.
 function candidate(
@@ -88,10 +127,8 @@ function candidate(
 		if (ta === null || tb === null) return;
 		atB.push(tb * UNIT);
 	});
-	const scheduledAt = (stop: number) =>
-		pattern.scheduled.slice(0, stop + 1).reduce((sum, units) => sum + units, 0) * UNIT;
-	const scheduledA = scheduledAt(a);
-	const scheduledB = scheduledAt(b);
+	const scheduledA = scheduledOffset(pattern, a);
+	const scheduledB = scheduledOffset(pattern, b);
 	const lates = atB.map((t) => t - scheduledB);
 	return {
 		start: pattern.start,

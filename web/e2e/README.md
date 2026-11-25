@@ -25,7 +25,8 @@ check it against a small committed copy of the data in `fixture/`. The CI job
   old shows the warning and 2 days old does not. Both set the browser clock, so
   the fixture does not turn stale as the real date moves on. Expected values come
   from the fixture files, never from numbers typed into a test.
-- `axe.spec.ts` runs axe on the home page, `/lines/720`, `/ranking`, `/methods`
+- `commute.spec.ts` sets up a commute on line 720 and checks the answer sentence in its live region, the chart, a copied address opened in a fresh context, the mode switch keeping stops, the To list starting after From, bad query values, and the links from the home page and a bus line page.
+- `axe.spec.ts` runs axe on the home page, `/lines/720`, `/commute`, `/ranking`, `/methods`
   and `/behind-the-scenes`, each in light and dark. It fails on any serious or critical
   violation and prints the rule and the elements.
 - `lighthouserc.cjs` runs Lighthouse three times on the home page, `/lines/720`,
@@ -60,8 +61,9 @@ index must also be in `lines.json`, or its test gets a 404.
 
 `fixture/site/` has the layout the site's loader reads. `current.json` names the
 run folder `site/runs/<run>/`, and that folder holds `index.json`, `status.json`,
-`network.json`, `health.json` and `lines/<id>.json`. The pointer's `files` is the
-number of lines plus 4. `fixture/.gitignore` re-includes `site/`,
+`network.json`, `health.json`, `lines/<id>.json` and `commute/` (made up by
+`make_fixture.py --commute`: an index, a stop list and five route files in the
+current format). The pointer's `files` counts every file in the run folder. `fixture/.gitignore` re-includes `site/`,
 which the repository's `.gitignore` ignores for pipeline output.
 
 It is real data with three edits, plus a `health.json` that is not copied from a
