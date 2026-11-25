@@ -55,11 +55,14 @@ export function readQuery(search: string, index: CommuteIndex): Query {
 		const directions = directionsOf(index, line);
 		const raw = params.get('dir');
 		const wanted = raw !== null && /^\d+$/.test(raw) ? Number(raw) : NaN;
-		out.direction = directions.includes(wanted) ? wanted : directions[0];
-		const from = params.get('from');
-		const to = params.get('to');
-		if (from) out.from = from;
-		if (to) out.to = to;
+		if (directions.includes(wanted)) out.direction = wanted;
+		else if (directions.length === 1) out.direction = directions[0];
+		if (out.direction !== undefined) {
+			const from = params.get('from');
+			const to = params.get('to');
+			if (from) out.from = from;
+			if (to) out.to = to;
+		}
 	}
 	const day = params.get('day');
 	if (day === 'weekday' || day === 'saturday' || day === 'sunday') out.dayType = day;
