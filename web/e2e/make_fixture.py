@@ -124,14 +124,6 @@ def write_health(out: Path):
     pointer_path.write_text(json.dumps(pointer))
 
 
-# The commute files are made up, like health.json, because the real ones need the
-# raw archive. They follow the layout in pipeline/src/howlate_pipeline/commute.py:
-# 10 second units, each entry the change from the same day's last earlier time,
-# and a `scheduled` list of changes from the stop before. Line 720 has two
-# directions on weekdays, one on Saturday and nothing on Sunday, so the page
-# meets a day type with no file. Line 4 is small. The pattern starting at 9:30
-# on weekday direction 0 of line 720 ran on 7 days, which is under the 8 an
-# answer needs.
 UNIT = 10
 COMMUTE_STOPS = {
     "720": {
@@ -169,7 +161,6 @@ COMMUTE_STOPS = {
 }
 SCHEDULED_GAPS = {"720": [0, 330, 420, 360, 780, 840], "4": [0, 300, 480, 360]}
 COMMUTE_FILES = [
-    # line, direction, day type, first day, days, starts, days each start ran on
     ("720", 0, "weekday", date(2026, 11, 2), 12, [25200, 27000, 28800, 30600, 34200], [12, 12, 12, 12, 7]),
     ("720", 1, "weekday", date(2026, 11, 2), 12, [25200, 28800, 32400], [12, 12, 12]),
     ("720", 0, "saturday", date(2026, 9, 26), 8, [28800, 32400], [8, 8]),
@@ -227,7 +218,6 @@ def commute_file(line, direction, kind, first, count, starts, ran, rng):
 
 
 def write_commute(out: Path):
-    """Writes commute/ into the run the pointer names and makes the pointer count it."""
     pointer_path = out / "site" / "current.json"
     pointer = json.loads(pointer_path.read_text())
     run_dir = out / pointer["prefix"]

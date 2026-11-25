@@ -7,9 +7,6 @@ import type { Mode } from './answer.ts';
 
 export type CommutePageData = { run: CommuteRun; index: CommuteIndex; stops: CommuteStop[] };
 
-// The index and the stop list are read from one run, as the route files are later,
-// so a daily run that lands in between never gives the page a stop that a route
-// file of the next run does not know.
 export async function loadCommutePage(
 	base: string,
 	fetchFn: typeof fetch = fetch
@@ -49,9 +46,6 @@ export function minuteOf(time: string): number | null {
 	return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
-// A query value is kept only when the loaded index has it. Stop ids are checked
-// later, against the route file, because the index does not list stops. A bad
-// value is dropped and the form falls back to its default for that field.
 export function readQuery(search: string, index: CommuteIndex): Query {
 	const params = new URLSearchParams(search);
 	const out: Query = {};
@@ -88,9 +82,6 @@ export function writeQuery(query: Query): string {
 	return params.toString().replaceAll('%3A', ':');
 }
 
-// The committed list names each direction's destination in direction order. The
-// match holds only when the list and the commute index agree on how many
-// directions the line has, which a one-direction line breaks.
 export function directionLabel(
 	listed: LineListEntry | undefined,
 	directions: number[],

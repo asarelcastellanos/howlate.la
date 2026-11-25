@@ -1,7 +1,4 @@
 <script lang="ts">
-	// A segmented control made of radio buttons, like the line page's direction
-	// switch. The browser gives it the arrow keys and the checked state. `stack`
-	// puts long labels one above the other.
 	let {
 		legend,
 		options,

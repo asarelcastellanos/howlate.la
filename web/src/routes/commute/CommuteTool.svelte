@@ -49,9 +49,6 @@
 		sunday: 'Sunday'
 	};
 
-	// The address is read once, when the form first draws. It is read from the
-	// browser's location and not from the router, because the page is prerendered
-	// and the router has no query string at build time.
 	const start = untrack(() => readQuery(location.search, data.index));
 	let line = $state(start.line ?? '');
 	let direction = $state<number | undefined>(start.direction);
@@ -92,26 +89,17 @@
 		}
 		let current = true;
 		fileState = { kind: 'loading' };
-		data.run
-			.route(line, wanted, dayType)
-			.catch((): { ok: false; error: LoadError } => ({
-				ok: false,
-				error: { kind: 'network', url: '' }
-			}))
-			.then((result) => {
-				if (!current) return;
-				fileState = result.ok
-					? { kind: 'ready', file: result.data }
-					: { kind: 'error', error: result.error };
-			});
+		data.run.route(line, wanted, dayType).then((result) => {
+			if (!current) return;
+			fileState = result.ok
+				? { kind: 'ready', file: result.data }
+				: { kind: 'error', error: result.error };
+		});
 		return () => {
 			current = false;
 		};
 	});
 
-	// A stop from the address, or one kept across a day type, may not be served by
-	// the file that just loaded. It is dropped, so the picker never shows a stop the
-	// answer cannot use.
 	$effect(() => {
 		if (fileState.kind !== 'ready') return;
 		if (fromId && !fromStop) fromId = undefined;
@@ -120,8 +108,6 @@
 
 	$effect(() => {
 		const query = writeQuery({ line, direction, dayType, from: fromId, to: toId, mode, time });
-		// The address stays on this page and only its query changes, so the lint rule's
-		// resolve() has nothing to resolve. A bare query keeps the page's own path.
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		replaceState(`?${query}`, {});
 	});

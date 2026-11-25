@@ -2,9 +2,6 @@
 	import Figure from '#lib/design/Figure.svelte';
 	import { clock, type Spread } from '#lib/commute/answer.ts';
 
-	// Supplementary to the sentence above it, so the SVG is one image with a text
-	// summary and no keyboard stops. It is drawn at its real pixel width, because a
-	// scaled viewBox would shrink the labels on a phone.
 	let { spread }: { spread: Spread } = $props();
 
 	const PAD = 16;

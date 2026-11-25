@@ -72,14 +72,11 @@ function scheduledOffset(pattern: Pattern, stop: number): number {
 }
 
 export type Spread = {
-	/** Seconds after the service day's base instant, as the pattern's start is. */
 	scheduled: number;
 	nineInTen: number;
 	arrivals: number[];
 };
 
-// The chart's data for one chosen departure. It reads the same days and the same
-// nearest-rank value as `answer`, so the 9-in-10 mark is the time the answer used.
 export function arrivalSpread(
 	file: CommuteFile,
 	start: number,
