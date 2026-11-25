@@ -12,7 +12,10 @@
 	let active = $state(0);
 	let root = $state<HTMLDivElement>();
 	let input = $state<HTMLInputElement>();
-	let phase = $state<'idle' | 'locating' | 'found' | 'none'>('idle');
+	let button = $state<HTMLButtonElement>();
+	let phase = $state<
+		'idle' | 'locating' | 'found' | 'denied' | 'unavailable' | 'unsupported' | 'far'
+	>('idle');
 
 	const results = $derived(searchStops(stops, query));
 	const showList = $derived(open && results.length > 0);
@@ -26,22 +29,28 @@
 		open = false;
 	}
 
-	function noLocation() {
-		phase = 'none';
-		input?.focus();
+	function fail(next: 'denied' | 'unavailable' | 'unsupported' | 'far') {
+		if (phase !== 'locating') return;
+		phase = next;
+		if (document.activeElement === button) input?.focus();
 	}
 
 	function findNearest() {
-		if (!('geolocation' in navigator)) return noLocation();
+		if (phase === 'locating') return;
+		if (!('geolocation' in navigator)) {
+			phase = 'unsupported';
+			return;
+		}
 		phase = 'locating';
 		navigator.geolocation.getCurrentPosition(
 			(position) => {
+				if (phase !== 'locating') return;
 				const stop = nearestStop(stops, position.coords.latitude, position.coords.longitude);
-				if (!stop) return noLocation();
+				if (!stop) return fail('far');
 				pick(stop);
 				phase = 'found';
 			},
-			noLocation,
+			(error) => fail(error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable'),
 			{ timeout: 10_000, maximumAge: 300_000 }
 		);
 	}
@@ -75,8 +84,9 @@
 	<button
 		type="button"
 		onclick={findNearest}
-		disabled={phase === 'locating'}
-		class="border-ink bg-paper text-ink font-sans hover:bg-sunk mb-4 min-h-12 border px-4 py-2 text-body disabled:cursor-wait disabled:opacity-60"
+		aria-disabled={phase === 'locating'}
+		bind:this={button}
+		class="border-ink bg-paper text-ink font-sans hover:bg-sunk mb-4 min-h-12 border px-4 py-2 text-body aria-disabled:cursor-wait aria-disabled:opacity-60"
 	>
 		{phase === 'locating' ? 'Finding your location' : 'Use my location'}
 	</button>
@@ -97,6 +107,7 @@
 		placeholder="Wilshire / Vermont"
 		bind:value={query}
 		oninput={() => {
+			if (phase === 'locating') phase = 'idle';
 			open = true;
 			active = 0;
 		}}
@@ -141,8 +152,14 @@
 			Finding the stop nearest you.
 		{:else if selected}
 			{phase === 'found' ? 'Nearest stop' : 'Chosen stop'}: {selected[1]}, stop {selected[0]}.
-		{:else if phase === 'none'}
-			We could not get your location. Type part of a stop name to search.
+		{:else if phase === 'denied'}
+			Location is off for this site. Search by name.
+		{:else if phase === 'unavailable'}
+			We could not find your location. Search by name.
+		{:else if phase === 'unsupported'}
+			This browser cannot share a location. Search by name.
+		{:else if phase === 'far'}
+			No stop within 5 km of you. Search by name.
 		{/if}
 	</p>
 </div>
