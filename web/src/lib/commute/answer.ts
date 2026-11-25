@@ -12,6 +12,10 @@ export type Answer =
 			line: string;
 			start: number;
 			departMinute: number;
+			scheduledArriveMinute: number;
+			nineInTenMinute: number;
+			spareMinutes: number | null;
+			arriveByMinute: number | null;
 			medianLateMinutes: number;
 			badLateMinutes: number;
 			rideMinutes: number;
@@ -22,7 +26,8 @@ export type Answer =
 
 type Candidate = {
 	start: number;
-	departMinute: number;
+	departSeconds: number;
+	scheduledArriveSeconds: number;
 	arrive90Minute: number;
 	medianLateSeconds: number;
 	badLateSeconds: number;
@@ -129,7 +134,8 @@ function candidate(
 	const lates = atB.map((t) => t - scheduledB);
 	return {
 		start: pattern.start,
-		departMinute: Math.round((pattern.start + scheduledA) / 60),
+		departSeconds: pattern.start + scheduledA,
+		scheduledArriveSeconds: pattern.start + scheduledB,
 		arrive90Minute: Math.ceil((pattern.start + nearestRank90(atB)) / 60),
 		medianLateSeconds: median(lates),
 		badLateSeconds: nearestRank90(lates),
@@ -151,19 +157,24 @@ export function answer(
 	let chosen: Candidate | undefined;
 	if (mode === 'leave') {
 		chosen = found
-			.filter((c) => c.departMinute >= minute)
-			.sort((x, y) => x.departMinute - y.departMinute)[0];
+			.filter((c) => c.departSeconds >= minute * 60)
+			.sort((x, y) => x.departSeconds - y.departSeconds)[0];
 	} else {
 		chosen = found
 			.filter((c) => c.arrive90Minute <= minute)
-			.sort((x, y) => y.departMinute - x.departMinute)[0];
+			.sort((x, y) => y.departSeconds - x.departSeconds)[0];
 	}
 	if (!chosen) return { kind: 'no-bus', mode };
-	const base = { line: file.line, start: chosen.start, departMinute: chosen.departMinute };
+	const departMinute = Math.floor(chosen.departSeconds / 60);
+	const base = { line: file.line, start: chosen.start, departMinute };
 	if (chosen.days < MIN_DAYS) return { kind: 'not-enough-data', ...base, days: chosen.days };
 	return {
 		kind: 'answer',
 		...base,
+		scheduledArriveMinute: Math.floor(chosen.scheduledArriveSeconds / 60),
+		nineInTenMinute: chosen.arrive90Minute,
+		spareMinutes: mode === 'arrive' ? minute - chosen.arrive90Minute : null,
+		arriveByMinute: mode === 'arrive' ? minute : null,
 		medianLateMinutes: Math.round(chosen.medianLateSeconds / 60),
 		badLateMinutes: Math.round(chosen.badLateSeconds / 60),
 		rideMinutes: Math.round(chosen.rideSeconds / 60),
@@ -187,14 +198,25 @@ export function sentence(result: Answer): string {
 	}
 	const bus = `the ${clock(result.departMinute)} line ${result.line} bus`;
 	if (result.kind === 'not-enough-data') {
-		return `Not enough data for ${bus}. It has run on ${result.days} days, and an answer needs ${MIN_DAYS}.`;
+		return `Not enough data for ${bus}. It has run on ${result.days} days, and an answer needs ${MIN_DAYS}. Try another time or day.`;
 	}
 	const late = result.medianLateMinutes;
 	const usually =
 		late === 0 ? 'on time' : late > 0 ? `${minutes(late)} late` : `${minutes(-late)} early`;
+	const worst =
+		result.badLateMinutes <= 0
+			? 'on time or early'
+			: `no more than ${minutes(result.badLateMinutes)} late`;
+	const deadline =
+		result.spareMinutes === null || result.arriveByMinute === null
+			? ''
+			: ` It reaches the To stop by ${clock(result.nineInTenMinute)} on 9 days in 10, ` +
+				(result.spareMinutes === 0
+					? `right at your ${clock(result.arriveByMinute)} deadline.`
+					: `${minutes(result.spareMinutes)} before your ${clock(result.arriveByMinute)} deadline.`);
 	return (
-		`Catch ${bus}. It is usually ${usually}, and 9 days in 10 it is no more than ` +
-		`${minutes(result.badLateMinutes)} late. The ride takes ${minutes(result.rideMinutes)}. ` +
-		`This rests on ${result.days} days.`
+		`Catch ${bus}. The timetable has it at the To stop at ${clock(result.scheduledArriveMinute)}. ` +
+		`It is usually ${usually}, and 9 days in 10 it is ${worst}.${deadline} ` +
+		`The ride takes ${minutes(result.rideMinutes)}. This rests on ${result.days} days.`
 	);
 }
