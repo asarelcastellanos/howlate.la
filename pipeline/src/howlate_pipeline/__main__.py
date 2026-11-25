@@ -427,7 +427,7 @@ def run_daily(args: argparse.Namespace) -> int:
         site_code = build_site(bucket, graded, cache=args.cache, out=args.out / "site")
         r2_problem = copy_to_r2(bucket, args.out / "site")
         if site_code and not r2_problem:
-            r2_problem = f"a commute file is over {commute.LIMIT:,} bytes gzipped"
+            r2_problem = "the commute build failed, see the run log"
     except BaseException as error:
         heartbeat(False, f"daily run crashed: {redact(repr(error))}")
         raise
@@ -566,6 +566,10 @@ def build_site(
     )
     for name, size in over:
         print(f"  FAIL {name} is {size:,} bytes gzipped, over the {commute.LIMIT:,} limit")
+    failed = bool(over)
+    for line in stats["skipped_lines"]:
+        print(f"  FAIL line {line!r} has no commute file, its name cannot be a file name")
+        failed = True
 
     print(
         f"\n  wrote {len(written)} line files + index.json + status.json + network.json + health.json to {out}"
@@ -579,7 +583,7 @@ def build_site(
         print(f"  uploaded {count} files to {where}")
 
     print(f"  in {time.monotonic() - started:.0f}s")
-    return 1 if over else 0
+    return 1 if failed else 0
 
 
 def main() -> None:

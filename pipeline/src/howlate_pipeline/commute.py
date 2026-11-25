@@ -286,7 +286,8 @@ def build(
     `types` is the day type of each service date, and dates without one are left
     out. Lines are read in batches so the 56 days never sit in memory at once.
     Returns the names written, relative to `out`, the files over LIMIT gzipped
-    with their sizes, and a summary of sizes.
+    with their sizes, and a summary of sizes. A line whose name cannot be a file
+    name is left out and named in the summary's `skipped_lines`.
     """
     days = [day for day in window(last) if day in types]
     files = window_files(arrivals_dir, last)
@@ -299,13 +300,17 @@ def build(
     ).fetchall()
 
     names, entries, over, sizes = [], [], [], []
+    skipped: set[str] = set()
     for group in batches(counts):
         load(con, files, {day: types[day] for day in days}, group)
         for line, direction, kind in con.execute(
             "SELECT DISTINCT line, direction_id, daytype FROM m ORDER BY ALL"
         ).fetchall():
             if not SAFE_NAME.fullmatch(line):
-                raise SystemExit(f"line {line!r} cannot be a file name")
+                if line not in skipped:
+                    print(f"  commute: line {line!r} cannot be a file name, left out")
+                skipped.add(line)
+                continue
             payload = route_file(con, line, direction, kind, by_type[kind])
             name = f"commute/{line}-{direction}-{kind}.json"
             raw = write_json(out / name, payload)
@@ -344,5 +349,6 @@ def build(
         "largest_gzip": max((g for _, g in sizes), default=0),
         "median_gzip": statistics.median(g for _, g in sizes) if sizes else 0,
         "total_raw": sum(r for r, _ in sizes) + stops_raw,
+        "skipped_lines": sorted(skipped),
     }
     return sorted(names), sorted(over, key=lambda row: -row[1]), summary
