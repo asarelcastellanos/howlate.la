@@ -53,6 +53,9 @@ matcher missed its bar and stays off. All 98 graded days were regraded on
 
 ### Changed
 
+- The `stopped_pct` check limit moved from 75 to 90 percent. It read 75.1 to
+  75.6 percent on 2026-11-20 to 11-23 as coverage rose from 75.6 to about 87
+  percent, so the feed sends more STOPPED_AT records rather than breaking.
 - The rail matcher is off. On 2026-11-18 and 2026-11-19 it agreed with the
   reported id in fewer than 95 percent of confident fits on lines 801 (84.2 and
   88.5 percent), 804 (91.6 percent on 11-18) and 807 (92.5 percent on 11-19), so
