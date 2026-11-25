@@ -13,7 +13,7 @@
 	type Behind = {
 		stops: CommuteStop[];
 		note: (stop: CommuteStop) => string;
-		action?: { label: string; run: () => void };
+		action?: { label: string; run: (stop: CommuteStop) => void };
 	};
 
 	let {
@@ -245,7 +245,7 @@
 		{#if behindMatch && behind?.action}
 			<button
 				type="button"
-				onclick={behind.action.run}
+				onclick={() => behindMatch && behind.action?.run(behindMatch)}
 				class="border-ink bg-paper text-ink hover:bg-sunk data mt-3 min-h-12 border px-4 py-2"
 			>
 				{behind.action.label}

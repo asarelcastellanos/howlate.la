@@ -59,6 +59,7 @@
 	let shown = $state.raw<CommuteFile>();
 	let answerEl = $state<HTMLElement>();
 	let scrolled = false;
+	let switched = $state('');
 	const fullLink = !!(start.from && start.to && start.time);
 	let attempt = $state(0);
 
@@ -136,6 +137,7 @@
 
 	function chooseLine(next: string) {
 		line = next;
+		switched = '';
 		const only = next ? directionsOf(data.index, next) : [];
 		direction = only.length === 1 ? only[0] : undefined;
 		fromId = toId = undefined;
@@ -143,6 +145,7 @@
 	}
 
 	function chooseDirection(next: string) {
+		switched = '';
 		direction = Number(next);
 		fromId = toId = undefined;
 		shown = undefined;
@@ -164,11 +167,38 @@
 							? undefined
 							: {
 									label: `Go the other way: ${directionLabel(listed, directions, other)}`,
-									run: () => chooseDirection(String(other))
+									run: (stop: CommuteStop) => void goOtherWay(other, stop)
 								}
 				}
 			: undefined
 	);
+	function match(list: CommuteStop[], stop: CommuteStop): number {
+		const byId = list.findIndex((s) => s[0] === stop[0]);
+		return byId >= 0 ? byId : list.findIndex((s) => s[1] === stop[1]);
+	}
+
+	async function goOtherWay(next: number, typedTo: CommuteStop) {
+		const keepFrom = fromStop;
+		const result = await data.run.route(line, next, dayType);
+		if (!result.ok) return chooseDirection(String(next));
+		const list = stopsInDirection(data.stops, result.data.stops);
+		const a = keepFrom ? match(list, keepFrom) : -1;
+		const b = match(list, typedTo);
+		const label = directionLabel(listed, directions, next);
+		direction = next;
+		shown = result.data;
+		fileState = { kind: 'ready', file: result.data };
+		fromId = a >= 0 ? list[a][0] : undefined;
+		toId = a >= 0 && b > a ? list[b][0] : undefined;
+		if (a < 0)
+			switched = `Switched to ${label}. This direction does not serve the From stop, so it is cleared.`;
+		else if (b < 0)
+			switched = `Switched to ${label}. It does not serve ${typedTo[1]}, so the To stop is cleared.`;
+		else if (b < a)
+			switched = `Switched to ${label}. ${typedTo[1]} is still before the From stop here, so the To stop is cleared.`;
+		else switched = `Switched to ${label}. Kept ${list[a][1]} and ${list[b][1]}.`;
+	}
+
 	const hint = $derived(
 		!line
 			? 'Choose a bus line to start.'
@@ -233,6 +263,7 @@
 						bind:selected={
 							() => fromStop,
 							(stop: CommuteStop | undefined) => {
+								switched = '';
 								fromId = stop?.[0];
 								toId = undefined;
 							}
@@ -246,7 +277,13 @@
 							<StopPicker
 								stops={toChoices}
 								{behind}
-								bind:selected={() => toStop, (stop: CommuteStop | undefined) => (toId = stop?.[0])}
+								bind:selected={
+									() => toStop,
+									(stop: CommuteStop | undefined) => {
+										switched = '';
+										toId = stop?.[0];
+									}
+								}
 							/>
 						{/key}
 					{:else}
@@ -254,6 +291,7 @@
 					{/if}
 				</fieldset>
 			{/key}
+			{#if switched}<p class="data mt-3" role="status">{switched}</p>{/if}
 
 			<Segmented
 				legend="Plan by"
