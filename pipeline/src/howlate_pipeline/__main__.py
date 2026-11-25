@@ -50,11 +50,13 @@ from zoneinfo import ZoneInfo
 from google.cloud import storage
 
 from howlate_pipeline import (
+    BUS_AGENCY,
     DERIVED_BUCKET,
     ZONE,
     aggregate,
     arrivals,
     backfill,
+    commute,
     gtfs,
     labels,
     r2,
@@ -422,8 +424,10 @@ def run_daily(args: argparse.Namespace) -> int:
             # error `aggregate` would raise over an empty directory.
             heartbeat(False, ping_body(f"no finished day to publish: {summary}", failures, result))
             return code or 1
-        build_site(bucket, graded, cache=args.cache, out=args.out / "site")
+        site_code = build_site(bucket, graded, cache=args.cache, out=args.out / "site")
         r2_problem = copy_to_r2(bucket, args.out / "site")
+        if site_code and not r2_problem:
+            r2_problem = f"a commute file is over {commute.LIMIT:,} bytes gzipped"
     except BaseException as error:
         heartbeat(False, f"daily run crashed: {redact(repr(error))}")
         raise
@@ -537,6 +541,28 @@ def build_site(
     biggest = max(written, key=lambda row: row[2])
     total = sum(row[1] for row in written)
 
+    print("commute:")
+    latest = last.replace("-", "")
+    window_days = commute.graded_days(arrivals_dir, latest)
+    seen = commute.observed_trips(con, commute.window_files(arrivals_dir, latest))
+
+    def timetable(day: str) -> Path:
+        if timetables:
+            return timetables[BUS_AGENCY]
+        return gtfs.prepare(bucket(), day, cache / "gtfs", {BUS_AGENCY: seen.get(day, set())})[
+            BUS_AGENCY
+        ]
+
+    types = commute.day_types(window_days, timetable)
+    commute_names, over, stats = commute.build(con, arrivals_dir, latest, types, catalogue, out)
+    names += commute_names
+    print(
+        f"  {stats['files']} files + stops.json + index.json, {stats['total_raw'] / 1e6:.1f} MB raw, "
+        f"largest {stats['largest_gzip']:,} bytes gzipped, median {stats['median_gzip']:,.0f}"
+    )
+    for name, size in over:
+        print(f"  FAIL {name} is {size:,} bytes gzipped, over the {commute.LIMIT:,} limit")
+
     print(
         f"\n  wrote {len(written)} line files + index.json + status.json + network.json + health.json to {out}"
     )
@@ -549,7 +575,7 @@ def build_site(
         print(f"  uploaded {count} files to {where}")
 
     print(f"  in {time.monotonic() - started:.0f}s")
-    return 0
+    return 1 if over else 0
 
 
 def main() -> None:
