@@ -25,7 +25,6 @@ check it against a small committed copy of the data in `fixture/`. The CI job
   old shows the warning and 2 days old does not. Both set the browser clock, so
   the fixture does not turn stale as the real date moves on. Expected values come
   from the fixture files, never from numbers typed into a test.
-- `commute.spec.ts` sets up a commute on line 720 and checks the answer sentence in its live region, the chart, a copied address opened in a fresh context, the mode switch keeping stops, the To list starting after From, bad query values, and the links from the home page and a bus line page.
 - `axe.spec.ts` runs axe on the home page, `/lines/720`, `/commute`, `/ranking`, `/methods`
   and `/behind-the-scenes`, each in light and dark. It fails on any serious or critical
   violation and prints the rule and the elements.
