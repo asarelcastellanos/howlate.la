@@ -2,7 +2,7 @@
 	import { tick } from 'svelte';
 	import { moveActive } from '../search.ts';
 	import type { CommuteStop } from './file.ts';
-	import { distanceMeters, nearestStop, searchStops } from './stops.ts';
+	import { MAX_NEAREST_M, distanceMeters, nearestStop, searchStops } from './stops.ts';
 
 	let { stops, selected = $bindable() }: { stops: CommuteStop[]; selected?: CommuteStop } =
 		$props();
@@ -20,7 +20,16 @@
 		'idle' | 'locating' | 'found' | 'denied' | 'unavailable' | 'unsupported' | 'far'
 	>('idle');
 
-	const results = $derived(searchStops(stops, query));
+	const results = $derived.by(() => {
+		const found = searchStops(stops, query, here ? 50 : 8);
+		const at = here;
+		if (!at) return found;
+		return found
+			.map((stop) => ({ stop, tens: Math.round(distanceMeters(stop, at.lat, at.lon) / 10) }))
+			.sort((a, b) => a.tens - b.tens || a.stop[1].localeCompare(b.stop[1]))
+			.slice(0, 8)
+			.map((r) => r.stop);
+	});
 	const showList = $derived(open && results.length > 0);
 	const noMatch = $derived(query.trim() !== '' && results.length === 0);
 	const optionId = (i: number) => `${uid}-option-${i}`;
@@ -43,7 +52,7 @@
 						: phase === 'unsupported'
 							? 'This browser cannot share a location. Search by name.'
 							: phase === 'far'
-								? 'No stop within 5 km of you. Search by name.'
+								? `No stop within ${MAX_NEAREST_M / 1000} km of you. Search by name.`
 								: ''
 	);
 	const announcement = $derived(
@@ -56,12 +65,12 @@
 	);
 
 	async function pick(stop: CommuteStop) {
-		const fromInput = document.activeElement === input;
+		const refocus = document.activeElement === input || document.activeElement === button;
 		selected = stop;
 		phase = 'idle';
 		query = '';
 		open = false;
-		if (fromInput) {
+		if (refocus) {
 			await tick();
 			change?.focus();
 		}
@@ -69,6 +78,7 @@
 
 	async function clear() {
 		selected = undefined;
+		here = undefined;
 		phase = 'idle';
 		await tick();
 		input?.focus();
@@ -129,19 +139,23 @@
 		if (!root?.contains(event.relatedTarget as Node | null)) open = false;
 	}}
 >
-	<button
-		type="button"
-		bind:this={button}
-		onclick={findNearest}
-		aria-disabled={phase === 'locating'}
-		class="border-ink bg-paper text-ink font-sans hover:bg-sunk mb-4 min-h-12 border px-4 py-2 text-body aria-disabled:cursor-wait aria-disabled:opacity-60"
-	>
-		{phase === 'locating' ? 'Finding your location' : 'Use my location'}
-	</button>
+	{#if !selected}
+		<button
+			type="button"
+			bind:this={button}
+			onclick={findNearest}
+			aria-disabled={phase === 'locating'}
+			class="border-ink bg-paper text-ink font-sans hover:bg-sunk mb-4 min-h-12 border px-4 py-2 text-body aria-disabled:cursor-wait aria-disabled:opacity-60"
+		>
+			{phase === 'locating' ? 'Finding your location' : 'Use my location'}
+		</button>
+	{/if}
 
 	{#if selected}
 		<p class="kicker text-ink-muted">Your stop</p>
-		<div class="border-ink bg-sunk font-sans mt-2 flex items-center gap-3 border px-4 py-2">
+		<div
+			class="border-ink bg-sunk font-sans mt-2 flex flex-col gap-3 border px-4 py-2 min-[30rem]:flex-row min-[30rem]:items-center"
+		>
 			<div class="min-w-0 flex-1">
 				<span class="data block font-semibold">{selected[1]}</span>
 				<span class="caption text-ink-muted block">
