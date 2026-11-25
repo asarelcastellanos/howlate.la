@@ -185,7 +185,7 @@ export function answer(
 export function clock(minute: number): string {
 	const h = Math.floor(minute / 60) % 24;
 	const mm = String(minute % 60).padStart(2, '0');
-	return `${h % 12 || 12}:${mm} ${h < 12 ? 'am' : 'pm'}`;
+	return `${h % 12 || 12}:${mm}\u00a0${h < 12 ? 'am' : 'pm'}`;
 }
 
 const minutes = (n: number) => `${n} ${n === 1 ? 'minute' : 'minutes'}`;
@@ -207,7 +207,7 @@ export function sentence(result: Answer): string {
 		result.badLateMinutes <= 0
 			? 'on time or early'
 			: `no more than ${minutes(result.badLateMinutes)} late`;
-	const deadline =
+	const lead =
 		result.spareMinutes === null || result.arriveByMinute === null
 			? ''
 			: ` It reaches the To stop by ${clock(result.nineInTenMinute)} on 9 days in 10, ` +
@@ -215,8 +215,8 @@ export function sentence(result: Answer): string {
 					? `right at your ${clock(result.arriveByMinute)} deadline.`
 					: `${minutes(result.spareMinutes)} before your ${clock(result.arriveByMinute)} deadline.`);
 	return (
-		`Catch ${bus}. The timetable has it at the To stop at ${clock(result.scheduledArriveMinute)}. ` +
-		`It is usually ${usually}, and 9 days in 10 it is ${worst}.${deadline} ` +
+		`Catch ${bus}.${lead} The timetable has it at the To stop at ${clock(result.scheduledArriveMinute)}. ` +
+		`It is usually ${usually}, and 9 days in 10 it is ${worst}. ` +
 		`The ride takes ${minutes(result.rideMinutes)}. This rests on ${result.days} days.`
 	);
 }

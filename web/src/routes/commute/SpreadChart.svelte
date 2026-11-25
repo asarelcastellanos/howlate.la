@@ -29,10 +29,46 @@
 		minute(spread.nineInTen),
 		...(deadline === undefined ? [] : [deadline])
 	]);
+	const markList = $derived(
+		[
+			{
+				key: 'scheduled',
+				m: minute(spread.scheduled),
+				text: `Scheduled ${clock(Math.floor(minute(spread.scheduled)))}`,
+				line: 'stroke-chart-ink',
+				fill: 'fill-chart-ink',
+				dash: undefined
+			},
+			{
+				key: 'nine',
+				m: minute(spread.nineInTen),
+				text: `9 days in 10 by ${clock(Math.ceil(minute(spread.nineInTen)))}`,
+				line: 'stroke-chart-annotation',
+				fill: 'fill-chart-annotation',
+				dash: '5 3'
+			},
+			...(deadline === undefined
+				? []
+				: [
+						{
+							key: 'deadline',
+							m: deadline,
+							text: `Your deadline ${clock(deadline)}`,
+							line: 'stroke-chart-axis',
+							fill: 'fill-chart-axis',
+							dash: '1 4'
+						}
+					])
+		].sort((a, b) => a.m - b.m)
+	);
 	const taller = $derived(Math.max(...dots.map((d) => d.level)) + 1);
 	const low = $derived(Math.floor(Math.min(...marks, ...minutes) - 1));
 	const high = $derived(Math.ceil(Math.max(...marks, ...minutes) + 1));
-	const inner = $derived(Math.max(width - 2 * PAD, 1));
+	const CHAR = 7;
+	const reserve = $derived(
+		Math.min(Math.max(...markList.map((k) => k.text.length)) * CHAR + 12, width * 0.5)
+	);
+	const inner = $derived(Math.max(width - 2 * PAD - reserve, 1));
 	const perMinute = $derived(inner / (high - low));
 	const radius = $derived(Math.max(2, Math.min(4, perMinute / 2 - 0.5)));
 	const plotHeight = $derived(taller * STEP + 8);
@@ -49,8 +85,8 @@
 		return out;
 	});
 
-	const scheduledMinute = $derived(minute(spread.scheduled));
 	const nineMinute = $derived(minute(spread.nineInTen));
+	const scheduledMinute = $derived(minute(spread.scheduled));
 	const earliest = $derived(Math.min(...spread.arrivals));
 	const latest = $derived(Math.max(...spread.arrivals));
 	const label = $derived(
@@ -60,8 +96,6 @@
 			(deadline === undefined ? '' : `Your deadline is ${clock(deadline)}. `) +
 			`The earliest was ${clock(Math.round(minute(earliest)))} and the latest ${clock(Math.round(minute(latest)))}.`
 	);
-	const anchor = (m: number) => (x(m) > width * 0.55 ? 'end' : 'start');
-	const nudge = (m: number) => (anchor(m) === 'end' ? -6 : 6);
 	const stackOf = (level: number) => axisY - 6 - level * STEP;
 </script>
 
@@ -98,65 +132,27 @@
 						font-size="12">{clock(tick)}</text
 					>
 				{/each}
-				<line
-					x1={x(scheduledMinute)}
-					x2={x(scheduledMinute)}
-					y1={ROW - 1}
-					y2={axisY}
-					class="stroke-chart-ink"
-					stroke-width="2"
-				/>
-				<line
-					x1={x(nineMinute)}
-					x2={x(nineMinute)}
-					y1={2 * ROW - 1}
-					y2={axisY}
-					class="stroke-chart-annotation"
-					stroke-width="2"
-					stroke-dasharray="5 3"
-				/>
-				{#if deadline !== undefined}
+				{#each markList as mark, i (mark.key)}
 					<line
-						x1={x(deadline)}
-						x2={x(deadline)}
-						y1={3 * ROW - 1}
+						x1={x(mark.m)}
+						x2={x(mark.m)}
+						y1={(i + 1) * ROW - 1}
 						y2={axisY}
-						class="stroke-chart-axis"
+						class={mark.line}
 						stroke-width="2"
-						stroke-dasharray="1 4"
-						stroke-linecap="round"
+						stroke-dasharray={mark.dash}
+						stroke-linecap={mark.key === 'deadline' ? 'round' : 'butt'}
 					/>
 					<text
-						x={x(deadline) + nudge(deadline)}
-						y={3 * ROW - 3}
-						text-anchor={anchor(deadline)}
-						class="fill-chart-axis stroke-paper"
+						x={x(mark.m) + 6}
+						y={(i + 1) * ROW - 3}
+						class="{mark.fill} stroke-paper"
 						font-size="12"
 						font-weight="600"
 						stroke-width="3"
-						style="paint-order: stroke">Your deadline {clock(deadline)}</text
+						style="paint-order: stroke">{mark.text}</text
 					>
-				{/if}
-				<text
-					x={x(scheduledMinute) + nudge(scheduledMinute)}
-					y={ROW - 3}
-					text-anchor={anchor(scheduledMinute)}
-					class="fill-chart-ink stroke-paper"
-					font-size="12"
-					font-weight="600"
-					stroke-width="3"
-					style="paint-order: stroke">Scheduled {clock(Math.floor(scheduledMinute))}</text
-				>
-				<text
-					x={x(nineMinute) + nudge(nineMinute)}
-					y={2 * ROW - 3}
-					text-anchor={anchor(nineMinute)}
-					class="fill-chart-annotation stroke-paper"
-					font-size="12"
-					font-weight="600"
-					stroke-width="3"
-					style="paint-order: stroke">9 days in 10 by {clock(Math.ceil(nineMinute))}</text
-				>
+				{/each}
 				{#each dots as dot, i (i)}
 					<circle
 						cx={x(dot.m)}

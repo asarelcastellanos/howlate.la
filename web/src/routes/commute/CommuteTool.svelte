@@ -57,6 +57,7 @@
 	let toId = $state<string | undefined>(start.to);
 	let fileState = $state.raw<FileState>({ kind: 'idle' });
 	let shown = $state.raw<CommuteFile>();
+	let shownKey = $state('');
 	let answerEl = $state<HTMLElement>();
 	let scrolled = false;
 	let switched = $state('');
@@ -86,6 +87,7 @@
 	$effect(() => {
 		void attempt;
 		if (!line || direction === undefined) {
+			shown = undefined;
 			fileState = { kind: 'idle' };
 			return;
 		}
@@ -94,6 +96,7 @@
 			(f) => f.line === line && f.direction === wanted && f.day_type === dayType
 		);
 		if (!there) {
+			if (shownKey !== `${line}-${wanted}`) shown = undefined;
 			fileState = { kind: 'none' };
 			return;
 		}
@@ -103,8 +106,12 @@
 			if (!current) return;
 			if (result.ok) {
 				shown = result.data;
+				shownKey = `${line}-${wanted}`;
 				fileState = { kind: 'ready', file: result.data };
-			} else fileState = { kind: 'error', error: result.error };
+			} else {
+				shown = undefined;
+				fileState = { kind: 'error', error: result.error };
+			}
 		});
 		return () => {
 			current = false;
@@ -141,19 +148,18 @@
 		const only = next ? directionsOf(data.index, next) : [];
 		direction = only.length === 1 ? only[0] : undefined;
 		fromId = toId = undefined;
-		shown = undefined;
 	}
 
 	function chooseDirection(next: string) {
 		switched = '';
 		direction = Number(next);
 		fromId = toId = undefined;
-		shown = undefined;
 	}
 
 	const field =
 		'border-ink bg-paper text-ink font-sans block min-h-12 w-full border px-4 py-2 text-body';
 	const pickerKey = $derived(`${line}-${direction}`);
+	const stale = $derived(shown !== undefined && shownKey !== pickerKey);
 	const other = $derived(
 		directions.length === 2 ? directions.find((d) => d !== direction) : undefined
 	);
@@ -179,24 +185,34 @@
 
 	async function goOtherWay(next: number, typedTo: CommuteStop) {
 		const keepFrom = fromStop;
+		const asked = { line, dayType, direction };
 		const result = await data.run.route(line, next, dayType);
+		if (line !== asked.line || dayType !== asked.dayType || direction !== asked.direction) return;
 		if (!result.ok) return chooseDirection(String(next));
 		const list = stopsInDirection(data.stops, result.data.stops);
 		const a = keepFrom ? match(list, keepFrom) : -1;
-		const b = match(list, typedTo);
+		const after = (same: (s: CommuteStop) => boolean) => list.findIndex((s, i) => i > a && same(s));
+		const b =
+			a < 0
+				? -1
+				: Math.max(
+						after((s) => s[0] === typedTo[0]),
+						after((s) => s[1] === typedTo[1])
+					);
 		const label = directionLabel(listed, directions, next);
 		direction = next;
 		shown = result.data;
+		shownKey = `${line}-${next}`;
 		fileState = { kind: 'ready', file: result.data };
 		fromId = a >= 0 ? list[a][0] : undefined;
-		toId = a >= 0 && b > a ? list[b][0] : undefined;
+		toId = b >= 0 ? list[b][0] : undefined;
 		if (a < 0)
 			switched = `Switched to ${label}. This direction does not serve the From stop, so it is cleared.`;
-		else if (b < 0)
+		else if (b >= 0) switched = `Switched to ${label}. Kept ${list[a][1]} and ${list[b][1]}.`;
+		else if (match(list, typedTo) < 0)
 			switched = `Switched to ${label}. It does not serve ${typedTo[1]}, so the To stop is cleared.`;
-		else if (b < a)
-			switched = `Switched to ${label}. ${typedTo[1]} is still before the From stop here, so the To stop is cleared.`;
-		else switched = `Switched to ${label}. Kept ${list[a][1]} and ${list[b][1]}.`;
+		else
+			switched = `Switched to ${label}. ${typedTo[1]} is not after the From stop here, so the To stop is cleared.`;
 	}
 
 	const hint = $derived(
@@ -255,43 +271,45 @@
 			</div>
 		{/if}
 		{#if shown}
-			{#key pickerKey}
-				<fieldset class="mt-6 min-w-0">
-					<legend class="kicker text-ink-muted mb-2">From</legend>
-					<StopPicker
-						stops={routeStops}
-						bind:selected={
-							() => fromStop,
-							(stop: CommuteStop | undefined) => {
-								switched = '';
-								fromId = stop?.[0];
-								toId = undefined;
-							}
-						}
-					/>
-				</fieldset>
-				<fieldset class="mt-6 min-w-0">
-					<legend class="kicker text-ink-muted mb-2">To</legend>
-					{#if fromStop}
-						{#key fromId}
-							<StopPicker
-								stops={toChoices}
-								{behind}
-								bind:selected={
-									() => toStop,
-									(stop: CommuteStop | undefined) => {
-										switched = '';
-										toId = stop?.[0];
-									}
+			<div inert={stale} aria-busy={stale} class={stale ? 'opacity-50' : ''}>
+				{#key pickerKey}
+					<fieldset class="mt-6 min-w-0">
+						<legend class="kicker text-ink-muted mb-2">From</legend>
+						<StopPicker
+							stops={routeStops}
+							bind:selected={
+								() => fromStop,
+								(stop: CommuteStop | undefined) => {
+									switched = '';
+									fromId = stop?.[0];
+									toId = undefined;
 								}
-							/>
-						{/key}
-					{:else}
-						<p class="text-ink-muted">Choose a From stop first. The To stop comes after it.</p>
-					{/if}
-				</fieldset>
-			{/key}
-			{#if switched}<p class="data mt-3" role="status">{switched}</p>{/if}
+							}
+						/>
+					</fieldset>
+					<fieldset class="mt-6 min-w-0">
+						<legend class="kicker text-ink-muted mb-2">To</legend>
+						{#if fromStop}
+							{#key fromId}
+								<StopPicker
+									stops={toChoices}
+									{behind}
+									bind:selected={
+										() => toStop,
+										(stop: CommuteStop | undefined) => {
+											switched = '';
+											toId = stop?.[0];
+										}
+									}
+								/>
+							{/key}
+						{:else}
+							<p class="text-ink-muted">Choose a From stop first. The To stop comes after it.</p>
+						{/if}
+					</fieldset>
+				{/key}
+				{#if switched}<p class="data mt-3" role="status">{switched}</p>{/if}
+			</div>
 
 			<Segmented
 				legend="Plan by"
