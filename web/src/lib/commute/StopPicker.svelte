@@ -1,8 +1,14 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { moveActive } from '../search.ts';
 	import type { CommuteStop } from './file.ts';
-	import { MAX_NEAREST_M, distanceMeters, nearestStop, searchStops } from './stops.ts';
+	import {
+		MAX_NEAREST_M,
+		distanceMeters,
+		nearestStop,
+		searchStops,
+		searchStopsNear
+	} from './stops.ts';
 
 	let { stops, selected = $bindable() }: { stops: CommuteStop[]; selected?: CommuteStop } =
 		$props();
@@ -16,31 +22,22 @@
 	let input = $state<HTMLInputElement>();
 	let button = $state<HTMLButtonElement>();
 	let change = $state<HTMLButtonElement>();
-	let here = $state<{ lat: number; lon: number; at: number }>();
+	let here = $state<{ lat: number; lon: number }>();
+	let expiry: ReturnType<typeof setTimeout> | undefined;
 	let phase = $state<
 		'idle' | 'locating' | 'found' | 'denied' | 'unavailable' | 'unsupported' | 'far'
 	>('idle');
 
-	const current = () => (here && Date.now() - here.at < MAX_AGE_MS ? here : undefined);
-
-	const results = $derived.by(() => {
-		const at = current();
-		const found = searchStops(stops, query, at ? 50 : 8);
-		if (!at) return found;
-		return found
-			.map((stop) => ({ stop, tens: Math.round(distanceMeters(stop, at.lat, at.lon) / 10) }))
-			.sort((a, b) => a.tens - b.tens || a.stop[1].localeCompare(b.stop[1]))
-			.slice(0, 8)
-			.map((r) => r.stop);
-	});
+	const results = $derived(
+		here ? searchStopsNear(stops, query, here.lat, here.lon) : searchStops(stops, query)
+	);
 	const showList = $derived(open && results.length > 0);
 	const noMatch = $derived(query.trim() !== '' && results.length === 0);
 	const optionId = (i: number) => `${uid}-option-${i}`;
 
 	const away = (stop: CommuteStop) => {
-		const at = current();
-		if (!at) return '';
-		const meters = Math.round(distanceMeters(stop, at.lat, at.lon) / 10) * 10;
+		if (!here) return '';
+		const meters = Math.round(distanceMeters(stop, here.lat, here.lon) / 10) * 10;
 		return meters < 1000 ? `, ${meters} m away` : `, ${(meters / 1000).toFixed(1)} km away`;
 	};
 
@@ -93,6 +90,19 @@
 		if (document.activeElement === button) input?.focus();
 	}
 
+	function remember(lat: number, lon: number, timestamp: number) {
+		clearTimeout(expiry);
+		const left = timestamp + MAX_AGE_MS - Date.now();
+		if (left <= 0) {
+			here = undefined;
+			return;
+		}
+		here = { lat, lon };
+		expiry = setTimeout(() => (here = undefined), left);
+	}
+
+	onDestroy(() => clearTimeout(expiry));
+
 	function findNearest() {
 		if (phase === 'locating') return;
 		if (!('geolocation' in navigator)) {
@@ -107,7 +117,7 @@
 				const { latitude, longitude } = position.coords;
 				const stop = nearestStop(stops, latitude, longitude);
 				if (!stop) return fail('far');
-				here = { lat: latitude, lon: longitude, at: Date.now() };
+				remember(latitude, longitude, position.timestamp);
 				void pick(stop);
 				phase = 'found';
 			},

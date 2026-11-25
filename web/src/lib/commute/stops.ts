@@ -14,19 +14,35 @@ function words(text: string): string[] {
 		.filter(Boolean);
 }
 
-function score(name: string[], tokens: string[]): number {
+type Match = { stop: CommuteStop; points: number; tier: number; order: number };
+
+function score(name: string[], tokens: string[]): { points: number; tier: number } {
 	const joined = name.join(' ');
 	const phrase = tokens.join(' ');
 	let total = 0;
+	let whole = true;
 	for (const token of tokens) {
 		if (name.includes(token)) total += 10;
-		else if (name.some((word) => word.startsWith(token))) total += 5;
-		else return 0;
+		else if (name.some((word) => word.startsWith(token))) {
+			total += 5;
+			whole = false;
+		} else return { points: 0, tier: 0 };
 	}
 	if (joined === phrase) total += 1000;
 	else if (joined.startsWith(phrase)) total += 400;
 	else if (` ${joined}`.includes(` ${phrase}`)) total += 200;
-	return total;
+	return { points: total, tier: joined === phrase ? 2 : whole ? 1 : 0 };
+}
+
+function matches(stops: readonly CommuteStop[], query: string): Match[] {
+	const tokens = words(query.slice(0, MAX_QUERY));
+	if (tokens.length === 0) return [];
+	const found: Match[] = [];
+	stops.forEach((stop, order) => {
+		const { points, tier } = score(words(stop[1]), tokens);
+		if (points > 0) found.push({ stop, points, tier, order });
+	});
+	return found;
 }
 
 /**
@@ -39,15 +55,29 @@ export function searchStops(
 	query: string,
 	limit = DEFAULT_LIMIT
 ): CommuteStop[] {
-	const tokens = words(query.slice(0, MAX_QUERY));
-	if (tokens.length === 0) return [];
-	const ranked: { stop: CommuteStop; points: number; order: number }[] = [];
-	stops.forEach((stop, order) => {
-		const points = score(words(stop[1]), tokens);
-		if (points > 0) ranked.push({ stop, points, order });
-	});
-	ranked.sort((a, b) => b.points - a.points || a.order - b.order);
-	return ranked.slice(0, limit).map((r) => r.stop);
+	return matches(stops, query)
+		.sort((a, b) => b.points - a.points || a.order - b.order)
+		.slice(0, limit)
+		.map((r) => r.stop);
+}
+
+/**
+ * The same matches ordered by name tier first (the whole name, then every
+ * query word as a whole word, then a word start), then by distance from the
+ * rider in 10 m steps, then by name.
+ */
+export function searchStopsNear(
+	stops: readonly CommuteStop[],
+	query: string,
+	lat: number,
+	lon: number,
+	limit = DEFAULT_LIMIT
+): CommuteStop[] {
+	return matches(stops, query)
+		.map((m) => ({ ...m, tens: Math.round(distanceMeters(m.stop, lat, lon) / 10) }))
+		.sort((a, b) => b.tier - a.tier || a.tens - b.tens || a.stop[1].localeCompare(b.stop[1]))
+		.slice(0, limit)
+		.map((r) => r.stop);
 }
 
 export function distanceMeters(stop: CommuteStop, lat: number, lon: number): number {
