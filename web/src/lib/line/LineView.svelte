@@ -9,6 +9,7 @@
 </script>
 
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { SHOW_RAIL_ONTIME } from '#lib/config.ts';
 	import ErrorState from '#lib/charts/ErrorState.svelte';
 	import LoadingState from '#lib/charts/LoadingState.svelte';
@@ -114,6 +115,13 @@
 	{/if}
 </section>
 
+{#if line.mode === 'bus'}
+	<p class="mb-8">
+		<a href="{resolve('/commute')}?line={encodeURIComponent(line.line)}"
+			>Plan a commute on this bus</a
+		>
+	</p>
+{/if}
 <Rule />
 {#if hasDirectionSwitch(line)}<DirectionSwitch
 		directions={line.directions}

@@ -13,7 +13,7 @@ export type RideError =
 
 export type RideResult = { ok: true; data: RideTime[] } | { ok: false; error: RideError };
 
-function columnTimes(pattern: Pattern, column: number): (number | null)[] {
+export function columnTimes(pattern: Pattern, column: number): (number | null)[] {
 	let total = 0;
 	return pattern.rows.map((row) => {
 		const value = row[column];

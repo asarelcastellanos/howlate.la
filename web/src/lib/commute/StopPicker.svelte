@@ -10,8 +10,17 @@
 		searchStopsNear
 	} from './stops.ts';
 
-	let { stops, selected = $bindable() }: { stops: CommuteStop[]; selected?: CommuteStop } =
-		$props();
+	type Behind = {
+		stops: CommuteStop[];
+		note: (stop: CommuteStop) => string;
+		action?: { label: string; run: (stop: CommuteStop) => void };
+	};
+
+	let {
+		stops,
+		selected = $bindable(),
+		behind
+	}: { stops: CommuteStop[]; selected?: CommuteStop; behind?: Behind } = $props();
 
 	const MAX_AGE_MS = 300_000;
 	const uid = $props.id();
@@ -32,7 +41,12 @@
 		here ? searchStopsNear(stops, query, here.lat, here.lon) : searchStops(stops, query)
 	);
 	const showList = $derived(open && results.length > 0);
-	const noMatch = $derived(query.trim() !== '' && results.length === 0);
+	const behindMatch = $derived(
+		behind && query.trim() !== '' && results.length === 0
+			? searchStops(behind.stops, query, 1)[0]
+			: undefined
+	);
+	const noMatch = $derived(query.trim() !== '' && results.length === 0 && !behindMatch);
 	const optionId = (i: number) => `${uid}-option-${i}`;
 
 	const away = (stop: CommuteStop) => {
@@ -42,19 +56,21 @@
 	};
 
 	const message = $derived(
-		noMatch
-			? 'No stop matches that. Try part of a street name, like Wilshire.'
-			: phase === 'locating'
-				? 'Finding the stop nearest you.'
-				: phase === 'denied'
-					? 'Location is off for this site. Search by name.'
-					: phase === 'unavailable'
-						? 'We could not find your location. Search by name.'
-						: phase === 'unsupported'
-							? 'This browser cannot share a location. Search by name.'
-							: phase === 'far'
-								? `No stop within ${MAX_NEAREST_M / 1000} km of you. Search by name.`
-								: ''
+		behindMatch && behind
+			? behind.note(behindMatch)
+			: noMatch
+				? 'No stop matches that. Try part of a street name, like Wilshire.'
+				: phase === 'locating'
+					? 'Finding the stop nearest you.'
+					: phase === 'denied'
+						? 'Location is off for this site. Search by name.'
+						: phase === 'unavailable'
+							? 'We could not find your location. Search by name.'
+							: phase === 'unsupported'
+								? 'This browser cannot share a location. Search by name.'
+								: phase === 'far'
+									? `No stop within ${MAX_NEAREST_M / 1000} km of you. Search by name.`
+									: ''
 	);
 	const announcement = $derived(
 		message ||
@@ -152,23 +168,8 @@
 		if (!root?.contains(event.relatedTarget as Node | null)) open = false;
 	}}
 >
-	{#if !selected}
-		<button
-			type="button"
-			bind:this={button}
-			onclick={findNearest}
-			aria-disabled={phase === 'locating'}
-			class="border-ink bg-paper text-ink font-sans hover:bg-sunk mb-4 min-h-12 border px-4 py-2 text-body aria-disabled:cursor-wait aria-disabled:opacity-60"
-		>
-			{phase === 'locating' ? 'Finding your location' : 'Use my location'}
-		</button>
-	{/if}
-
 	{#if selected}
-		<p class="kicker text-ink-muted">Your stop</p>
-		<div
-			class="border-ink bg-sunk font-sans mt-2 flex flex-col gap-3 border px-4 py-2 min-[30rem]:flex-row min-[30rem]:items-center"
-		>
+		<div class="border-ink bg-sunk font-sans flex items-center gap-3 border py-1 pr-1 pl-4">
 			<div class="min-w-0 flex-1">
 				<span class="data block font-semibold">{selected[1]}</span>
 				<span class="caption text-ink-muted block">
@@ -178,10 +179,11 @@
 			<button
 				type="button"
 				bind:this={change}
+				aria-label="Change stop"
 				onclick={clear}
-				class="border-ink bg-paper text-ink hover:bg-sunk min-h-12 border px-4 py-2 text-body"
+				class="border-ink bg-paper text-ink hover:bg-sunk data min-h-12 shrink-0 border px-3 py-2"
 			>
-				Change stop
+				Change
 			</button>
 		</div>
 	{:else}
@@ -239,7 +241,25 @@
 				</li>
 			{/each}
 		</ul>
+		<p class={message ? 'data mt-3' : 'sr-only'} aria-hidden="true">{message}</p>
+		{#if behindMatch && behind?.action}
+			<button
+				type="button"
+				onclick={() => behindMatch && behind.action?.run(behindMatch)}
+				class="border-ink bg-paper text-ink hover:bg-sunk data mt-3 min-h-12 border px-4 py-2"
+			>
+				{behind.action.label}
+			</button>
+		{/if}
+		<button
+			type="button"
+			bind:this={button}
+			onclick={findNearest}
+			aria-disabled={phase === 'locating'}
+			class="border-ink bg-paper text-ink font-sans hover:bg-sunk mt-3 min-h-12 border px-4 py-2 text-body aria-disabled:cursor-wait aria-disabled:opacity-60"
+		>
+			{phase === 'locating' ? 'Finding your location' : 'Use my location'}
+		</button>
 	{/if}
-	<p class={message ? 'data mt-3' : 'sr-only'} aria-hidden="true">{message}</p>
 	<p class="sr-only" role="status">{announcement}</p>
 </div>

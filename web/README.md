@@ -410,6 +410,18 @@ To see it with local data, build with `PUBLIC_DATA_BASE=/data` and put the
 files in `static/data/site/<run>/` with a `current.json` that names the run.
 Only `health.json` is needed for this page.
 
+## Commute page
+
+`/commute` is prerendered. The browser loads `commute/index.json` and
+`stops.json` with `loadCommutePage` (`src/lib/commute/page.ts`), and a route file
+when a line, direction and day type are chosen. The whole commute is in the query
+(`line`, `dir`, `day`, `from`, `to`, `mode`, `time`). `readQuery` keeps a value only
+when the index has it, and the stop ids are dropped once the route file loads
+without them. Changing the line or direction clears both stops, and the To list
+holds only the stops after From. The answer sentence sits in a polite live region,
+and the chart under it is supplementary. The page says rail is not covered. The
+home page and each bus line page link to it.
+
 ## Accepted limits
 
 Known issues from 0.5.0 that stay as they are, with the reason.

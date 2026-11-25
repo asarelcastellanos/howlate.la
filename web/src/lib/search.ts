@@ -20,6 +20,10 @@ function words(text: string): string[] {
 		.filter(Boolean);
 }
 
+export type Searchable = Pick<IndexEntry, 'line' | 'label' | 'mode' | 'via' | 'agency'> & {
+	to: readonly string[];
+};
+
 type Fields = {
 	id: string;
 	label: string[];
@@ -29,7 +33,7 @@ type Fields = {
 	kind: string[];
 };
 
-function fieldsOf(entry: IndexEntry): Fields {
+function fieldsOf(entry: Searchable): Fields {
 	const alias = [...(ALIASES[entry.line] ?? [])];
 	// The index has no service word. The table of known lines is the only source.
 	const service = entry.mode === 'bus' ? serviceOf(entry.line) : undefined;
@@ -73,14 +77,14 @@ function tokenScore(token: string, f: Fields): number {
  * line id, the label, the via text, the destinations, the mode or the agency.
  * Ties keep the index order. An empty query matches nothing.
  */
-export function searchLines(
-	entries: IndexEntry[],
+export function searchLines<T extends Searchable>(
+	entries: T[],
 	query: string,
 	limit = DEFAULT_LIMIT
-): IndexEntry[] {
+): T[] {
 	const tokens = words(query.slice(0, MAX_QUERY));
 	if (tokens.length === 0) return [];
-	const ranked: { entry: IndexEntry; score: number; order: number }[] = [];
+	const ranked: { entry: T; score: number; order: number }[] = [];
 	entries.forEach((entry, order) => {
 		const f = fieldsOf(entry);
 		let score = 0;
