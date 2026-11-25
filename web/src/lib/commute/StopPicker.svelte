@@ -7,6 +7,7 @@
 	let { stops, selected = $bindable() }: { stops: CommuteStop[]; selected?: CommuteStop } =
 		$props();
 
+	const MAX_AGE_MS = 300_000;
 	const uid = $props.id();
 	let query = $state('');
 	let open = $state(false);
@@ -15,14 +16,16 @@
 	let input = $state<HTMLInputElement>();
 	let button = $state<HTMLButtonElement>();
 	let change = $state<HTMLButtonElement>();
-	let here = $state<{ lat: number; lon: number }>();
+	let here = $state<{ lat: number; lon: number; at: number }>();
 	let phase = $state<
 		'idle' | 'locating' | 'found' | 'denied' | 'unavailable' | 'unsupported' | 'far'
 	>('idle');
 
+	const current = () => (here && Date.now() - here.at < MAX_AGE_MS ? here : undefined);
+
 	const results = $derived.by(() => {
-		const found = searchStops(stops, query, here ? 50 : 8);
-		const at = here;
+		const at = current();
+		const found = searchStops(stops, query, at ? 50 : 8);
 		if (!at) return found;
 		return found
 			.map((stop) => ({ stop, tens: Math.round(distanceMeters(stop, at.lat, at.lon) / 10) }))
@@ -35,9 +38,10 @@
 	const optionId = (i: number) => `${uid}-option-${i}`;
 
 	const away = (stop: CommuteStop) => {
-		if (!here) return '';
-		const meters = Math.round(distanceMeters(stop, here.lat, here.lon) / 10) * 10;
-		return meters < 1000 ? `${meters} m away` : `${(meters / 1000).toFixed(1)} km away`;
+		const at = current();
+		if (!at) return '';
+		const meters = Math.round(distanceMeters(stop, at.lat, at.lon) / 10) * 10;
+		return meters < 1000 ? `, ${meters} m away` : `, ${(meters / 1000).toFixed(1)} km away`;
 	};
 
 	const message = $derived(
@@ -78,7 +82,6 @@
 
 	async function clear() {
 		selected = undefined;
-		here = undefined;
 		phase = 'idle';
 		await tick();
 		input?.focus();
@@ -104,12 +107,12 @@
 				const { latitude, longitude } = position.coords;
 				const stop = nearestStop(stops, latitude, longitude);
 				if (!stop) return fail('far');
-				here = { lat: latitude, lon: longitude };
+				here = { lat: latitude, lon: longitude, at: Date.now() };
 				void pick(stop);
 				phase = 'found';
 			},
 			(error) => fail(error.code === error.PERMISSION_DENIED ? 'denied' : 'unavailable'),
-			{ timeout: 10_000, maximumAge: 300_000 }
+			{ timeout: 10_000, maximumAge: MAX_AGE_MS }
 		);
 	}
 
@@ -159,7 +162,7 @@
 			<div class="min-w-0 flex-1">
 				<span class="data block font-semibold">{selected[1]}</span>
 				<span class="caption text-ink-muted block">
-					Stop {selected[0]}{here ? `, ${away(selected)}` : ''}
+					Stop {selected[0]}{away(selected)}
 				</span>
 			</div>
 			<button
@@ -220,7 +223,7 @@
 					<span class="min-w-0">
 						<span class="data block font-semibold">{stop[1]}</span>
 						<span class="caption text-ink-muted block">
-							Stop {stop[0]}{here ? `, ${away(stop)}` : ''}
+							Stop {stop[0]}{away(stop)}
 						</span>
 					</span>
 				</li>
