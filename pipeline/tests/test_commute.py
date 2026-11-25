@@ -89,7 +89,6 @@ def write_timetable(directory: Path) -> Path:
 
 def test_each_date_takes_the_day_type_its_timetable_ran(tmp_path):
     timetable = write_timetable(tmp_path / "gtfs_bus")
-    # Tuesday, Saturday, Sunday and Thursday 26 November, which runs Sunday service.
     days = ["20261124", "20261128", "20261129", "20261126"]
     assert [commute.day_type(timetable, day) for day in days] == [
         "weekday",
@@ -100,7 +99,6 @@ def test_each_date_takes_the_day_type_its_timetable_ran(tmp_path):
 
 
 def test_a_trip_past_midnight_stays_with_the_day_it_started(tmp_path):
-    # Friday 20 November. It leaves at 23:50 and reaches its last stop at 00:20 on Saturday.
     start = 23 * HOUR + 50 * 60
     write_day(tmp_path, "20261120", [
         ("LACMTA", "720", 0, "LATE", "A", 1, start, start, "stopped_at"),

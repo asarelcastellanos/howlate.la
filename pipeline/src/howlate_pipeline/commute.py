@@ -51,7 +51,6 @@ file at 411,809 bytes over 56 days.
 
 import csv
 import gzip
-import math
 import re
 import statistics
 from collections.abc import Callable
@@ -109,17 +108,6 @@ def day_types(days: list[str], directory_for: Callable[[str], Path]) -> dict[str
     return types
 
 
-def row_types(row: dict) -> set[str]:
-    kinds = set()
-    if any(row[name] == "1" for name in gtfs.DOW[:5]):
-        kinds.add("weekday")
-    if row["saturday"] == "1":
-        kinds.add("saturday")
-    if row["sunday"] == "1":
-        kinds.add("sunday")
-    return kinds
-
-
 def day_type(directory: Path, service_date: str) -> str | None:
     """The day type of one service date from the timetable in force, or None.
 
@@ -139,7 +127,12 @@ def day_type(directory: Path, service_date: str) -> str | None:
     kinds: set[str] = set()
     for row in read("calendar.txt"):
         if row["service_id"] in running and row["start_date"] <= service_date <= row["end_date"]:
-            kinds |= row_types(row)
+            if any(row[name] == "1" for name in gtfs.DOW[:5]):
+                kinds.add("weekday")
+            if row["saturday"] == "1":
+                kinds.add("saturday")
+            if row["sunday"] == "1":
+                kinds.add("sunday")
     return next(iter(kinds)) if len(kinds) == 1 else None
 
 
@@ -333,8 +326,7 @@ def build(
             )
     con.execute("DROP TABLE IF EXISTS m")
 
-    stops = stop_list(catalogue)
-    stops_raw = write_json(out / "commute" / "stops.json", stops)
+    stops_raw = write_json(out / "commute" / "stops.json", stop_list(catalogue))
     write_json(
         out / "commute" / "index.json",
         {
@@ -352,10 +344,5 @@ def build(
         "largest_gzip": max((g for _, g in sizes), default=0),
         "median_gzip": statistics.median(g for _, g in sizes) if sizes else 0,
         "total_raw": sum(r for r, _ in sizes) + stops_raw,
-        "stops": len(stops),
-        "stops_raw": stops_raw,
-        "p95_gzip": sorted(g for _, g in sizes)[max(0, math.ceil(0.95 * len(sizes)) - 1)]
-        if sizes
-        else 0,
     }
     return sorted(names), sorted(over, key=lambda row: -row[1]), summary
