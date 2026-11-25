@@ -9,8 +9,6 @@ import {
 } from '../commute/file.ts';
 import { getJson, openRun, type Result } from './load.ts';
 
-// Each read opens the run first, as read.ts does, so the files come from the
-// run that current.json names.
 async function inRun<T>(
 	base: string,
 	fetchFn: typeof fetch,

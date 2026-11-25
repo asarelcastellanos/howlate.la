@@ -1,5 +1,3 @@
-// The commute file format is written by pipeline/src/howlate_pipeline/commute.py,
-// and its docstring is the reference. Times are whole units of `UNIT` seconds.
 export const UNIT = 10;
 
 export type DayType = 'weekday' | 'saturday' | 'sunday';
@@ -42,7 +40,6 @@ function decodePattern(raw: unknown, days: number, stops: number): Pattern | nul
 	return { start, dayIndexes, stopIndexes, rows };
 }
 
-/** Reads one route file. Returns null for a body that is not in the format, because the file comes from the network. */
 export function decodeCommuteFile(body: unknown): CommuteFile | null {
 	if (!isObj(body)) return null;
 	const { line, direction, day_type: dayType, days, stops, patterns } = body;
@@ -96,7 +93,6 @@ export const isCommuteIndex = (v: unknown): v is CommuteIndex =>
 	Array.isArray(v.files) &&
 	v.files.every(isEntry);
 
-/** One bus stop: id, name, latitude, longitude. */
 export type CommuteStop = [string, string, number, number];
 
 export const isCommuteStops = (v: unknown): v is CommuteStop[] =>
