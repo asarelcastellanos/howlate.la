@@ -570,6 +570,9 @@ def build_site(
     for line in stats["skipped_lines"]:
         print(f"  FAIL line {line!r} has no commute file, its name cannot be a file name")
         failed = True
+    if window_days and not types:
+        print(f"  FAIL none of the {len(window_days)} days in the window has a day type")
+        failed = True
 
     print(
         f"\n  wrote {len(written)} line files + index.json + status.json + network.json + health.json to {out}"

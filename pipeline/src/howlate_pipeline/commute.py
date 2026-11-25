@@ -97,10 +97,21 @@ def window_files(arrivals_dir: Path, last: str) -> list[str]:
 
 
 def day_types(days: list[str], directory_for: Callable[[str], Path]) -> dict[str, str]:
-    """The day type of each date that has one, from the timetable `directory_for` names."""
+    """The day type of each date that has one, from the timetable `directory_for` names.
+
+    A date whose timetable cannot be fetched or read is left out and logged, because
+    one bad copy must not stop the line files or the other 55 days.
+    """
     types = {}
     for day in days:
-        kind = day_type(directory_for(day), day)
+        try:
+            kind = day_type(directory_for(day), day)
+        except (Exception, SystemExit) as error:
+            reason = (str(error).splitlines() or [""])[0]
+            print(
+                f"  commute: {day} left out, its timetable could not be read: {type(error).__name__} {reason}"
+            )
+            continue
         if kind is None:
             print(f"  commute: {day} has no single day type in its timetable, left out")
         else:
