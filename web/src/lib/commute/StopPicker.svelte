@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { moveActive } from '../search.ts';
-	import { nearestStop, searchStops, type Stop } from './stops.ts';
+	import type { CommuteStop } from './file.ts';
+	import { nearestStop, searchStops } from './stops.ts';
 
-	let { stops, selected = $bindable() }: { stops: Stop[]; selected?: Stop } = $props();
+	let { stops, selected = $bindable() }: { stops: CommuteStop[]; selected?: CommuteStop } =
+		$props();
 
 	const uid = $props.id();
 	let query = $state('');
@@ -17,7 +19,7 @@
 	const noMatch = $derived(query.trim() !== '' && results.length === 0);
 	const optionId = (i: number) => `${uid}-option-${i}`;
 
-	function pick(stop: Stop) {
+	function pick(stop: CommuteStop) {
 		selected = stop;
 		phase = 'idle';
 		query = '';
@@ -109,7 +111,7 @@
 		hidden={!showList}
 		class="border-ink bg-paper font-sans border border-t-0"
 	>
-		{#each results as stop, i (stop.id)}
+		{#each results as stop, i (stop[0])}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<li
 				id={optionId(i)}
@@ -123,8 +125,8 @@
 					: 'border-l-transparent'}"
 			>
 				<span class="min-w-0">
-					<span class="data block font-semibold">{stop.name}</span>
-					<span class="caption text-ink-muted block">Stop {stop.id}</span>
+					<span class="data block font-semibold">{stop[1]}</span>
+					<span class="caption text-ink-muted block">Stop {stop[0]}</span>
 				</span>
 			</li>
 		{/each}
@@ -138,7 +140,7 @@
 		{:else if phase === 'locating'}
 			Finding the stop nearest you.
 		{:else if selected}
-			{phase === 'found' ? 'Nearest stop' : 'Chosen stop'}: {selected.name}, stop {selected.id}.
+			{phase === 'found' ? 'Nearest stop' : 'Chosen stop'}: {selected[1]}, stop {selected[0]}.
 		{:else if phase === 'none'}
 			We could not get your location. Type part of a stop name to search.
 		{/if}
