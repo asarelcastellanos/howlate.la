@@ -80,9 +80,9 @@
 			{/if}
 			<p class="mt-2">
 				<span class="font-bold tabular-nums">{report.coverage_pct}%</span> of scheduled stops
-				measured on that day.{#if report.estimated_pct > 0}
-					A further <span class="font-bold tabular-nums">{report.estimated_pct}%</span> were estimated
-					from where the bus was between two reports.{/if}
+				measured on that day. {#if report.estimated_pct > 0}A further
+					<span class="font-bold tabular-nums">{report.estimated_pct}%</span> were estimated from where
+					the bus was between two reports.{/if}
 			</p>
 		{:else}
 			<p class="mt-4">No report is saved for this day.</p>

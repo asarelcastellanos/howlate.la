@@ -248,7 +248,9 @@ describe('the status panel', () => {
 	});
 
 	test('the estimated share of the day shows beside the measured share, and only when there is one', () => {
-		const text = plain(show(ok(health([{ ...day('2026-11-15'), estimated_pct: 22.5 }]))));
+		const html = show(ok(health([{ ...day('2026-11-15'), estimated_pct: 22.5 }])));
+		const text = plain(html);
+		assert.match(html, /that day\. (<!--\[0-->)?A further/);
 		assert.ok(text.includes('81.1% of scheduled stops measured on that day.'));
 		assert.ok(
 			text.includes('A further 22.5% were estimated from where the bus was between two reports.')

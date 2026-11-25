@@ -4,6 +4,105 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## 0.5.2 - 2026-11-25
+
+Guards the egress bill, counts the bus stops the feed skipped, and adds a rail
+matcher that ships switched off. The pipeline now refuses to download the raw
+archive outside Google Cloud. Bus coverage rises by about 19 points because
+skipped stops are estimated. The rail share does not change, because the
+matcher missed its bar and stays off. All 98 graded days were regraded on
+2026-11-24.
+
+### Added
+
+- An egress guard. When `arrivals`, `backfill` or `daily` runs outside Google
+  Cloud and a raw file is missing from the cache, the pipeline exits before the
+  first download. It prints the file count, the gigabytes, the estimated cost at
+  $0.12 a GiB and the `backfill-vm.sh` command. `--allow-egress` on `arrivals`
+  and `backfill` overrides it, and `daily` has no flag. Inside Google Cloud it
+  downloads as before. Laptop runs from 2026-11-16 to 2026-11-18 cost $19.11 in
+  egress, which is why the guard exists (ADR-0001, #184).
+- A rule in `CLAUDE.md` that no session downloads the raw archive outside Google
+  Cloud, passes `--allow-egress`, or skips `pipeline/deploy/backfill-vm.sh`.
+- Script mode in `backfill-vm.sh`. `--script <path>` runs one analysis script
+  under `pipeline/` once per service day on the VM in place of `backfill`, and
+  copies each day's output to `gs://howlate-derived/logs/scripts/`. The read of
+  the archive is free on the VM. The script is checked before the VM is created
+  (#194).
+- Estimated skipped stops. A bus stop the feed never reported is timed from the
+  two reports of the same bus on either side, only when they are 300 seconds or
+  less apart, and its rows carry `source` `interpolated`. Hiding 3.1 million
+  stops that had a real report put 3.0 percent on the wrong side of the on-time
+  window at that limit and 11 to 23 percent past it. The site files carry `est`
+  beside `n`, `status.json` carries `estimated_arrivals`, and `health.json`
+  carries `estimated_pct` per day. The line, ranking, home, methods and
+  behind-the-scenes pages say how much of each figure is estimated (#182, #165).
+- A rail matcher in `railmatch.py`. It assigns a rail run to a trip from
+  direction, stops reached and time when the reported trip id fails, and its
+  rows carry `source` `matched`. It ships switched off (see Changed and
+  ADR-0002, #178, #203).
+- A `rail_misfit_pct` check in the daily report. A rail run is a misfit when
+  another trip on its route and direction fits its stop times within 60 seconds
+  and the reported trip is 300 seconds or more worse. The check is the highest
+  share on any line with 30 or more judged runs, and it fails above 10 percent
+  (#183).
+- A script that rebuilds each rail vehicle's run from positions, to find why the
+  trip ids disagree with the timetable (#200).
+- `advisory` on a check in `health.json`, and an "Advisory" mark on the
+  behind-the-scenes page, for a check that reports and does not fail the day.
+
+### Changed
+
+- The rail matcher is off. On 2026-11-18 and 2026-11-19 it agreed with the
+  reported id in fewer than 95 percent of confident fits on lines 801 (84.2 and
+  88.5 percent), 804 (91.6 percent on 11-18) and 807 (92.5 percent on 11-19), so
+  it missed the bar the owner set. `railmatch.ENABLED` is `False`, the grader
+  reads rail as before, and the 1,133 later-start rail trips stay ungraded
+  (#166). Turning it on needs a regrade of every day first (ADR-0002).
+- `rail_misfit_pct` is advisory while the matcher is off. It runs, prints and
+  saves, and a day whose only failing check is this one ends ok. It fails the
+  day again when the matcher is switched on. On 2026-11-13 line 801 reads 20.5
+  percent against the limit of 10, which is a fault of the reported ids and not
+  of the grader.
+- The daily job runs at 08:00 Pacific and grades one day back, because bus
+  service runs to 05:45 and a 05:00 run left 0.045 to 0.087 percent of timed
+  arrivals missing (#176, #164).
+- The README states the measured running cost, about $1.50 a month, from the
+  November 2026 billing report, and the $23.96 of one-time charges apart from it
+  (#193, #123).
+- The methods page says that on lines B and D the weekend timetable allowed no
+  more running time than a weekday and the median trip took about 6 minutes
+  longer, and that the cause is not known (#181).
+- A fix to the behind-the-scenes copy, which ran "that day." into "A further"
+  with no space.
+
+### Measured
+
+- Bus coverage over the 98 graded days is 72.28 percent measured and 90.91
+  percent with the estimates, a gain of 18.63 points pooled (#165).
+- All 98 graded days were regraded on 2026-11-24 from `release/v0.5.2`.
+
+### Decided
+
+- Trip updates (#167). Metro's public WebSocket sent no `trip_updates` messages
+  for bus or for rail on two attempts on 2026-11-24 while `vehicle_positions`
+  sent 7,404 messages for the same lines. v0.5.2 adds no collector task and
+  changes nothing under `collector/`.
+
+### Known gaps
+
+- The rail on-time share is about 64 percent against Metro's 99.4 percent, and
+  the gap is not explained. The matcher that might grade the later-start trips
+  is off.
+- With the matcher off, the published rail numbers do not change and 1,133 rail
+  trips on four days stay ungraded.
+- The running cost was measured from the top 10 of 49 billing rows, and the
+  month had not closed.
+
+### Not changed
+
+- The collector stays at 0.1.0, and the VM is not redeployed.
+
 ## 0.5.1 - 2026-11-17
 
 Launch fixes. Every line page now has its own title and link preview in the
