@@ -185,7 +185,7 @@ def commute_file(line, direction, kind, first, count, starts, ran, rng):
     gaps = SCHEDULED_GAPS[line][: len(stops)]
     offsets = [sum(gaps[: k + 1]) for k in range(len(stops))]
     patterns = []
-    for start, how_many in zip(starts, ran):
+    for start, how_many in zip(starts, ran, strict=True):
         day_indexes = list(range(count - how_many, count))
         columns = []
         for _ in day_indexes:
