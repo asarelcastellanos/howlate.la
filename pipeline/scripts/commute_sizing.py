@@ -23,6 +23,7 @@ import argparse
 import csv
 import gzip
 import json
+import math
 import re
 import resource
 import statistics
@@ -37,7 +38,6 @@ from howlate_pipeline.__main__ import Bucket  # noqa: E402
 
 WINDOW = 56
 DAY_TYPES = ["weekday", "saturday", "sunday"]
-BUSIEST = 3
 MEASURED = "r.source NOT IN ('none', 'interpolated')"
 
 
@@ -198,9 +198,17 @@ def stop_list(directory: Path) -> list[list]:
     ]
 
 
-def sized(payload) -> dict:
-    raw = json.dumps(payload, separators=(",", ":")).encode()
-    return {"raw_bytes": len(raw), "gzip_bytes": len(gzip.compress(raw))}
+ENCODINGS = {
+    "abs_1s": (1, "abs"),
+    "abs_10s": (10, "abs"),
+    "delta_stops_1s": (1, "delta"),
+    "delta_stops_10s": (10, "delta"),
+    "resid_median_1s": (1, "resid"),
+    "resid_median_10s": (10, "resid"),
+}
+LIMIT = 300_000
+BATCH_ROWS = 5_000_000
+DUCKDB_MEMORY = "3GB"
 
 
 def peak_bytes() -> int:
@@ -208,51 +216,89 @@ def peak_bytes() -> int:
     return peak if sys.platform == "darwin" else peak * 1024
 
 
-def layout_a(con, line: str) -> list:
-    cells: dict[tuple, list] = {}
+def sized(payload) -> dict:
+    raw = json.dumps(payload, separators=(",", ":")).encode()
+    return {
+        "raw": len(raw),
+        "gzip6": len(gzip.compress(raw, 6)),
+        "gzip9": len(gzip.compress(raw, 9)),
+    }
+
+
+def encode(unit: int, mode: str, grid: list[list]) -> tuple[list, list]:
+    """One pattern's grid, a row per stop and a column per day, as (bases, rows).
+
+    abs keeps each time in seconds after the pattern's start. delta subtracts,
+    for each day, the last time that day at an earlier stop, so a row is the ride
+    time from the stop before. resid subtracts the stop's median across days and
+    keeps that median as the base. Units of 10 seconds round before any subtraction.
+    """
+    rows = [[None if v is None else round(v / unit) for v in row] for row in grid]
+    if mode == "abs":
+        return [], rows
+    if mode == "delta":
+        previous = [0] * (len(rows[0]) if rows else 0)
+        out = []
+        for row in rows:
+            out.append([None if v is None else v - previous[j] for j, v in enumerate(row)])
+            previous = [previous[j] if v is None else v for j, v in enumerate(row)]
+        return [], out
+    bases = [statistics.median_low([v for v in row if v is not None]) for row in rows]
+    return bases, [
+        [None if v is None else v - base for v in row]
+        for base, row in zip(bases, rows, strict=True)
+    ]
+
+
+def file_sizes(rows: list) -> tuple[dict, int]:
+    """Sizes of one route file, per direction and day type, in every encoding."""
     stops: dict[str, int] = {}
-    for kind, direction, start, _seq, stop, n, quantiles in con.execute(
-        "SELECT daytype, direction_id, start_s, stop_sequence, stop_id, count(DISTINCT day_idx), "
-        "quantile_disc(delay_seconds, [0.1, 0.5, 0.9]) FROM m WHERE line = ? "
-        "GROUP BY ALL ORDER BY ALL",
-        [line],
-    ).fetchall():
+    patterns: dict[int, dict] = {}
+    for start, seq, stop, day, rel in rows:
         index = stops.setdefault(stop, len(stops))
-        cell = cells.setdefault((direction, DAY_TYPES.index(kind), start), [[], [], [], [], []])
-        cell[0].append(index)
-        cell[1].append(n)
-        for slot, value in enumerate(quantiles):
-            cell[2 + slot].append(value)
-    return [list(stops), [[*key, *value] for key, value in cells.items()]]
-
-
-def layout_b(con, line: str, days: list[str]) -> list:
-    patterns: dict[tuple, dict] = {}
-    stops: dict[str, int] = {}
-    for kind, direction, start, seq, stop, day, rel in con.execute(
-        "SELECT daytype, direction_id, start_s, stop_sequence, stop_id, day_idx, min(rel) "
-        "FROM m WHERE line = ? GROUP BY ALL ORDER BY ALL",
-        [line],
-    ).fetchall():
-        stops.setdefault(stop, len(stops))
-        pattern = patterns.setdefault(
-            (direction, DAY_TYPES.index(kind), start), {"cells": {}, "days": set()}
-        )
+        pattern = patterns.setdefault(start, {"days": set(), "cells": {}})
         pattern["days"].add(day)
-        pattern["cells"].setdefault((seq, stops[stop]), {})[day] = rel
-    packed = []
-    for key, pattern in patterns.items():
+        pattern["cells"].setdefault((seq, index), {})[day] = rel
+    prepared = []
+    for start, pattern in patterns.items():
         order = sorted(pattern["days"])
         cells = sorted(pattern["cells"].items())
-        packed.append(
-            [
-                *key,
-                order,
-                [stop for (_, stop), _ in cells],
-                [[values.get(day) for day in order] for _, values in cells],
-            ]
-        )
-    return [days, list(stops), packed]
+        grid = [[values.get(day) for day in order] for _, values in cells]
+        prepared.append((start, order, [index for (_, index), _ in cells], grid))
+    result = {}
+    for name, (unit, mode) in ENCODINGS.items():
+        packed = []
+        for start, order, ids, grid in prepared:
+            bases, matrix = encode(unit, mode, grid)
+            packed.append([start, order, ids, bases, matrix])
+        result[name] = sized([list(stops), packed])
+    return result, len(patterns)
+
+
+def quantile(values: list[int], share: float) -> int:
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
+
+
+def summarise(files: list[dict]) -> dict:
+    summary = {}
+    for name in ENCODINGS:
+        entry = {}
+        for metric in ("raw", "gzip6", "gzip9"):
+            values = [row["sizes"][name][metric] for row in files]
+            entry[metric] = {
+                "max": max(values),
+                "p95": quantile(values, 0.95),
+                "median": statistics.median(values),
+            }
+        entry["files_over_limit_gzip6"] = [
+            {k: row[k] for k in ("line", "direction", "day_type")}
+            | {"gzip6": row["sizes"][name]["gzip6"]}
+            for row in sorted(files, key=lambda row: -row["sizes"][name]["gzip6"])
+            if row["sizes"][name]["gzip6"] > LIMIT
+        ]
+        summary[name] = entry
+    return summary
 
 
 def run(service_date: str, cache: Path, out: Path, derived: Path | None, gtfs_dir: Path | None):
@@ -265,6 +311,7 @@ def run(service_date: str, cache: Path, out: Path, derived: Path | None, gtfs_di
     s1, day_type = settle_s1(days, found)
 
     con = arrivals.connect()
+    con.execute(f"SET memory_limit = '{DUCKDB_MEMORY}'")
     stage = time.perf_counter()
     con.execute(
         "CREATE TABLE days (day_idx INTEGER, service_date VARCHAR, base BIGINT, daytype VARCHAR)"
@@ -273,55 +320,79 @@ def run(service_date: str, cache: Path, out: Path, derived: Path | None, gtfs_di
         "INSERT INTO days VALUES (?, ?, ?, ?)",
         [(i, day, int(gtfs.day_base(day)), day_type[day]) for i, day in enumerate(days)],
     )
-    con.execute(
-        f"""
-        CREATE TABLE bus AS
-        SELECT d.day_idx, r.line, r.direction_id, r.trip_id, r.stop_id, r.stop_sequence,
-               CAST(epoch(r.scheduled_time) AS BIGINT) - d.base AS sched_off,
-               CAST(epoch(r.actual_time) AS BIGINT) - d.base AS act_off,
-               r.delay_seconds, {MEASURED} AS measured
-        FROM (
-            SELECT line, direction_id, trip_id, stop_id, stop_sequence, scheduled_time,
-                   actual_time, delay_seconds, source,
-                   regexp_replace(regexp_extract(filename, 'service_date=([0-9-]{{10}})', 1), '-', '', 'g') AS day
-            FROM read_parquet(?, filename = true, hive_partitioning = false)
-            WHERE agency = '{BUS_AGENCY}'
-        ) r JOIN days d ON d.service_date = r.day
-        """,
+    line_rows = con.execute(
+        "SELECT line, count(*) FROM read_parquet(?, hive_partitioning = false) "
+        f"WHERE agency = '{BUS_AGENCY}' GROUP BY line ORDER BY line",
         [files],
-    )
-    con.execute(
-        """
-        CREATE TABLE trips AS
-        SELECT day_idx, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL
-        """
-    )
-    con.execute(
-        """
-        CREATE TABLE m AS
-        SELECT b.day_idx, d.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id,
-               b.act_off - t.start_s AS rel, b.delay_seconds
-        FROM bus b JOIN trips t USING (day_idx, trip_id) JOIN days d USING (day_idx)
-        WHERE b.measured
-        """
-    )
-    bus_rows = con.execute("SELECT count(*) FROM bus").fetchone()[0]
-    con.execute("DROP TABLE bus")
-    measured_rows = con.execute("SELECT count(*) FROM m").fetchone()[0]
-    load = {
-        "seconds": round(time.perf_counter() - stage, 1),
-        "bus_rows": bus_rows,
-        "measured_rows": measured_rows,
-        "peak_bytes": peak_bytes(),
-    }
+    ).fetchall()
+    batches, current, total = [], [], 0
+    for line, count in line_rows:
+        if current and total + count > BATCH_ROWS:
+            batches.append(current)
+            current, total = [], 0
+        current.append(line)
+        total += count
+    if current:
+        batches.append(current)
 
-    stage = time.perf_counter()
-    per_route: dict[str, dict[str, int]] = {}
-    for kind, line, count in con.execute(
-        "SELECT daytype, line, count(*) FROM "
-        "(SELECT DISTINCT daytype, line, direction_id, start_s FROM m) GROUP BY ALL"
-    ).fetchall():
-        per_route.setdefault(kind, {})[line] = count
+    results, per_route, batch_log = [], {}, []
+    for batch in batches:
+        quoted = ", ".join("'" + line.replace("'", "''") + "'" for line in batch)
+        for table in ("bus", "m"):
+            con.execute(f"DROP TABLE IF EXISTS {table}")
+        con.execute(
+            f"""
+            CREATE TABLE bus AS
+            SELECT d.day_idx, r.line, r.direction_id, r.trip_id, r.stop_id, r.stop_sequence,
+                   CAST(epoch(r.scheduled_time) AS BIGINT) - d.base AS sched_off,
+                   CAST(epoch(r.actual_time) AS BIGINT) - d.base AS act_off,
+                   r.delay_seconds, {MEASURED} AS measured
+            FROM (
+                SELECT line, direction_id, trip_id, stop_id, stop_sequence, scheduled_time,
+                       actual_time, delay_seconds, source,
+                       regexp_replace(regexp_extract(filename, 'service_date=([0-9-]{{10}})', 1), '-', '', 'g') AS day
+                FROM read_parquet(?, filename = true, hive_partitioning = false)
+                WHERE agency = '{BUS_AGENCY}' AND line IN ({quoted})
+            ) r JOIN days d ON d.service_date = r.day
+            """,
+            [files],
+        )
+        con.execute(
+            """
+            CREATE TABLE m AS
+            SELECT b.day_idx, d.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence,
+                   b.stop_id, b.act_off - t.start_s AS rel
+            FROM bus b
+            JOIN (SELECT day_idx, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL) t
+              USING (day_idx, trip_id)
+            JOIN days d USING (day_idx)
+            WHERE b.measured
+            """
+        )
+        con.execute("DROP TABLE bus")
+        for line, direction, kind in con.execute(
+            "SELECT DISTINCT line, direction_id, daytype FROM m ORDER BY ALL"
+        ).fetchall():
+            rows = con.execute(
+                "SELECT start_s, stop_sequence, stop_id, day_idx, min(rel) FROM m "
+                "WHERE line = ? AND direction_id = ? AND daytype = ? GROUP BY ALL ORDER BY ALL",
+                [line, direction, kind],
+            ).fetchall()
+            sizes, count = file_sizes(rows)
+            per_route.setdefault(kind, {}).setdefault(line, 0)
+            per_route[kind][line] += count
+            results.append(
+                {
+                    "line": line,
+                    "direction": direction,
+                    "day_type": kind,
+                    "patterns": count,
+                    "cells": len(rows),
+                    "sizes": sizes,
+                }
+            )
+        batch_log.append({"lines": len(batch), "peak_bytes": peak_bytes()})
+
     patterns = {}
     for kind in DAY_TYPES:
         counts = per_route.get(kind, {})
@@ -330,54 +401,8 @@ def run(service_date: str, cache: Path, out: Path, derived: Path | None, gtfs_di
             "routes": len(counts),
             "per_route_median": statistics.median(counts.values()) if counts else None,
             "per_route_max": max(counts.values()) if counts else None,
-            "per_route_max_line": max(counts, key=counts.get) if counts else None,
         }
-    pattern_seconds = round(time.perf_counter() - stage, 1)
-
-    stage = time.perf_counter()
-    con.execute(
-        "CREATE TABLE group_a AS SELECT line, daytype, direction_id, start_s, stop_sequence, stop_id, "
-        "count(DISTINCT day_idx) AS n, quantile_disc(delay_seconds, [0.1, 0.5, 0.9]) AS q "
-        "FROM m GROUP BY ALL"
-    )
-    cells_a = con.execute("SELECT count(*) FROM group_a").fetchone()[0]
-    group_a = {
-        "seconds": round(time.perf_counter() - stage, 1),
-        "cells": cells_a,
-        "peak_bytes": peak_bytes(),
-    }
-    con.execute("DROP TABLE group_a")
-
-    stage = time.perf_counter()
-    con.execute(
-        "CREATE TABLE group_b AS SELECT line, daytype, direction_id, start_s, stop_sequence, stop_id, "
-        "list(rel ORDER BY day_idx) AS rels FROM "
-        "(SELECT line, daytype, direction_id, start_s, stop_sequence, stop_id, day_idx, min(rel) AS rel "
-        "FROM m GROUP BY ALL) GROUP BY ALL"
-    )
-    cells_b = con.execute("SELECT count(*) FROM group_b").fetchone()[0]
-    group_b = {
-        "seconds": round(time.perf_counter() - stage, 1),
-        "cells": cells_b,
-        "peak_bytes": peak_bytes(),
-    }
-
-    rows_by_route = con.execute(
-        "SELECT line, count(*) AS n FROM m GROUP BY line ORDER BY n DESC, line"
-    ).fetchall()
-    chosen = [
-        ("busiest_" + str(i + 1), rows_by_route[i]) for i in range(min(BUSIEST, len(rows_by_route)))
-    ]
-    if rows_by_route:
-        chosen.append(("median", rows_by_route[(len(rows_by_route) - 1) // 2]))
-    sizes = {}
-    for label, (line, rows) in chosen:
-        sizes[label] = {
-            "line": line,
-            "measured_rows": rows,
-            "layout_a_quantiles": sized(layout_a(con, line)),
-            "layout_b_each_day": sized(layout_b(con, line, days)),
-        }
+    elapsed = round(time.perf_counter() - stage, 1)
 
     stops = stop_list(directories[days[-1]])
     result = {
@@ -385,20 +410,20 @@ def run(service_date: str, cache: Path, out: Path, derived: Path | None, gtfs_di
         "first_day": days[0],
         "days": len(days),
         "s1": s1,
+        "lines": len(line_rows),
+        "files": len(results),
+        "limit_bytes": LIMIT,
         "patterns_per_day_type": patterns,
-        "routes_with_measured_rows": len(rows_by_route),
-        "sizes": sizes,
+        "summary": summarise(results),
         "stop_list": {"stops": len(stops), **sized(stops)},
-        "duckdb": {
+        "run": {
             "fetch_seconds": round(fetched, 1),
-            "load": load,
-            "pattern_count_seconds": pattern_seconds,
-            "group_layout_a_all_routes": group_a,
-            "group_layout_b_all_routes": group_b,
+            "build_seconds": elapsed,
+            "batches": batch_log,
             "peak_bytes_process": peak_bytes(),
-            "threads": con.execute("SELECT current_setting('threads')").fetchone()[0],
-            "memory_limit": con.execute("SELECT current_setting('memory_limit')").fetchone()[0],
+            "duckdb_memory_limit": DUCKDB_MEMORY,
         },
+        "per_file": results,
     }
     out.mkdir(parents=True, exist_ok=True)
     target = out / f"commute_sizing_{service_date}.json"
