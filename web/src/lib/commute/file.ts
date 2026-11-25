@@ -29,7 +29,8 @@ const isDayType = (v: unknown): v is DayType =>
 function decodePattern(raw: unknown, days: number, stops: number): Pattern | null {
 	if (!Array.isArray(raw) || raw.length !== 4) return null;
 	const [start, dayIndexes, stopIndexes, rows] = raw;
-	if (!isInt(start) || !ints(dayIndexes) || !ints(stopIndexes) || !Array.isArray(rows)) return null;
+	if (!isInt(start) || start < 0 || !ints(dayIndexes) || !ints(stopIndexes) || !Array.isArray(rows))
+		return null;
 	if (dayIndexes.some((d) => d < 0 || d >= days)) return null;
 	if (stopIndexes.some((s) => s < 0 || s >= stops)) return null;
 	if (rows.length !== stopIndexes.length) return null;
@@ -40,11 +41,14 @@ function decodePattern(raw: unknown, days: number, stops: number): Pattern | nul
 	return { start, dayIndexes, stopIndexes, rows };
 }
 
-export function decodeCommuteFile(body: unknown): CommuteFile | null {
+export type Wanted = { line: string; direction: number; dayType: DayType };
+
+export function decodeCommuteFile(body: unknown, wanted: Wanted): CommuteFile | null {
 	if (!isObj(body)) return null;
 	const { line, direction, day_type: dayType, days, stops, patterns } = body;
-	if (!isStr(line) || !isInt(direction) || !isDayType(dayType)) return null;
-	if (!Array.isArray(days) || !days.every(isStr)) return null;
+	if (line !== wanted.line || direction !== wanted.direction || dayType !== wanted.dayType)
+		return null;
+	if (!Array.isArray(days) || !days.every((d) => isStr(d) && /^\d{8}$/.test(d))) return null;
 	if (!Array.isArray(stops) || !stops.every(isStr)) return null;
 	if (!Array.isArray(patterns)) return null;
 	const decoded: Pattern[] = [];
@@ -53,7 +57,7 @@ export function decodeCommuteFile(body: unknown): CommuteFile | null {
 		if (!pattern) return null;
 		decoded.push(pattern);
 	}
-	return { line, direction, dayType, days, stops, patterns: decoded };
+	return { ...wanted, days, stops, patterns: decoded };
 }
 
 export type CommuteIndexEntry = {

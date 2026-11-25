@@ -32,7 +32,7 @@ const body = {
 	]
 };
 
-const file = decodeCommuteFile(body);
+const file = decodeCommuteFile(body, { line: '4', direction: 0, dayType: 'weekday' });
 assert.ok(file);
 
 test('C7: each ride time comes from one trip, never mixed across trips of a day', () => {
