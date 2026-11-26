@@ -1,4 +1,4 @@
-"""Check six real bus commutes three ways: C23 of docs/spec/v0.6.0.md.
+"""Check seven real bus commutes three ways: C23 of docs/spec/v0.6.0.md.
 
 Follows the contract for `backfill-vm.sh --script`:
 
@@ -56,6 +56,7 @@ COMMUTES = [
     Commute("60", 1, "weekday", "5585", "12702", 9 * 60 + 30),
     Commute("70", 0, "weekday", "15715", "665", 17 * 60 + 30),
     Commute("2", 1, "saturday", "4661", "16346", 12 * 60),
+    Commute("33", 1, "weekday", "140726", "15305", 9 * 60),
 ]
 
 
@@ -141,6 +142,18 @@ def column_times(pattern: dict, column: int) -> list[int | None]:
     return times
 
 
+def day_times(pattern: dict, a: int, b: int) -> list[tuple[int, int, int]]:
+    found: dict[int, tuple[int, int]] = {}
+    for column, day_index in enumerate(pattern["dayIndexes"]):
+        times = column_times(pattern, column)
+        if times[a] is None or times[b] is None:
+            continue
+        seen = found.get(day_index)
+        if seen is None or (times[a], times[b]) < seen:
+            found[day_index] = (times[a], times[b])
+    return [(d, x, y) for d, (x, y) in found.items()]
+
+
 def ride_times(file: dict, start: int, a_stop: str, b_stop: str) -> list[tuple[str, int]] | None:
     """rideTimes in ridetime.ts. None stands for each of its error results."""
     pattern = next((p for p in file["patterns"] if p["start"] == start), None)
@@ -153,14 +166,7 @@ def ride_times(file: dict, start: int, a_stop: str, b_stop: str) -> list[tuple[s
     if b_stop not in order[a + 1 :]:
         return None
     b = order.index(b_stop, a + 1)
-    data = []
-    for column, day_index in enumerate(pattern["dayIndexes"]):
-        times = column_times(pattern, column)
-        at_a, at_b = times[a], times[b]
-        if at_a is None or at_b is None:
-            continue
-        data.append((file["days"][day_index], (at_b - at_a) * UNIT))
-    return data
+    return [(file["days"][d], (y - x) * UNIT) for d, x, y in day_times(pattern, a, b)]
 
 
 def nearest_rank_90(values: list[float]) -> float:
@@ -193,12 +199,7 @@ def candidate(file: dict, pattern: dict, from_stop: str, to_stop: str) -> dict |
     if not ride:
         return None
     a, b = positions(file, pattern, from_stop, to_stop)
-    at_b = []
-    for column in range(len(pattern["dayIndexes"])):
-        times = column_times(pattern, column)
-        if times[a] is None or times[b] is None:
-            continue
-        at_b.append(times[b] * UNIT)
+    at_b = [y * UNIT for _, _, y in day_times(pattern, a, b)]
     scheduled_a = scheduled_offset(pattern, a)
     scheduled_b = scheduled_offset(pattern, b)
     lates = [t - scheduled_b for t in at_b]
@@ -223,12 +224,7 @@ def arrival_spread(file: dict, start: int, from_stop: str, to_stop: str) -> dict
     if found is None:
         return None
     a, b = found
-    arrives = []
-    for column in range(len(pattern["dayIndexes"])):
-        times = column_times(pattern, column)
-        if times[a] is None or times[b] is None:
-            continue
-        arrives.append(start + times[b] * UNIT)
+    arrives = [start + y * UNIT for _, _, y in day_times(pattern, a, b)]
     if not arrives:
         return None
     return {
@@ -271,6 +267,7 @@ def from_files(body: dict, start: int, from_stop: str, to_stop: str) -> dict:
     a = order.index(from_stop)
     b = order.index(to_stop, a + 1)
     rides, arrives, listed = [], [], []
+    per_day: dict[int, tuple[int, int]] = {}
     for column in range(len(day_indexes)):
         total, at = 0, {}
         for k, row in enumerate(rows):
@@ -278,9 +275,13 @@ def from_files(body: dict, start: int, from_stop: str, to_stop: str) -> dict:
                 total += row[column]
                 at[k] = total * UNIT
         if a in at and b in at:
-            rides.append(at[b] - at[a])
-            arrives.append(start + at[b])
-            listed.append(body["days"][day_indexes[column]])
+            seen = per_day.get(day_indexes[column])
+            if seen is None or (at[a], at[b]) < seen:
+                per_day[day_indexes[column]] = (at[a], at[b])
+    for day_index, (at_a, at_b) in per_day.items():
+        rides.append(at_b - at_a)
+        arrives.append(start + at_b)
+        listed.append(body["days"][day_index])
     return {
         "day_list": sorted(listed),
         "days": len(rides),
@@ -335,7 +336,9 @@ def from_rows(con, graded: Path, commute: Commute, days: list[str], start: int) 
             GROUP BY t.day, t.trip_id, t.start_s
         ),
         per_day AS (
-            SELECT day, min(rel_a) AS rel_a, min(rel_b) AS rel_b FROM trip GROUP BY day
+            SELECT day, arg_min(rel_a, (rel_a, rel_b)) AS rel_a,
+                   arg_min(rel_b, (rel_a, rel_b)) AS rel_b
+            FROM trip GROUP BY day
         )
         SELECT median(rel_b - rel_a),
                list_sort(list(? + rel_b))[CAST(ceil(0.9 * count(*)) AS BIGINT)],
