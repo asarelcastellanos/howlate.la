@@ -20,6 +20,10 @@ const pages: { path: string; ready: (page: Page) => Promise<void> }[] = [
 		path: '/ranking',
 		ready: (page) => expect(page.getByRole('table').first()).toBeVisible()
 	},
+	{
+		path: '/commute?line=720&dir=0&day=weekday&from=10001&to=10006&mode=arrive&time=09:00',
+		ready: (page) => expect(page.getByTestId('spread-chart').locator('svg')).toBeVisible()
+	},
 	{ path: '/methods', ready: (page) => expect(page.locator('h1')).toBeVisible() },
 	// The status panel loads in the browser, so wait for its strip. An axe run
 	// before that would test the loading line.

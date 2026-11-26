@@ -153,7 +153,7 @@ def build_timetable(
     T9_SERVICES. T9 has no stop_times, so it can never become a scheduled stop.
     """
     directory.mkdir(parents=True, exist_ok=True)
-    days = ["1"] * 7 if services else ["0"] * 7
+    days = ["0", "1", "0", "0", "0", "0", "0"] if services else ["0"] * 7
     calendar = [["WK", *days, "20260101", "20261231"]]
     removals = []
     trips = [

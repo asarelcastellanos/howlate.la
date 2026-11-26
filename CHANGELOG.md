@@ -4,6 +4,55 @@ Every release of HowLate, newest first. Versions follow
 [semantic versioning](https://semver.org). The plan for upcoming versions is in
 [docs/release-plan.md](docs/release-plan.md).
 
+## 0.6.0 - 2026-11-25
+
+Adds the commute tool. A bus rider opens howlate.la/commute, picks a line, two
+stops and a time, and reads which bus to catch, how long the ride takes and how
+late it usually runs. The answer comes from the last 56 days of measured
+arrivals, and a shared link shows the same answer. Rail is not covered.
+
+### Added
+
+- Commute files in the daily site build. `commute.py` keys each measured bus
+  trip by line, direction, day type and scheduled start, so trips from two
+  timetable versions form one departure pattern. It writes one file per line,
+  direction and day type, plus `commute/stops.json` and `commute/index.json`.
+  Times are rounded to 10 seconds. A file over 450,000 bytes gzipped fails the
+  day (#212, ADR-0003, ADR-0004).
+- Ride time between two stops, from the times at both stops on one trip and
+  one day (#216).
+- Stop search and nearest stop. "Use my location" asks only when pressed, the
+  position never leaves the browser, and the nearest stop must be within 5 km
+  (#217).
+- The `/commute` page. It answers in Leave at or Arrive by mode with a plain
+  sentence and a dot chart of the scheduled, 9-in-10 and deadline times. The
+  commute lives in the link (#224).
+- `pipeline/scripts/commute_check.py`, which checks seven real commutes three
+  ways on the backfill VM: from the arrival rows, from the commute files, and
+  through the page's arithmetic (#38).
+
+### Fixed
+
+- A stop renumbered by a new timetable version counts every day. Line 33 from
+  Venice / Figueroa to Venice / Redondo had 38 days in the arrival rows and 33
+  in the files. Each trip now has its own column, and the page takes stop A and
+  stop B from the same bus (#230, #229, #231, ADR-0005).
+
+### Measured
+
+- On the 56 days ending 2026-11-24, the build writes 632 commute files. The
+  largest is 408,614 bytes gzipped and the median 28,253.
+- Seven commutes agree three ways within 10 seconds. The 720 from Wilshire /
+  Vermont to Westwood, arriving by 9:00, rides 52 minutes, and 9 in 10 buses
+  arrive by 8:56.
+
+### Known limits
+
+- Holidays pick the day type by the calendar.
+- After midnight, the page uses the new day.
+- A date dropped by a transient timetable error leaves only a log line.
+- The 5 km nearest-stop cutoff is a first guess.
+
 ## 0.5.2 - 2026-11-25
 
 Guards the egress bill, counts the bus stops the feed skipped, and adds a rail

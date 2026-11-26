@@ -16,7 +16,8 @@ const REQUIRED = [
 	'ranking.html',
 	'methods.html',
 	'behind-the-scenes.html',
-	'design.html'
+	'design.html',
+	'commute.html'
 ];
 
 assert.ok(existsSync(BUILD), 'build/ is missing. Run `npm run build`, which runs this test.');

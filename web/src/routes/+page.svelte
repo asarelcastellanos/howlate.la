@@ -49,5 +49,6 @@
 			</div>
 		{/snippet}
 	</Remote>
-	<p class="mt-10"><a href={resolve('/methods')}>How HowLate measures delay</a></p>
+	<p class="mt-10"><a href={resolve('/commute')}>Plan a bus commute</a></p>
+	<p class="mt-4"><a href={resolve('/methods')}>How HowLate measures delay</a></p>
 </main>
