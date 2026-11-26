@@ -7,10 +7,12 @@ at each stop and not a spread. ADR-0004 gives the layout and the size limit.
 A departure pattern is a bus line, direction, day type and scheduled start. The
 start is the trip's first scheduled_time, in seconds after the service day's base
 instant (gtfs.day_base). Trips of two timetable versions that start at the same
-time on the same kind of day are one pattern, whatever their trip ids. A trip
-past midnight stays with the service day it started on, because the day comes
-from the arrivals row's service_date and never from a clock. Only measured bus
-rows count: source `none` and `interpolated` are left out, and rail is too.
+time on the same kind of day are one pattern, whatever their trip ids. When two
+trips of one day start at the same time, each gets its own column, so a ride
+time never joins two different trips. A trip past midnight stays with the
+service day it started on, because the day comes from the arrivals row's
+service_date and never from a clock. Only measured bus rows count: source `none`
+and `interpolated` are left out, and rail is too.
 
 The day type of a service date comes from the timetable in force that day. The
 bus services that run on it are read from calendar.txt and calendar_dates.txt,
@@ -33,9 +35,10 @@ Files, under the site run folder:
 
 `days` holds the service dates of that day type in the window, oldest first. In a
 pattern, `start` is whole seconds and `day_indexes` lists the entries of `days`
-the pattern ran on. `stop_indexes` lists the entries of `stops` the pattern
-serves, in stop_sequence order, and `rows` has one row per stop with one entry
-per day index, null where that day has no measured time at that stop.
+the pattern ran on, once for each trip it ran that day. `stop_indexes`
+lists the entries of `stops` the pattern serves, in scheduled order, and `rows`
+has one row per stop with one entry per day index, null where that day has no
+measured time at that stop.
 
 An entry is a number of 10 second units, as a whole number. It is the change from
 the same day's time at the last earlier stop that has one, and from the pattern's
@@ -43,6 +46,10 @@ start for the first. Each time is rounded to a unit before the change is taken,
 so a time is off by up to 5 seconds and a ride time by up to 10. To read a day's
 time at stop k, add the entries of that day's column down to row k, skipping
 nulls, and multiply by 10.
+
+A stop is one entry of `stop_indexes` per visit within a trip, so a stop that a
+timetable version numbers differently is still one entry, and a stop a trip
+passes twice is two. Entries run in order of scheduled offset, then stop_sequence.
 
 `scheduled` has one entry per entry of `stop_indexes`, in the same order. It is
 the timetable's time at that stop in seconds after the pattern's `start`, rounded
@@ -195,6 +202,9 @@ def load(
         CREATE TABLE bus AS
         SELECT d.service_date AS day, d.daytype, r.line, r.direction_id, r.trip_id, r.stop_id,
                r.stop_sequence,
+               row_number() OVER (
+                   PARTITION BY d.service_date, r.trip_id, r.stop_id ORDER BY r.stop_sequence
+               ) - 1 AS visit,
                CAST(epoch(r.scheduled_time) AS BIGINT) - d.base AS sched_off,
                CAST(epoch(r.actual_time) AS BIGINT) - d.base AS act_off,
                {MEASURED} AS measured
@@ -210,11 +220,18 @@ def load(
     con.execute(
         """
         CREATE TABLE m AS
-        SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id,
+        SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, t.lane, b.stop_sequence, b.stop_id, b.visit,
                b.act_off - t.start_s AS rel, b.sched_off - t.start_s AS sched_rel
         FROM bus b
-        JOIN (SELECT day, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL) t
-          USING (day, trip_id)
+        JOIN (
+            SELECT day, trip_id, start_s,
+                   dense_rank() OVER (PARTITION BY day, start_s ORDER BY stops, trip_id) - 1 AS lane
+            FROM (
+                SELECT day, trip_id, min(sched_off) AS start_s,
+                       md5(string_agg(stop_id || '#' || visit, ',' ORDER BY stop_sequence)) AS stops
+                FROM bus GROUP BY ALL
+            )
+        ) t USING (day, trip_id)
         WHERE b.measured
         """
     )
@@ -246,28 +263,34 @@ def route_file(
     own = {day: index for index, day in enumerate(days)}
     stops: dict[str, int] = {}
     found: dict[int, dict] = {}
-    for start, seq, stop, day, rel, sched in con.execute(
-        "SELECT start_s, stop_sequence, stop_id, day, min(rel), min(sched_rel) FROM m "
+    for start, seq, stop, visit, day, lane, rel, sched in con.execute(
+        "SELECT start_s, stop_sequence, stop_id, visit, day, lane, min(rel), min(sched_rel) FROM m "
         "WHERE line = ? AND direction_id = ? AND daytype = ? GROUP BY ALL ORDER BY ALL",
         [line, direction, kind],
     ).fetchall():
         index = stops.setdefault(stop, len(stops))
-        pattern = found.setdefault(start, {"days": set(), "cells": {}, "sched": {}})
-        pattern["days"].add(own[day])
-        key = (seq, index)
+        pattern = found.setdefault(start, {"days": set(), "cells": {}, "sched": {}, "first": {}})
+        pattern["days"].add((own[day], lane))
+        key = (index, visit)
         pattern["sched"][key] = min(sched, pattern["sched"].get(key, sched))
-        pattern["cells"].setdefault((seq, index), {})[own[day]] = rel
+        pattern["first"][key] = min(seq, pattern["first"].get(key, seq))
+        column = pattern["cells"].setdefault(key, {})
+        column[(own[day], lane)] = min(rel, column.get((own[day], lane), rel))
     packed = []
     for start, pattern in sorted(found.items()):
-        order = sorted(pattern["days"])
-        cells = sorted(pattern["cells"].items())
-        grid = [[values.get(day) for day in order] for _, values in cells]
+        columns = sorted(pattern["days"])
+        order = [day for day, _ in columns]
+        cells = sorted(
+            pattern["cells"].items(),
+            key=lambda item: (pattern["sched"][item[0]], pattern["first"][item[0]], item[0]),
+        )
+        grid = [[values.get(column) for column in columns] for _, values in cells]
         scheduled = encode([[pattern["sched"][key]] for key, _ in cells])
         packed.append(
             [
                 start,
                 order,
-                [index for (_, index), _ in cells],
+                [index for (index, _), _ in cells],
                 encode(grid),
                 [row[0] for row in scheduled],
             ]

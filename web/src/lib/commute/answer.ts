@@ -1,5 +1,5 @@
 import { UNIT, type CommuteFile, type DayType, type Pattern } from './file.ts';
-import { columnTimes, rideTimes } from './ridetime.ts';
+import { dayTimes, rideTimes } from './ridetime.ts';
 
 export const MIN_DAYS = 8;
 const NEAREST_RANK = 0.9;
@@ -94,12 +94,7 @@ export function arrivalSpread(
 	const a = order.indexOf(from);
 	const b = order.indexOf(to, a + 1);
 	if (a < 0 || b < 0) return null;
-	const arrivals: number[] = [];
-	pattern.dayIndexes.forEach((_, column) => {
-		const times = columnTimes(pattern, column);
-		if (times[a] === null || times[b] === null) return;
-		arrivals.push(start + (times[b] as number) * UNIT);
-	});
+	const arrivals = dayTimes(pattern, a, b).map(({ atB }) => start + atB * UNIT);
 	if (arrivals.length === 0) return null;
 	return {
 		scheduled: start + scheduledOffset(pattern, b),
@@ -121,14 +116,7 @@ function candidate(
 	const order = pattern.stopIndexes.map((i) => file.stops[i]);
 	const a = order.indexOf(from);
 	const b = order.indexOf(to, a + 1);
-	const atB: number[] = [];
-	pattern.dayIndexes.forEach((_, column) => {
-		const times = columnTimes(pattern, column);
-		const ta = times[a];
-		const tb = times[b];
-		if (ta === null || tb === null) return;
-		atB.push(tb * UNIT);
-	});
+	const atB = dayTimes(pattern, a, b).map((day) => day.atB * UNIT);
 	const scheduledA = scheduledOffset(pattern, a);
 	const scheduledB = scheduledOffset(pattern, b);
 	const lates = atB.map((t) => t - scheduledB);
