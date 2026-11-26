@@ -6,3 +6,4 @@
 | [0002](0002-match-rail-runs-by-position-when-the-id-fails.md) | Match rail runs by position when the id fails | Accepted |
 | [0003](0003-ship-commute-data-as-route-files-built-daily.md) | Ship commute data as route files built daily | Superseded by 0004 |
 | [0004](0004-split-commute-files-by-direction-and-day-type.md) | Split commute files by direction and day type | Accepted |
+| [0005](0005-key-commute-columns-by-stop-visit-and-trip-kind.md) | Key commute columns by stop visit and trip kind | Accepted |
