@@ -16,3 +16,16 @@ The cause of each review finding, one row per finding. A cause that repeats earn
 | 2026-11-24 | [#204](https://github.com/asarelcastellanos/howlate.la/issues/204) | a new state added without updating every place that shows the old ones | [#203](https://github.com/asarelcastellanos/howlate.la/pull/203) | |
 | 2026-11-24 | [#205](https://github.com/asarelcastellanos/howlate.la/issues/205) | docs not updated when a decision changed the behavior they describe | [#203](https://github.com/asarelcastellanos/howlate.la/pull/203) | |
 | 2026-11-24 | [#206](https://github.com/asarelcastellanos/howlate.la/issues/206) | a test that still passes with the behavior it names removed | [#203](https://github.com/asarelcastellanos/howlate.la/pull/203) | |
+| 2026-11-25 | [#213](https://github.com/asarelcastellanos/howlate.la/issues/213) | one bad input item stopping the whole run | [#212](https://github.com/asarelcastellanos/howlate.la/pull/212) | |
+| 2026-11-25 | [#214](https://github.com/asarelcastellanos/howlate.la/issues/214) | one bad input item stopping the whole run | [#212](https://github.com/asarelcastellanos/howlate.la/pull/212) | |
+| 2026-11-25 | [#215](https://github.com/asarelcastellanos/howlate.la/issues/215) | fetching data the step never uses | [#212](https://github.com/asarelcastellanos/howlate.la/pull/212) | |
+| 2026-11-25 | [#218](https://github.com/asarelcastellanos/howlate.la/issues/218) | a test that still passes with the behavior it names removed | [#216](https://github.com/asarelcastellanos/howlate.la/pull/216) | |
+| 2026-11-25 | [#219](https://github.com/asarelcastellanos/howlate.la/issues/219) | network data validated short of every field | [#216](https://github.com/asarelcastellanos/howlate.la/pull/216) | |
+| 2026-11-25 | [#220](https://github.com/asarelcastellanos/howlate.la/issues/220) | tests the spec does not name | [#217](https://github.com/asarelcastellanos/howlate.la/pull/217) | |
+| 2026-11-25 | [#221](https://github.com/asarelcastellanos/howlate.la/issues/221) | one message for several different failures | [#217](https://github.com/asarelcastellanos/howlate.la/pull/217) | |
+| 2026-11-25 | [#222](https://github.com/asarelcastellanos/howlate.la/issues/222) | a control that does not show its own state | [#217](https://github.com/asarelcastellanos/howlate.la/pull/217) | |
+| 2026-11-25 | [#223](https://github.com/asarelcastellanos/howlate.la/issues/223) | a control that does not show its own state | [#217](https://github.com/asarelcastellanos/howlate.la/pull/217) | |
+| 2026-11-25 | [#225](https://github.com/asarelcastellanos/howlate.la/issues/225) | a sentence built from numbers without checking their sign or rounding | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
+| 2026-11-25 | [#226](https://github.com/asarelcastellanos/howlate.la/issues/226) | a default that sends the owner's own example the wrong way | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
+| 2026-11-25 | [#227](https://github.com/asarelcastellanos/howlate.la/issues/227) | a control that does not show its own state | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
+| 2026-11-25 | [#228](https://github.com/asarelcastellanos/howlate.la/issues/228) | tests the spec does not name | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
