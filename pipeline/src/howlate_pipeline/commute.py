@@ -8,8 +8,8 @@ A departure pattern is a bus line, direction, day type and scheduled start. The
 start is the trip's first scheduled_time, in seconds after the service day's base
 instant (gtfs.day_base). Trips of two timetable versions that start at the same
 time on the same kind of day are one pattern, whatever their trip ids. When two
-trips of one day start at the same time, only the one with more measured rows is
-kept, so a day's column never mixes two trips and a ride time stays from one trip. A trip
+trips of one day start at the same time, each gets its own column, so a column
+never mixes two trips and a ride time stays from one trip. A trip
 past midnight stays with the service day it started on, because the day comes
 from the arrivals row's service_date and never from a clock. Only measured bus
 rows count: source `none` and `interpolated` are left out, and rail is too.
@@ -35,8 +35,8 @@ Files, under the site run folder:
 
 `days` holds the service dates of that day type in the window, oldest first. In a
 pattern, `start` is whole seconds and `day_indexes` lists the entries of `days`
-the pattern ran on. `stop_indexes` lists the entries of `stops` the pattern
-serves, in stop_sequence order, and `rows` has one row per stop with one entry
+the pattern ran on, once for each trip it ran that day. `stop_indexes` lists the
+entries of `stops` the pattern serves, in scheduled order, and `rows` has one row per stop with one entry
 per day index, null where that day has no measured time at that stop.
 
 An entry is a number of 10 second units, as a whole number. It is the change from
@@ -219,18 +219,13 @@ def load(
     con.execute(
         """
         CREATE TABLE m AS
-        SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id, b.visit,
+        SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, t.lane, b.stop_sequence, b.stop_id, b.visit,
                b.act_off - t.start_s AS rel, b.sched_off - t.start_s AS sched_rel
         FROM bus b
         JOIN (
-            SELECT day, trip_id, start_s FROM (
-                SELECT day, trip_id, min(sched_off) AS start_s,
-                       count(*) FILTER (WHERE measured) AS seen
-                FROM bus GROUP BY ALL
-            )
-            QUALIFY row_number() OVER (
-                PARTITION BY day, start_s ORDER BY seen DESC, trip_id
-            ) = 1
+            SELECT day, trip_id, start_s,
+                   row_number() OVER (PARTITION BY day, start_s ORDER BY trip_id) - 1 AS lane
+            FROM (SELECT day, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL)
         ) t USING (day, trip_id)
         WHERE b.measured
         """
@@ -263,27 +258,28 @@ def route_file(
     own = {day: index for index, day in enumerate(days)}
     stops: dict[str, int] = {}
     found: dict[int, dict] = {}
-    for start, seq, stop, visit, day, rel, sched in con.execute(
-        "SELECT start_s, stop_sequence, stop_id, visit, day, min(rel), min(sched_rel) FROM m "
+    for start, seq, stop, visit, day, lane, rel, sched in con.execute(
+        "SELECT start_s, stop_sequence, stop_id, visit, day, lane, min(rel), min(sched_rel) FROM m "
         "WHERE line = ? AND direction_id = ? AND daytype = ? GROUP BY ALL ORDER BY ALL",
         [line, direction, kind],
     ).fetchall():
         index = stops.setdefault(stop, len(stops))
         pattern = found.setdefault(start, {"days": set(), "cells": {}, "sched": {}, "first": {}})
-        pattern["days"].add(own[day])
+        pattern["days"].add((own[day], lane))
         key = (index, visit)
         pattern["sched"][key] = min(sched, pattern["sched"].get(key, sched))
         pattern["first"][key] = min(seq, pattern["first"].get(key, seq))
         column = pattern["cells"].setdefault(key, {})
-        column[own[day]] = min(rel, column.get(own[day], rel))
+        column[(own[day], lane)] = min(rel, column.get((own[day], lane), rel))
     packed = []
     for start, pattern in sorted(found.items()):
-        order = sorted(pattern["days"])
+        columns = sorted(pattern["days"])
+        order = [day for day, _ in columns]
         cells = sorted(
             pattern["cells"].items(),
             key=lambda item: (pattern["sched"][item[0]], pattern["first"][item[0]], item[0]),
         )
-        grid = [[values.get(day) for day in order] for _, values in cells]
+        grid = [[values.get(column) for column in columns] for _, values in cells]
         scheduled = encode([[pattern["sched"][key]] for key, _ in cells])
         packed.append(
             [
