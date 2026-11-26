@@ -29,3 +29,4 @@ The cause of each review finding, one row per finding. A cause that repeats earn
 | 2026-11-25 | [#226](https://github.com/asarelcastellanos/howlate.la/issues/226) | a default that sends the owner's own example the wrong way | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
 | 2026-11-25 | [#227](https://github.com/asarelcastellanos/howlate.la/issues/227) | a control that does not show its own state | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
 | 2026-11-25 | [#228](https://github.com/asarelcastellanos/howlate.la/issues/228) | tests the spec does not name | [#224](https://github.com/asarelcastellanos/howlate.la/pull/224) | |
+| 2026-11-25 | [#231](https://github.com/asarelcastellanos/howlate.la/issues/231) | values from two different records combined into one answer | [#230](https://github.com/asarelcastellanos/howlate.la/pull/230) | |
