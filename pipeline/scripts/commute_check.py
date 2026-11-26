@@ -53,9 +53,9 @@ COMMUTES = [
     Commute("720", 1, "weekday", "16769", "5208", 9 * 60),
     Commute("4", 1, "weekday", "16304", "14391", 10 * 60),
     Commute("2", 1, "weekday", "4661", "16346", 8 * 60 + 30),
-    Commute("33", 1, "weekday", "140726", "15305", 9 * 60),
+    Commute("60", 1, "weekday", "5585", "12702", 9 * 60 + 30),
     Commute("70", 0, "weekday", "15715", "665", 17 * 60 + 30),
-    Commute("33", 0, "saturday", "5630", "6963", 12 * 60),
+    Commute("2", 1, "saturday", "4661", "16346", 12 * 60),
 ]
 
 
@@ -270,7 +270,7 @@ def from_files(body: dict, start: int, from_stop: str, to_stop: str) -> dict:
     order = [body["stops"][i] for i in stop_indexes]
     a = order.index(from_stop)
     b = order.index(to_stop, a + 1)
-    rides, arrives = [], []
+    rides, arrives, listed = [], [], []
     for column in range(len(day_indexes)):
         total, at = 0, {}
         for k, row in enumerate(rows):
@@ -280,7 +280,9 @@ def from_files(body: dict, start: int, from_stop: str, to_stop: str) -> dict:
         if a in at and b in at:
             rides.append(at[b] - at[a])
             arrives.append(start + at[b])
+            listed.append(body["days"][day_indexes[column]])
     return {
+        "day_list": sorted(listed),
         "days": len(rides),
         "ride_seconds": median(rides),
         "nine_in_ten_seconds": nearest_rank_90(arrives),
@@ -294,7 +296,7 @@ def from_rows(con, graded: Path, commute: Commute, days: list[str], start: int) 
     con.executemany(
         "INSERT INTO check_days VALUES (?, ?)", [(day, int(gtfs.day_base(day))) for day in days]
     )
-    ride, arrive, count = con.execute(
+    ride, arrive, count, listed = con.execute(
         f"""
         WITH r AS (
             SELECT {DAY_SQL} AS day, trip_id, stop_id, stop_sequence,
@@ -337,7 +339,7 @@ def from_rows(con, graded: Path, commute: Commute, days: list[str], start: int) 
         )
         SELECT median(rel_b - rel_a),
                list_sort(list(? + rel_b))[CAST(ceil(0.9 * count(*)) AS BIGINT)],
-               count(*)
+               count(*), list_sort(list(day))
         FROM per_day
         """,
         [
@@ -350,7 +352,12 @@ def from_rows(con, graded: Path, commute: Commute, days: list[str], start: int) 
             start,
         ],
     ).fetchone()
-    return {"days": count, "ride_seconds": ride, "nine_in_ten_seconds": arrive}
+    return {
+        "day_list": listed,
+        "days": count,
+        "ride_seconds": ride,
+        "nine_in_ten_seconds": arrive,
+    }
 
 
 def clock(seconds: float) -> str:
@@ -382,6 +389,7 @@ def check_one(con, graded: Path, site: Path, names: dict, commute: Commute) -> d
     spread = arrival_spread(file, start, commute.from_stop, commute.to_stop)
     ride = ride_times(file, start, commute.from_stop, commute.to_stop)
     decoded = {
+        "day_list": sorted(day for day, _ in ride),
         "days": len(ride),
         "ride_seconds": median([seconds for _, seconds in ride]),
         "nine_in_ten_seconds": spread["nineInTen"],
@@ -464,6 +472,9 @@ def run(service_date: str, cache: Path, out: Path) -> int:
         )
         + "\n"
     )
+    for r in results:
+        if not r["pass"]:
+            print(json.dumps(r))
     return 0 if all(r["pass"] for r in results) else 1
 
 
