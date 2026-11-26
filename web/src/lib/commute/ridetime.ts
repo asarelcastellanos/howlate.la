@@ -23,10 +23,11 @@ export function columnTimes(pattern: Pattern, column: number): (number | null)[]
 	});
 }
 
-// A day appears once for each kind of trip the pattern ran that day, so a day with
-// two columns that both have a time at A and at B counts once, at its earliest time
-// at each stop. A column missing either stop counts for nothing, so A and B never
-// come from two different trips.
+// A day appears once for each column the pattern has that day, so a day with two
+// columns that both have a time at A and at B counts once. It takes the column
+// with the earliest time at A (the earlier time at B breaks a tie) and returns
+// that column's A and B together. A column missing either stop counts for
+// nothing, so A and B always come from one trip.
 export function dayTimes(
 	pattern: Pattern,
 	a: number,
@@ -39,11 +40,8 @@ export function dayTimes(
 		const atB = times[b];
 		if (atA === null || atB === null) return;
 		const seen = found.get(dayIndex);
-		found.set(dayIndex, {
-			dayIndex,
-			atA: seen ? Math.min(seen.atA, atA) : atA,
-			atB: seen ? Math.min(seen.atB, atB) : atB
-		});
+		if (seen && (seen.atA < atA || (seen.atA === atA && seen.atB <= atB))) return;
+		found.set(dayIndex, { dayIndex, atA, atB });
 	});
 	return [...found.values()];
 }
