@@ -4,8 +4,6 @@ date: 2026-11-26
 ---
 # 0005. Key commute columns by stop visit and trip
 
-Accepted by default, not reviewed by the owner.
-
 ## Context and problem statement
 
 `route_file` keyed each cell by `(stop_sequence, stop_id)`. A timetable version that renumbers stop_sequence made one stop two columns, and the page decoder's `order.indexOf` keeps only the first, so the days under the second column dropped out (#229). On the 56 days ending 2026-11-24, line 33 direction 1 weekday from Venice / Figueroa (140726) to Venice / Redondo (15305) had 38 days in the arrival rows and 33 in the files. Both stops had two columns in the 7:54 pattern (start 28440). The ride time differed by 16 seconds, over the 10 second tolerance of C23.
