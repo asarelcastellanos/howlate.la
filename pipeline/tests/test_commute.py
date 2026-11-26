@@ -136,3 +136,20 @@ def test_the_window_holds_the_56_days_ending_with_the_latest_graded_day(tmp_path
         "service_date=2026-09-29",
         "service_date=2026-11-23",
     ]
+
+
+def test_a_stop_renumbered_by_one_timetable_version_counts_every_day(tmp_path):
+    days = ["20261102", "20261103", "20261110", "20261111"]
+    for day in days:
+        early = day < "20261110"
+        extra = [("LACMTA", "720", 0, "T", "X", 2, 600, 660, "stopped_at")] if early else []
+        write_day(tmp_path, day, [
+            ("LACMTA", "720", 0, "T", "A", 1, 0, 30, "stopped_at"),
+            *extra,
+            ("LACMTA", "720", 0, "T", "B", 3 if early else 2, 1200, 1260, "stopped_at"),
+        ])  # fmt: skip
+    con = loaded(tmp_path, dict.fromkeys(days, "weekday"))
+    file = commute.route_file(con, "720", 0, "weekday", days)
+    _, _, stop_indexes, rows, _ = file["patterns"][0]
+    assert [file["stops"][i] for i in stop_indexes] == ["A", "X", "B"]
+    assert [value is None for value in rows[2]] == [False] * 4

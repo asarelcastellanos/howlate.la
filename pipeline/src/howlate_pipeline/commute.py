@@ -44,6 +44,10 @@ so a time is off by up to 5 seconds and a ride time by up to 10. To read a day's
 time at stop k, add the entries of that day's column down to row k, skipping
 nulls, and multiply by 10.
 
+A stop is one entry of `stop_indexes` per visit within a trip, so a stop that a
+timetable version numbers differently is still one entry, and a stop a trip
+passes twice is two. Entries run in order of scheduled offset, then stop_sequence.
+
 `scheduled` has one entry per entry of `stop_indexes`, in the same order. It is
 the timetable's time at that stop in seconds after the pattern's `start`, rounded
 to a unit and coded as the change from the stop before in the list, and from 0
@@ -195,6 +199,9 @@ def load(
         CREATE TABLE bus AS
         SELECT d.service_date AS day, d.daytype, r.line, r.direction_id, r.trip_id, r.stop_id,
                r.stop_sequence,
+               row_number() OVER (
+                   PARTITION BY d.service_date, r.trip_id, r.stop_id ORDER BY r.stop_sequence
+               ) - 1 AS visit,
                CAST(epoch(r.scheduled_time) AS BIGINT) - d.base AS sched_off,
                CAST(epoch(r.actual_time) AS BIGINT) - d.base AS act_off,
                {MEASURED} AS measured
@@ -210,7 +217,7 @@ def load(
     con.execute(
         """
         CREATE TABLE m AS
-        SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id,
+        SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id, b.visit,
                b.act_off - t.start_s AS rel, b.sched_off - t.start_s AS sched_rel
         FROM bus b
         JOIN (SELECT day, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL) t
@@ -246,28 +253,33 @@ def route_file(
     own = {day: index for index, day in enumerate(days)}
     stops: dict[str, int] = {}
     found: dict[int, dict] = {}
-    for start, seq, stop, day, rel, sched in con.execute(
-        "SELECT start_s, stop_sequence, stop_id, day, min(rel), min(sched_rel) FROM m "
+    for start, seq, stop, visit, day, rel, sched in con.execute(
+        "SELECT start_s, stop_sequence, stop_id, visit, day, min(rel), min(sched_rel) FROM m "
         "WHERE line = ? AND direction_id = ? AND daytype = ? GROUP BY ALL ORDER BY ALL",
         [line, direction, kind],
     ).fetchall():
         index = stops.setdefault(stop, len(stops))
-        pattern = found.setdefault(start, {"days": set(), "cells": {}, "sched": {}})
+        pattern = found.setdefault(start, {"days": set(), "cells": {}, "sched": {}, "first": {}})
         pattern["days"].add(own[day])
-        key = (seq, index)
+        key = (index, visit)
         pattern["sched"][key] = min(sched, pattern["sched"].get(key, sched))
-        pattern["cells"].setdefault((seq, index), {})[own[day]] = rel
+        pattern["first"][key] = min(seq, pattern["first"].get(key, seq))
+        column = pattern["cells"].setdefault(key, {})
+        column[own[day]] = min(rel, column.get(own[day], rel))
     packed = []
     for start, pattern in sorted(found.items()):
         order = sorted(pattern["days"])
-        cells = sorted(pattern["cells"].items())
+        cells = sorted(
+            pattern["cells"].items(),
+            key=lambda item: (pattern["sched"][item[0]], pattern["first"][item[0]], item[0]),
+        )
         grid = [[values.get(day) for day in order] for _, values in cells]
         scheduled = encode([[pattern["sched"][key]] for key, _ in cells])
         packed.append(
             [
                 start,
                 order,
-                [index for (_, index), _ in cells],
+                [index for (index, _), _ in cells],
                 encode(grid),
                 [row[0] for row in scheduled],
             ]
