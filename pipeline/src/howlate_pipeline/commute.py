@@ -8,8 +8,9 @@ A departure pattern is a bus line, direction, day type and scheduled start. The
 start is the trip's first scheduled_time, in seconds after the service day's base
 instant (gtfs.day_base). Trips of two timetable versions that start at the same
 time on the same kind of day are one pattern, whatever their trip ids. When two
-trips of one day start at the same time, each gets its own column, so a column
-never mixes two trips and a ride time stays from one trip. A trip
+trips of one day start at the same time and call at different stops, each kind
+gets its own column, so a ride time never joins two different trips. Trips that
+call at the same stops share one column and the earlier time at each stop is kept. A trip
 past midnight stays with the service day it started on, because the day comes
 from the arrivals row's service_date and never from a clock. Only measured bus
 rows count: source `none` and `interpolated` are left out, and rail is too.
@@ -35,7 +36,7 @@ Files, under the site run folder:
 
 `days` holds the service dates of that day type in the window, oldest first. In a
 pattern, `start` is whole seconds and `day_indexes` lists the entries of `days`
-the pattern ran on, once for each trip it ran that day. `stop_indexes` lists the
+the pattern ran on, once for each kind of trip it ran that day. `stop_indexes` lists the
 entries of `stops` the pattern serves, in scheduled order, and `rows` has one row per stop with one entry
 per day index, null where that day has no measured time at that stop.
 
@@ -224,8 +225,12 @@ def load(
         FROM bus b
         JOIN (
             SELECT day, trip_id, start_s,
-                   row_number() OVER (PARTITION BY day, start_s ORDER BY trip_id) - 1 AS lane
-            FROM (SELECT day, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL)
+                   dense_rank() OVER (PARTITION BY day, start_s ORDER BY stops) - 1 AS lane
+            FROM (
+                SELECT day, trip_id, min(sched_off) AS start_s,
+                       md5(string_agg(stop_id || '#' || visit, ',' ORDER BY stop_sequence)) AS stops
+                FROM bus GROUP BY ALL
+            )
         ) t USING (day, trip_id)
         WHERE b.measured
         """
