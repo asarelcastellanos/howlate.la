@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-11-26
 ---
-# 0005. Key commute columns by stop visit and trip kind
+# 0005. Key commute columns by stop visit and trip
 
 Accepted by default, not reviewed by the owner.
 
@@ -33,6 +33,6 @@ Keeping only the largest trip lost 32 of 33 days on line 720 at one start, becau
 ### Consequences
 
 * Good, because line 33 counts 38 days from the rows, the files and the decoder.
-* Good, because the stop columns of a pattern fall from 154 to 84 on line 33, which shrinks the files. The largest gzipped file on the 56 days ending 2026-11-24 is 408,614 bytes, under the 450,000 byte limit. That size was measured before each trip got its own column, so it needs measuring again.
+* Good, because the files stay under the 450,000 byte limit with a column per trip. The largest gzipped file on the 56 days ending 2026-11-24 is 408,614 bytes and the median is 28,253, measured on the VM at e5ef946 (run 20261126T011406Z).
 * Bad, because the stop order now follows the scheduled offset, and two stops at the same offset are ordered by their lowest stop_sequence.
 * Bad, because a decoder that reads one column per day index counts a repeated day twice.
