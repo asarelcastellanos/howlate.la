@@ -7,7 +7,9 @@ at each stop and not a spread. ADR-0004 gives the layout and the size limit.
 A departure pattern is a bus line, direction, day type and scheduled start. The
 start is the trip's first scheduled_time, in seconds after the service day's base
 instant (gtfs.day_base). Trips of two timetable versions that start at the same
-time on the same kind of day are one pattern, whatever their trip ids. A trip
+time on the same kind of day are one pattern, whatever their trip ids. When two
+trips of one day start at the same time, only the one with more measured rows is
+kept, so a day's column never mixes two trips and a ride time stays from one trip. A trip
 past midnight stays with the service day it started on, because the day comes
 from the arrivals row's service_date and never from a clock. Only measured bus
 rows count: source `none` and `interpolated` are left out, and rail is too.
@@ -220,8 +222,16 @@ def load(
         SELECT b.day, b.daytype, b.line, b.direction_id, t.start_s, b.stop_sequence, b.stop_id, b.visit,
                b.act_off - t.start_s AS rel, b.sched_off - t.start_s AS sched_rel
         FROM bus b
-        JOIN (SELECT day, trip_id, min(sched_off) AS start_s FROM bus GROUP BY ALL) t
-          USING (day, trip_id)
+        JOIN (
+            SELECT day, trip_id, start_s FROM (
+                SELECT day, trip_id, min(sched_off) AS start_s,
+                       count(*) FILTER (WHERE measured) AS seen
+                FROM bus GROUP BY ALL
+            )
+            QUALIFY row_number() OVER (
+                PARTITION BY day, start_s ORDER BY seen DESC, trip_id
+            ) = 1
+        ) t USING (day, trip_id)
         WHERE b.measured
         """
     )
