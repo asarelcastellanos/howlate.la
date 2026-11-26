@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 # Kept equal to the version in pyproject.toml, so a report says which release
 # wrote it. It does not tell two commits of one release apart; to grade a day
 # again, delete its report (see backfill.py).
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 # The bucket the collector writes to. Read-only from here.
 RAW_BUCKET = "howlate-raw"
